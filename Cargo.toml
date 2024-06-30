@@ -1,0 +1,17 @@
+[package]
+name = "bevy_flash"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+swf = { path = "../ruffle/swf" }
+bevy = { version = "0.13", default-features = false, features = [
+    "bevy_render",
+    "bevy_asset",
+    "bevy_sprite",
+] }
+thiserror = "1.0"
+
+
+[dev-dependencies]
+bevy = { version = "0.13" }
