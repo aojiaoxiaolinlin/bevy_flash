@@ -1,7 +1,3 @@
 {
-    "cSpell.words": [
-        "thiserror",
-        "Wgpu",
-        "Winit"
-    ]
+  "cSpell.words": ["bitflags", "thiserror", "Twips", "unqueue", "Wgpu", "Winit"]
 }

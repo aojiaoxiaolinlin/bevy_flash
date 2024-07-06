@@ -31,7 +31,8 @@ fn setup(
     mut flash_res: ResMut<Assets<FlashData>>,
     assert_server: Res<AssetServer>,
 ) {
-    let flash_data = FlashData::new_from_binary_data(assert_server.load("head.swf"));
+    // let flash_data = FlashData::new_from_binary_data(assert_server.load("head.swf"));
+    let flash_data = FlashData::new_from_binary_data(assert_server.load("spirit2471src.swf"));
     let flash_handle = flash_res.add(flash_data);
 
     commands.spawn(FlashBundle {
@@ -46,5 +47,3 @@ fn test_load() {
 
     app.add_systems(Startup, setup).run();
 }
-
-

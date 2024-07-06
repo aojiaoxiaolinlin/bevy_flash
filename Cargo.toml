@@ -5,13 +5,16 @@ edition = "2021"
 
 [dependencies]
 swf = { path = "../ruffle/swf" }
-bevy = { version = "0.13", default-features = false, features = [
+ruffle_render = { path = "../ruffle/render" }
+bevy = { version = "0.14", default-features = false, features = [
     "bevy_render",
     "bevy_asset",
     "bevy_sprite",
 ] }
 thiserror = "1.0"
-
+anyhow = "1.0"
+fnv = "1.0"
+bitflags = "2.5"
 
 [dev-dependencies]
-bevy = { version = "0.13" }
+bevy = { version = "0.14" }
