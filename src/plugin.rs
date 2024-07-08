@@ -20,10 +20,9 @@ impl Plugin for FlashPlugin {
 fn flash_enter_frame(flash_data: Res<Assets<FlashData>>, mut swf_movie: ResMut<Assets<SwfMovie>>) {
     flash_data.iter().for_each(|(_id, flash_data)| {
         if let Some(swf_movie) = swf_movie.get_mut(flash_data.swf_movie.id()) {
-            println!("swf_movie: {:?}", swf_movie.library.characters().len());
             swf_movie
                 .root_movie_clip
                 .enter_frame(&mut swf_movie.library);
         }
-    })
+    });
 }

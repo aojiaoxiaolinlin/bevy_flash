@@ -1,16 +1,16 @@
-use std::{collections::HashMap, f32::consts::E, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::anyhow;
 use swf::{
-    error::Error, extensions::ReadSwfExt, read::Reader, CharacterId, Depth, PlaceObject,
-    PlaceObjectAction, SwfStr, TagCode,
+    extensions::ReadSwfExt, read::Reader, CharacterId, Depth, PlaceObject, PlaceObjectAction,
+    SwfStr, TagCode,
 };
 
 use crate::flash_utils::{
     characters::Character,
     container::ChildContainer,
     library::MovieLibrary,
-    util::{self, ControlFlow, SwfMovie, SwfSlice},
+    tag_utils::{self, ControlFlow, Error, SwfMovie, SwfSlice},
 };
 
 use super::{graphic::Graphic, DisplayObjectBase, TDisplayObject};
@@ -65,8 +65,11 @@ impl MovieClip {
         }
     }
 
-    fn container_mut(&mut self) -> &mut ChildContainer {
+    pub fn container_mut(&mut self) -> &mut ChildContainer {
         &mut self.container
+    }
+    pub fn container(&self) -> &ChildContainer {
+        &self.container
     }
 
     pub fn parse_swf(&mut self, library: &mut MovieLibrary) {
@@ -86,7 +89,8 @@ impl MovieClip {
             }?;
             Ok(ControlFlow::Continue)
         };
-        let _ = util::decode_tags(&mut reader, tag_callback);
+        // let _ = util::decode_tags(&mut reader, tag_callback);
+        let _ = tag_utils::decode_tags(&mut reader, tag_callback);
     }
     #[inline]
     fn define_shape(
@@ -141,7 +145,6 @@ impl MovieClip {
 
     pub fn run_frame_internal(&mut self, library: &mut MovieLibrary, is_action_script_3: bool) {
         let swf_slice = self.swf_slice.clone();
-
         let mut reader = swf_slice.read_from(self.tag_stream_pos);
 
         let tag_callback = |reader: &mut Reader<'_>, tag_code, tag_len| {
@@ -159,18 +162,10 @@ impl MovieClip {
                 TagCode::PlaceObject4 if !is_action_script_3 => {
                     self.place_object(library, reader, 4)
                 }
-                TagCode::PlaceObject if is_action_script_3 => {
-                    self.queue_place_object(library, reader, 1)
-                }
-                TagCode::PlaceObject2 if is_action_script_3 => {
-                    self.queue_place_object(library, reader, 2)
-                }
-                TagCode::PlaceObject3 if is_action_script_3 => {
-                    self.queue_place_object(library, reader, 3)
-                }
-                TagCode::PlaceObject4 if is_action_script_3 => {
-                    self.queue_place_object(library, reader, 4)
-                }
+                TagCode::PlaceObject if is_action_script_3 => self.queue_place_object(reader, 1),
+                TagCode::PlaceObject2 if is_action_script_3 => self.queue_place_object(reader, 2),
+                TagCode::PlaceObject3 if is_action_script_3 => self.queue_place_object(reader, 3),
+                TagCode::PlaceObject4 if is_action_script_3 => self.queue_place_object(reader, 4),
                 // TagCode::RemoveObject => self.remove_object(reader),
                 // TagCode::RemoveObject2 => self.remove_object2(reader),
                 TagCode::ShowFrame => return Ok(ControlFlow::Exit),
@@ -179,17 +174,12 @@ impl MovieClip {
             Ok(ControlFlow::Continue)
         };
 
-        let _ = util::decode_tags(&mut reader, tag_callback);
+        let _ = tag_utils::decode_tags(&mut reader, tag_callback);
         let tag_stream_start = self.swf_slice.as_ref().as_ptr() as u64;
         self.tag_stream_pos = reader.get_ref().as_ptr() as u64 - tag_stream_start;
     }
 
-    fn place_object(
-        &mut self,
-        library: &mut MovieLibrary,
-        reader: &mut Reader<'_>,
-        version: u8,
-    ) -> Result<(), Error> {
+    fn queue_place_object(&mut self, reader: &mut Reader<'_>, version: u8) -> Result<(), Error> {
         let tag_start = reader.get_ref().as_ptr() as u64 - self.swf_slice.as_ref().as_ptr() as u64;
         let place_object = if version == 1 {
             reader.read_place_object()
@@ -209,7 +199,7 @@ impl MovieClip {
         Ok(())
     }
 
-    fn queue_place_object(
+    fn place_object(
         &mut self,
         library: &mut MovieLibrary,
         reader: &mut Reader<'_>,
@@ -309,7 +299,6 @@ impl MovieClip {
 impl TDisplayObject for MovieClip {
     fn enter_frame(&mut self, library: &mut MovieLibrary) {
         let swf_slice = self.swf_slice.clone();
-
         for child in self
             .container_mut()
             .render_list_mut()
@@ -320,7 +309,7 @@ impl TDisplayObject for MovieClip {
             child.write().unwrap().enter_frame(library);
         }
 
-        if self.swf_slice.movie().is_action_script_3() {
+        if self.swf_slice.movie.is_action_script_3() {
             self.run_frame_internal(library, true);
 
             let place_actions = self.unqueue_adds();

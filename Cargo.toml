@@ -18,3 +18,7 @@ bitflags = "2.5"
 
 [dev-dependencies]
 bevy = { version = "0.14" }
+
+
+[profile.dev]
+opt-level = 1

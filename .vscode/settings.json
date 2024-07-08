@@ -1,3 +1,12 @@
 {
-  "cSpell.words": ["bitflags", "thiserror", "Twips", "unqueue", "Wgpu", "Winit"]
+  "cSpell.words": [
+    "bitflags",
+    "pval",
+    "subslice",
+    "thiserror",
+    "Twips",
+    "unqueue",
+    "Wgpu",
+    "Winit"
+  ]
 }

@@ -2,9 +2,10 @@ use std::sync::{Arc, RwLock};
 
 use swf::{CharacterId, Rectangle, Twips};
 
-use crate::flash_utils::util::SwfMovie;
+use crate::flash_utils::tag_utils::SwfMovie;
 
 use super::TDisplayObject;
+
 struct Frame {
     // shape_handle: Option<ShapeHandle>,
     shape: swf::Shape,

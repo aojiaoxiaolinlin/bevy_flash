@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     ops::Bound,
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc, RwLock, RwLockWriteGuard},
 };
 
 use swf::Depth;
@@ -61,6 +61,7 @@ impl ChildContainer {
                 })
             {
                 // 目前好像不会执行这个分支，先留着
+                dbg!("目前好像不会执行这个分支，先留着");
                 self.insert_id(position + 1, child);
                 None
             } else {
@@ -75,13 +76,16 @@ impl ChildContainer {
                 .map(|(_, v)| v.clone())
                 .next();
             if let Some(above_child) = above {
-                if let Some(position) = self
-                    .render_list
-                    .clone()
-                    .read()
-                    .unwrap()
-                    .iter()
-                    .position(|x| x.read().unwrap().depth() == above_child.read().unwrap().depth())
+                if let Some(position) =
+                    self.render_list
+                        .clone()
+                        .read()
+                        .unwrap()
+                        .iter()
+                        .position(|x| {
+                            x.read().unwrap().character_id()
+                                == above_child.read().unwrap().character_id()
+                        })
                 {
                     self.insert_id(position, child);
                     None

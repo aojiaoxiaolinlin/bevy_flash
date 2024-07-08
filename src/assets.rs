@@ -25,6 +25,11 @@ pub struct SwfMovie {
     pub library: MovieLibrary,
     pub root_movie_clip: MovieClip,
 }
+impl SwfMovie {
+    pub fn root_movie_clip(&mut self) -> &mut MovieClip {
+        &mut self.root_movie_clip
+    }
+}
 #[derive(Default)]
 pub(crate) struct SwfLoader;
 
@@ -42,15 +47,8 @@ impl AssetLoader for SwfLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut swf_data = Vec::new();
         reader.read_to_end(&mut swf_data).await?;
-        let compressed_len = swf_data.len();
-        let swf_buf = swf::read::decompress_swf(&swf_data[..])?;
-        let encoding = swf::SwfStr::encoding_for_version(swf_buf.header.version());
-        let swf_movie = Arc::new(crate::flash_utils::util::SwfMovie {
-            header: swf_buf.header,
-            data: swf_buf.data,
-            encoding,
-            compressed_len,
-        });
+        let swf_movie =
+            Arc::new(crate::flash_utils::tag_utils::SwfMovie::from_data(&swf_data[..]).unwrap());
         let mut root_movie_clip: MovieClip = MovieClip::new(swf_movie.clone());
         let mut library = MovieLibrary::new();
         root_movie_clip.parse_swf(&mut library);
@@ -64,6 +62,12 @@ impl AssetLoader for SwfLoader {
     fn extensions(&self) -> &[&str] {
         &["swf"]
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FlashRunFrameStatus {
+    Running,
+    Stop,
 }
 
 #[derive(Asset, TypePath)]
