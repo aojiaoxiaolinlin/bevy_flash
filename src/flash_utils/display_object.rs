@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bitflags::bitflags;
 use morph_shape::MorphShape;
 use ruffle_render::{
@@ -9,7 +11,7 @@ use ruffle_render::{
 };
 use swf::{CharacterId, Color, ColorTransform, Depth, Point};
 
-use super::library::MovieLibrary;
+use super::{library::MovieLibrary, tag_utils::SwfMovie};
 pub mod graphic;
 pub mod morph_shape;
 pub mod movie_clip;
@@ -179,19 +181,30 @@ impl DisplayObjectBase {
         changed
     }
     fn set_filters(&mut self, filters: Vec<Filter>) -> bool {
-        // if filters != self.filters {
-        //     self.filters = filters;
-        //     self.recheck_cache_as_bitmap();
-        //     true
-        // } else {
-        //     false
-        // }
-        true
+        if filters != self.filters {
+            self.filters = filters;
+            self.recheck_cache_as_bitmap();
+            true
+        } else {
+            false
+        }
     }
+
     fn set_bitmap_cached_preference(&mut self, value: bool) {
         self.flags.set(DisplayObjectFlags::CACHE_AS_BITMAP, value);
         self.recheck_cache_as_bitmap();
     }
+
+    fn set_skip_next_enter_frame(&mut self, skip: bool) {
+        self.flags
+            .set(DisplayObjectFlags::SKIP_NEXT_ENTER_FRAME, skip);
+    }
+
+    fn should_skip_next_enter_frame(&self) -> bool {
+        self.flags
+            .contains(DisplayObjectFlags::SKIP_NEXT_ENTER_FRAME)
+    }
+
     fn recheck_cache_as_bitmap(&mut self) {
         // let should_cache = self.is_bitmap_cached_preference() || !self.filters.is_empty();
         // if should_cache && self.cache.is_none() {
@@ -211,6 +224,7 @@ impl DisplayObjectBase {
 pub trait TDisplayObject: Send + Sync {
     fn base(&self) -> &DisplayObjectBase;
     fn base_mut(&mut self) -> &mut DisplayObjectBase;
+    fn movie(&self) -> Arc<SwfMovie>;
 
     fn character_id(&self) -> CharacterId;
 
@@ -218,42 +232,65 @@ pub trait TDisplayObject: Send + Sync {
         self.base().depth
     }
 
+    fn place_frame(&self) -> u16 {
+        self.base().place_frame
+    }
+
     fn enter_frame(&mut self, _library: &mut MovieLibrary) {}
+
+    fn version(&self) -> u8 {
+        self.movie().version()
+    }
+
+    fn replace_with(&self, _id: CharacterId) {
+        // Noop for most symbols; only shapes can replace their innards with another Graphic.
+    }
 
     fn set_name(&mut self, name: Option<String>) {
         self.base_mut().name = name;
     }
+
     fn set_depth(&mut self, depth: Depth) {
         self.base_mut().depth = depth;
     }
+
     fn set_clip_depth(&mut self, depth: Depth) {
         self.base_mut().clip_depth = depth;
     }
+
     fn set_place_frame(&mut self, frame: u16) {
         self.base_mut().place_frame = frame;
     }
+
     fn set_matrix(&mut self, matrix: Matrix) {
         self.base_mut().transform.matrix = matrix;
     }
+
     fn set_color_transform(&mut self, color_transform: ColorTransform) {
         self.base_mut().transform.color_transform = color_transform.into();
     }
+
     fn set_blend_mode(&mut self, blend_mode: ExtendedBlendMode) {
         self.base_mut().set_blend_mode(blend_mode);
     }
+
     fn set_visible(&mut self, visible: bool) {
         self.base_mut().set_visible(visible);
     }
+
     fn set_opaque_background(&mut self, color: Option<Color>) {
         self.base_mut().set_opaque_background(color);
     }
+
     fn set_filters(&mut self, filters: Vec<Filter>) {
         self.base_mut().set_filters(filters);
     }
+
     fn set_bitmap_cached_preference(&mut self, value: bool) {
         self.base_mut().set_bitmap_cached_preference(value);
     }
-    fn apply_place_object(&mut self, place_object: &swf::PlaceObject, version: u8) {
+
+    fn apply_place_object(&mut self, place_object: &swf::PlaceObject) {
         if let Some(matrix) = place_object.matrix {
             self.set_matrix(matrix.into());
         }
@@ -266,12 +303,13 @@ pub trait TDisplayObject: Send + Sync {
             }
         }
         if let Some(is_bitmap_cached) = place_object.is_bitmap_cached {
+            dbg!("place object 3 才有的属性");
             self.set_bitmap_cached_preference(is_bitmap_cached);
         }
         if let Some(blend_mode) = place_object.blend_mode {
             self.set_blend_mode(blend_mode.into());
         }
-        if version >= 11 {
+        if self.version() >= 11 {
             if let Some(visible) = place_object.is_visible {
                 self.set_visible(visible);
             }

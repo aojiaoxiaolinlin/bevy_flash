@@ -42,4 +42,8 @@ impl TDisplayObject for MorphShape {
     fn character_id(&self) -> CharacterId {
         todo!()
     }
+
+    fn movie(&self) -> Arc<SwfMovie> {
+        self.movie.clone()
+    }
 }

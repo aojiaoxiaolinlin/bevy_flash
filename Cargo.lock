@@ -565,6 +565,7 @@ dependencies = [
  "bitflags 2.6.0",
  "fnv",
  "ruffle_render",
+ "smallvec",
  "swf",
  "thiserror",
 ]

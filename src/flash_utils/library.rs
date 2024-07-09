@@ -4,6 +4,7 @@ use swf::CharacterId;
 
 use super::characters::Character;
 
+#[derive(Clone)]
 pub struct MovieLibrary {
     characters: HashMap<CharacterId, Character>,
     pub instance_count: u16,

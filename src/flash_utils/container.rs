@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     ops::Bound,
-    sync::{Arc, RwLock, RwLockWriteGuard},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use swf::Depth;
@@ -25,11 +25,18 @@ impl ChildContainer {
         self.render_list.write().unwrap().insert(id, child);
     }
 
-    pub fn render_list_mut(&mut self) -> Arc<RwLock<Vec<Arc<RwLock<Box<dyn TDisplayObject>>>>>> {
+    pub fn render_list(&self) -> Arc<RwLock<Vec<Arc<RwLock<Box<dyn TDisplayObject>>>>>> {
         self.render_list.clone()
     }
     pub fn render_list_write(&self) -> RwLockWriteGuard<Vec<Arc<RwLock<Box<dyn TDisplayObject>>>>> {
         self.render_list.write().unwrap()
+    }
+    pub fn render_list_read(&self) -> RwLockReadGuard<Vec<Arc<RwLock<Box<dyn TDisplayObject>>>>> {
+        self.render_list.read().unwrap()
+    }
+
+    pub fn get_depth(&self, depth: Depth) -> Option<Arc<RwLock<Box<dyn TDisplayObject>>>> {
+        self.depth_list.get(&depth).cloned()
     }
 
     fn insert_child_into_depth_list(
@@ -45,9 +52,8 @@ impl ChildContainer {
     pub fn replace_at_depth(
         &mut self,
         depth: Depth,
-        child: Box<dyn TDisplayObject>,
+        child: Arc<RwLock<Box<dyn TDisplayObject>>>,
     ) -> Option<Box<dyn TDisplayObject>> {
-        let child = Arc::new(RwLock::new(child));
         let old_child = self.insert_child_into_depth_list(depth, child.clone());
         if let Some(old_child) = old_child {
             if let Some(position) = self
@@ -97,6 +103,21 @@ impl ChildContainer {
                 self.render_list_write().push(child);
                 None
             }
+        }
+    }
+
+    pub fn remove_child_from_depth_list(
+        &mut self,
+        child: Arc<RwLock<Box<dyn TDisplayObject>>>,
+    ) -> bool {
+        if let Some(other_child) = self.depth_list.get(&child.read().unwrap().depth()) {
+            Arc::ptr_eq(other_child, &child)
+                && self
+                    .depth_list
+                    .remove(&child.read().unwrap().depth())
+                    .is_some()
+        } else {
+            false
         }
     }
 }
