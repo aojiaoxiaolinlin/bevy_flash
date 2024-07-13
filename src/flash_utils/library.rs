@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use swf::CharacterId;
 
-use super::characters::Character;
+use super::{characters::Character, display_object::graphic::Graphic};
 
 #[derive(Clone)]
 pub struct MovieLibrary {
@@ -29,5 +29,13 @@ impl MovieLibrary {
     }
     pub fn characters(&self) -> &HashMap<CharacterId, Character> {
         &self.characters
+    }
+
+    pub fn get_graphic(&self, id: CharacterId) -> Option<Graphic> {
+        if let Some(Character::Graphic(graphic)) = self.characters.get(&id).clone() {
+            Some(graphic.clone())
+        } else {
+            None
+        }
     }
 }

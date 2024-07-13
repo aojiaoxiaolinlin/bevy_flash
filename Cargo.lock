@@ -564,6 +564,7 @@ dependencies = [
  "bevy",
  "bitflags 2.6.0",
  "fnv",
+ "ruffle_macros",
  "ruffle_render",
  "smallvec",
  "swf",
@@ -3285,6 +3286,14 @@ dependencies = [
  "bitflags 2.6.0",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "ruffle_macros"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn 2.0.68",
 ]
 
 [[package]]

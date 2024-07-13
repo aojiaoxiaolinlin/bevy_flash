@@ -2,27 +2,27 @@ use std::sync::Arc;
 
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
-use crate::flash_utils::tag_utils::SwfMovie;
+use crate::flash_utils::{library::MovieLibrary, tag_utils::SwfMovie};
 
 use super::{DisplayObjectBase, TDisplayObject};
 
 #[derive(Clone)]
 pub struct Graphic {
-    base: DisplayObjectBase,
-    id: CharacterId,
+    pub id: CharacterId,
     shape: Shape,
     bounds: Rectangle<Twips>,
-    movie: Arc<SwfMovie>,
+    base: DisplayObjectBase,
+    swf_movie: Arc<SwfMovie>,
 }
 
 impl Graphic {
-    pub fn from_swf_tag(shape: Shape, movie: Arc<SwfMovie>) -> Self {
+    pub fn from_swf_tag(shape: Shape, swf_movie: Arc<SwfMovie>) -> Self {
         Self {
-            base: DisplayObjectBase::default(),
             id: shape.id,
             bounds: shape.shape_bounds.clone(),
             shape,
-            movie,
+            base: DisplayObjectBase::default(),
+            swf_movie,
         }
     }
 }
@@ -41,6 +41,17 @@ impl TDisplayObject for Graphic {
     }
 
     fn movie(&self) -> Arc<SwfMovie> {
-        self.movie.clone()
+        self.swf_movie.clone()
+    }
+
+    fn replace_with(&mut self, id: CharacterId, library: &mut MovieLibrary) {
+        if let Some(new_graphic) = library.get_graphic(id) {
+            self.id = new_graphic.id;
+            self.shape = new_graphic.shape;
+            self.bounds = new_graphic.bounds;
+            self.base = new_graphic.base;
+        } else {
+            dbg!("PlaceObject: expected Graphic at character ID {}", id);
+        }
     }
 }
