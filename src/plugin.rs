@@ -1,6 +1,12 @@
 use crate::assets::{FlashData, SwfLoader, SwfMovie};
 use crate::flash_utils::display_object::TDisplayObject;
+use crate::flash_utils::render::commands::DrawFlashCommand;
+use crate::flash_utils::render::FlashPipeline;
+use bevy::app::App;
+use bevy::core_pipeline::core_2d::Transparent2d;
 use bevy::prelude::Resource;
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::RenderApp;
 use bevy::time::{Time, Timer, TimerMode};
 use bevy::{
     app::{Plugin, Update},
@@ -14,7 +20,7 @@ struct PlayerTimer(Timer);
 pub struct FlashPlugin;
 
 impl Plugin for FlashPlugin {
-    fn build(&self, app: &mut bevy::prelude::App) {
+    fn build(&self, app: &mut App) {
         app.init_asset::<FlashData>()
             .init_asset::<SwfMovie>()
             .init_asset_loader::<SwfLoader>()
@@ -23,6 +29,16 @@ impl Plugin for FlashPlugin {
                 TimerMode::Repeating,
             )))
             .add_systems(Update, flash_enter_frame);
+
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app.add_render_command::<Transparent2d, DrawFlashCommand>();
+        }
+    }
+
+    fn finish(&self, app: &mut App) {
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app.init_resource::<FlashPipeline>();
+        }
     }
 }
 

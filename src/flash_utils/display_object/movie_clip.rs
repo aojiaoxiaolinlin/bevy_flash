@@ -214,7 +214,6 @@ impl MovieClip {
             }
         }
         let data = self.swf.clone();
-        dbg!(self.tag_stream_pos);
         let mut reader = data.read_from(self.tag_stream_pos);
         let tag_callback = |reader: &mut SwfStream<'_>, tag_code, _tag_len| {
             match tag_code {

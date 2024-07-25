@@ -1,12 +1,17 @@
 {
   "cSpell.words": [
     "bitflags",
+    "lifetimeless",
+    "multisampled",
     "pval",
+    "repr",
     "subslice",
     "thiserror",
+    "tonemapping",
     "Twips",
     "unqueue",
     "Wgpu",
+    "wgsl",
     "Winit"
   ]
 }

@@ -1,6 +1,6 @@
 mod characters;
 mod container;
-pub mod display_object;
-pub mod library;
-mod render;
-pub mod tag_utils;
+pub(crate) mod display_object;
+pub(crate) mod library;
+pub(crate) mod render;
+pub(crate) mod tag_utils;

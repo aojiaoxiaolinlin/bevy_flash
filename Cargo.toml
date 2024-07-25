@@ -7,12 +7,14 @@ edition = "2021"
 swf = { path = "../ruffle/swf" }
 
 ruffle_render = { path = "../ruffle/render" }
+ruffle_render_wgpu = { path = "../ruffle/render/wgpu" }
 ruffle_macros = { path = "../ruffle/core/macros" }
 
 bevy = { version = "0.14", default-features = false, features = [
     "bevy_render",
     "bevy_asset",
     "bevy_sprite",
+    "bevy_core_pipeline",
 ] }
 
 thiserror = "1.0"
@@ -20,6 +22,8 @@ anyhow = "1.0"
 fnv = "1.0"
 bitflags = "2.5"
 smallvec = { version = "1.13.2", features = ["union"] }
+wgpu = { version = "0.20", default-features = false }
+
 
 [dev-dependencies]
 bevy = { version = "0.14" }
