@@ -7,7 +7,7 @@ use swf::{
     extensions::ReadSwfExt, read::Reader, CharacterId, Depth, PlaceObjectAction, SwfStr, TagCode,
 };
 
-use crate::flash_utils::{
+use crate::swf::{
     characters::Character,
     container::{ChildContainer, RenderIter},
     library::MovieLibrary,

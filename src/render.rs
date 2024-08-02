@@ -13,25 +13,16 @@ use bevy::{
     },
 };
 use ruffle_render_wgpu::Transforms;
-pub const TRIANGLE_HANDLE: Handle<Shader> = Handle::weak_from_u128(12344032791831516511);
+/// 使用UUID指定,SWF着色器Handle
+pub const SWF_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(251354789657743035148351631714426867038);
 
 pub(crate) mod commands;
-
-fn load_shaders(app: &mut App) {
-    load_internal_asset!(
-        app,
-        TRIANGLE_HANDLE,
-        "shaders/test_shader.wgsl",
-        Shader::from_wgsl
-    );
-}
 
 pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {
-    fn build(&self, app: &mut App) {
-        load_shaders(app);
-    }
+    fn build(&self, app: &mut App) {}
 }
 #[derive(Resource)]
 pub struct FlashPipeline {

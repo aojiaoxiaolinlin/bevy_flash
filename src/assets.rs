@@ -6,7 +6,7 @@ use bevy::{
 };
 use thiserror::Error;
 
-use crate::flash_utils::{display_object::movie_clip::MovieClip, library::MovieLibrary};
+use crate::swf::{display_object::movie_clip::MovieClip, library::MovieLibrary};
 
 #[derive(Error, Debug)]
 pub enum FlashLoadError {
@@ -48,7 +48,7 @@ impl AssetLoader for SwfLoader {
         let mut swf_data = Vec::new();
         reader.read_to_end(&mut swf_data).await?;
         let swf_movie =
-            Arc::new(crate::flash_utils::tag_utils::SwfMovie::from_data(&swf_data[..]).unwrap());
+            Arc::new(crate::swf::tag_utils::SwfMovie::from_data(&swf_data[..]).unwrap());
         let mut root_movie_clip: MovieClip = MovieClip::new(swf_movie.clone());
         let mut library = MovieLibrary::new();
         root_movie_clip.parse_swf(&mut library);

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
-use crate::flash_utils::{library::MovieLibrary, tag_utils::SwfMovie};
+use crate::swf::{library::MovieLibrary, tag_utils::SwfMovie};
 
 use super::{DisplayObjectBase, TDisplayObject};
 

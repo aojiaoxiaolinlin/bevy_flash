@@ -7,6 +7,7 @@ use bevy::{
 
 use crate::assets::FlashData;
 
+// TODO: 临时Bundle，后续会根据需求进行调整
 #[derive(Bundle, Default)]
 pub struct FlashBundle {
     pub flash: Handle<FlashData>,

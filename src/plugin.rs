@@ -1,12 +1,14 @@
 use crate::assets::{FlashData, SwfLoader, SwfMovie};
-use crate::flash_utils::display_object::TDisplayObject;
-use crate::flash_utils::render::commands::DrawFlashCommand;
-use crate::flash_utils::render::FlashPipeline;
+use crate::swf::display_object::TDisplayObject;
 use bevy::app::App;
+use bevy::asset::Handle;
 use bevy::core_pipeline::core_2d::Transparent2d;
-use bevy::prelude::Resource;
+use bevy::prelude::{
+    Commands, GlobalTransform, InheritedVisibility, Query, Resource, ViewVisibility,
+};
 use bevy::render::render_phase::AddRenderCommand;
-use bevy::render::RenderApp;
+use bevy::render::view::RenderLayers;
+use bevy::render::{Extract, ExtractSchedule, RenderApp};
 use bevy::time::{Time, Timer, TimerMode};
 use bevy::{
     app::{Plugin, Update},
@@ -29,15 +31,11 @@ impl Plugin for FlashPlugin {
                 TimerMode::Repeating,
             )))
             .add_systems(Update, flash_enter_frame);
-
-        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app.add_render_command::<Transparent2d, DrawFlashCommand>();
-        }
     }
 
     fn finish(&self, app: &mut App) {
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app.init_resource::<FlashPipeline>();
+            todo!();
         }
     }
 }
@@ -57,4 +55,20 @@ fn flash_enter_frame(
             }
         });
     }
+}
+
+fn extract_flash(
+    mut command: Commands,
+    query_flash: Extract<
+        Query<(
+            &Handle<SwfMovie>,
+            &GlobalTransform,
+            Option<&RenderLayers>,
+            &ViewVisibility,
+            &InheritedVisibility,
+        )>,
+    >,
+    swf_movie: Extract<Res<Assets<SwfMovie>>>,
+) {
+    todo!();
 }
