@@ -1,7 +1,7 @@
-use crate::{assets::FlashData, flash_bundle::FlashBundle, plugin::FlashPlugin};
+use crate::{assets::SwfMovie, bundle::SwfBundle, plugin::FlashPlugin};
 use bevy::{
     app::{App, Startup},
-    asset::{AssetServer, Assets},
+    asset::{AssetServer, Assets, Handle},
     prelude::{default, Commands, PluginGroup, Res, ResMut},
     render::{settings::WgpuSettings, RenderPlugin},
     winit::WinitPlugin,
@@ -26,17 +26,9 @@ pub fn test_app() -> App {
     ));
     app
 }
-fn setup(
-    mut commands: Commands,
-    mut flash_res: ResMut<Assets<FlashData>>,
-    assert_server: Res<AssetServer>,
-) {
-    // let flash_data = FlashData::new_from_binary_data(assert_server.load("head.swf"));
-    let flash_data = FlashData::new_from_binary_data(assert_server.load("spirit2471src.swf"));
-    let flash_handle = flash_res.add(flash_data);
-
-    commands.spawn(FlashBundle {
-        flash: flash_handle,
+fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
+    commands.spawn(SwfBundle {
+        swf: assert_server.load("head.swf"),
         ..Default::default()
     });
 }

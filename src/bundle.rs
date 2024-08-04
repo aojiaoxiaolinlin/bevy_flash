@@ -5,12 +5,12 @@ use bevy::{
     transform::components::{GlobalTransform, Transform},
 };
 
-use crate::assets::FlashData;
+use crate::assets::SwfMovie;
 
 // TODO: 临时Bundle，后续会根据需求进行调整
 #[derive(Bundle, Default)]
-pub struct FlashBundle {
-    pub flash: Handle<FlashData>,
+pub struct SwfBundle {
+    pub swf: Handle<SwfMovie>,
     pub transform: Transform,
     pub global_transform: GlobalTransform,
     pub visibility: Visibility,

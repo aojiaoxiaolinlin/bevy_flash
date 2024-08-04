@@ -1,5 +1,5 @@
 pub mod assets;
-pub mod flash_bundle;
+pub mod bundle;
 pub mod plugin;
 pub(crate) mod render;
 pub mod swf;

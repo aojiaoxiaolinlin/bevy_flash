@@ -1,10 +1,10 @@
 use bevy::{
     app::{App, Startup},
-    asset::{AssetServer, Assets},
-    prelude::{Commands, Res, ResMut},
+    asset::AssetServer,
+    prelude::{Commands, Res},
     DefaultPlugins,
 };
-use bevy_flash::{assets::FlashData, flash_bundle::FlashBundle, plugin::FlashPlugin};
+use bevy_flash::{bundle::SwfBundle, plugin::FlashPlugin};
 
 fn main() {
     App::new()
@@ -13,18 +13,10 @@ fn main() {
         .run();
 }
 
-fn setup(
-    mut commands: Commands,
-    mut flash_res: ResMut<Assets<FlashData>>,
-    assert_server: Res<AssetServer>,
-) {
-    let flash_data = FlashData::new_from_binary_data(assert_server.load("head.swf"));
-    // let flash_data = FlashData::new_from_binary_data(assert_server.load("head-animation.swf"));
-    // let flash_data = FlashData::new_from_binary_data(assert_server.load("spirit2471src.swf"));
-    let flash_handle = flash_res.add(flash_data);
-
-    commands.spawn(FlashBundle {
-        flash: flash_handle,
+fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
+    commands.spawn(SwfBundle {
+        // swf: assert_server.load("head.swf"),
+        swf: assert_server.load("spirit2471src.swf"),
         ..Default::default()
     });
 }

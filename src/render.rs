@@ -1,6 +1,6 @@
 use bevy::{
     app::{App, Plugin},
-    asset::{load_internal_asset, Handle},
+    asset::Handle,
     core_pipeline::tonemapping::get_lut_bind_group_layout_entries,
     prelude::{FromWorld, Resource},
     render::{
@@ -118,7 +118,6 @@ impl FromWorld for FlashPipeline {
                 },
             ],
         );
-
         let blend = render_device.create_bind_group_layout(
             Some("Blend bind group layout"),
             &[

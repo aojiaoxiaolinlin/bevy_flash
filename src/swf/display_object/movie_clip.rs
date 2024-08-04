@@ -207,10 +207,10 @@ impl MovieClip {
             NextFrame::Next => {}
             NextFrame::First => {
                 self.current_frame = 1;
-                dbg!("first frame");
+                // dbg!("first frame");
             }
             NextFrame::Same => {
-                dbg!("same frame");
+                // dbg!("same frame");
             }
         }
         let data = self.swf.clone();
@@ -328,7 +328,7 @@ impl MovieClip {
                     child.set_clip_depth(clip_depth);
                 }
                 // child.post_instantiation(library);
-                self.replace_at_depth(place_object.depth, child.clone());
+                self.replace_at_depth(depth, child.clone());
                 Some(child)
             }
             Err(e) => {

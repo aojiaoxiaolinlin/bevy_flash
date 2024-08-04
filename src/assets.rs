@@ -6,30 +6,14 @@ use bevy::{
 };
 use thiserror::Error;
 
-use crate::swf::{display_object::movie_clip::MovieClip, library::MovieLibrary};
+use crate::swf::{display_object::movie_clip::MovieClip, library::MovieLibrary, tag_utils};
 
-#[derive(Error, Debug)]
-pub enum FlashLoadError {
-    #[error("加载文件:{0}")]
-    IOError(#[from] std::io::Error),
-    #[error("无法读取SWF: {0}")]
-    InvalidSwf(#[from] swf::error::Error),
-}
-#[derive(Error, Debug)]
-pub enum FlashParseError {
-    #[error("无法读取SWF: {0}")]
-    InvalidSwf(#[from] swf::error::Error),
-}
 #[derive(Asset, TypePath)]
 pub struct SwfMovie {
     pub library: MovieLibrary,
     pub root_movie_clip: MovieClip,
 }
-impl SwfMovie {
-    pub fn root_movie_clip(&mut self) -> &mut MovieClip {
-        &mut self.root_movie_clip
-    }
-}
+impl SwfMovie {}
 #[derive(Default)]
 pub(crate) struct SwfLoader;
 
@@ -38,7 +22,7 @@ impl AssetLoader for SwfLoader {
 
     type Settings = ();
 
-    type Error = FlashLoadError;
+    type Error = tag_utils::Error;
     async fn load<'a>(
         &'a self,
         reader: &'a mut Reader<'_>,
@@ -47,8 +31,7 @@ impl AssetLoader for SwfLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut swf_data = Vec::new();
         reader.read_to_end(&mut swf_data).await?;
-        let swf_movie =
-            Arc::new(crate::swf::tag_utils::SwfMovie::from_data(&swf_data[..]).unwrap());
+        let swf_movie = Arc::new(tag_utils::SwfMovie::from_data(&swf_data[..])?);
         let mut root_movie_clip: MovieClip = MovieClip::new(swf_movie.clone());
         let mut library = MovieLibrary::new();
         root_movie_clip.parse_swf(&mut library);
@@ -68,15 +51,4 @@ impl AssetLoader for SwfLoader {
 pub enum FlashRunFrameStatus {
     Running,
     Stop,
-}
-
-#[derive(Asset, TypePath)]
-pub struct FlashData {
-    pub swf_movie: Handle<SwfMovie>,
-}
-
-impl FlashData {
-    pub fn new_from_binary_data(swf_movie: Handle<SwfMovie>) -> Self {
-        Self { swf_movie }
-    }
 }
