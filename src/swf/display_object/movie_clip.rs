@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::anyhow;
+use bevy::log::{debug, error, info, warn};
 use bitflags::bitflags;
 
 use swf::{
@@ -323,6 +324,7 @@ impl MovieClip {
                         name.to_str_lossy(SwfStr::encoding_for_version(self.swf.version()))
                             .into_owned(),
                     ));
+                    info!("Instantiated named child: {:?}", name);
                 }
                 if let Some(clip_depth) = place_object.clip_depth {
                     child.set_clip_depth(clip_depth);
@@ -331,10 +333,7 @@ impl MovieClip {
                 self.replace_at_depth(depth, child.clone());
                 Some(child)
             }
-            Err(e) => {
-                dbg!(e);
-                None
-            }
+            Err(_e) => None,
         }
     }
 
@@ -459,6 +458,11 @@ impl TDisplayObject for MovieClip {
 
     fn movie(&self) -> Arc<SwfMovie> {
         self.swf.movie.clone()
+    }
+
+    fn render_self(&self) {
+        // 渲染自己
+        // 渲染子元素
     }
 }
 

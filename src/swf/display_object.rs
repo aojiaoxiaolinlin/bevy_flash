@@ -467,6 +467,8 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
 
     fn replace_with(&mut self, _id: CharacterId, _library: &mut MovieLibrary) {}
 
+    fn render_self(&self) {}
+
     fn as_morph_shape(&mut self) -> Option<MorphShape> {
         None
     }

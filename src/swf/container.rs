@@ -65,7 +65,6 @@ impl ChildContainer {
                     .iter()
                     .position(|x| x.character_id() == above_child.character_id())
                 {
-                    dbg!(position);
                     self.insert_id(position, child);
                 } else {
                     self.render_list_mut().push(child)

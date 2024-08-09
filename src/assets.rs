@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use bevy::{
-    asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, Handle, LoadContext},
+    asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
     reflect::TypePath,
 };
-use thiserror::Error;
 
 use crate::swf::{display_object::movie_clip::MovieClip, library::MovieLibrary, tag_utils};
 
