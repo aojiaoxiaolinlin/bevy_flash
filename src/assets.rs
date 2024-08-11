@@ -4,15 +4,32 @@ use bevy::{
     asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
     reflect::TypePath,
 };
+use ruffle_render::tessellator::ShapeTessellator;
 
-use crate::swf::{display_object::movie_clip::MovieClip, library::MovieLibrary, tag_utils};
+use crate::swf::{
+    characters::Character, display_object::movie_clip::MovieClip, library::MovieLibrary, tag_utils,
+};
 
 #[derive(Asset, TypePath)]
 pub struct SwfMovie {
     pub library: MovieLibrary,
     pub root_movie_clip: MovieClip,
 }
-impl SwfMovie {}
+
+impl SwfMovie {
+    pub fn register_shape(library: &mut MovieLibrary) {
+        library
+            .characters_mut()
+            .iter_mut()
+            .for_each(|(_, character)| match character {
+                Character::Graphic(graphic) => {
+                    let shape_tessellator = ShapeTessellator::new();
+                }
+                _ => {}
+            });
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct SwfLoader;
 
@@ -34,7 +51,7 @@ impl AssetLoader for SwfLoader {
         let mut root_movie_clip: MovieClip = MovieClip::new(swf_movie.clone());
         let mut library = MovieLibrary::new();
         root_movie_clip.parse_swf(&mut library);
-
+        SwfMovie::register_shape(&mut library);
         Ok(SwfMovie {
             library,
             root_movie_clip,

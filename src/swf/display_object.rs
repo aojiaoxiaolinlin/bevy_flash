@@ -225,7 +225,7 @@ impl Default for DisplayObjectBase {
     }
 }
 impl DisplayObjectBase {
-    fn transform(&self) -> &Transform {
+    pub fn transform(&self) -> &Transform {
         &self.transform
     }
 
@@ -465,9 +465,13 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
 
     fn enter_frame(&mut self, _library: &mut MovieLibrary) {}
 
+    fn render(&self, transform: Transform) {
+        render_base((self.clone()).into(), transform);
+    }
+
     fn replace_with(&mut self, _id: CharacterId, _library: &mut MovieLibrary) {}
 
-    fn render_self(&self) {}
+    fn render_self(&mut self, _transform: Transform) {}
 
     fn as_morph_shape(&mut self) -> Option<MorphShape> {
         None
@@ -515,4 +519,14 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
             self.set_filters(filters.iter().map(Filter::from).collect())
         }
     }
+}
+
+pub(crate) fn render_base(mut this: DisplayObject, transform: Transform) {
+    let cur_transform = this.base().transform();
+    let matrix = cur_transform.matrix * transform.matrix;
+    let color_transform = cur_transform.color_transform * transform.color_transform;
+    this.render_self(Transform {
+        matrix,
+        color_transform,
+    });
 }

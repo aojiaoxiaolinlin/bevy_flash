@@ -16,8 +16,8 @@ fn main() {
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
-        swf: assert_server.load("head.swf"),
-        // swf: assert_server.load("spirit2471src.swf"),
+        // swf: assert_server.load("head.swf"),
+        swf: assert_server.load("spirit2471src.swf"),
         ..Default::default()
     });
 }

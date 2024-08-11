@@ -30,6 +30,9 @@ impl MovieLibrary {
     pub fn characters(&self) -> &HashMap<CharacterId, Character> {
         &self.characters
     }
+    pub fn characters_mut(&mut self) -> &mut HashMap<CharacterId, Character> {
+        &mut self.characters
+    }
 
     pub fn get_graphic(&self, id: CharacterId) -> Option<Graphic> {
         if let Some(Character::Graphic(graphic)) = self.characters.get(&id).clone() {

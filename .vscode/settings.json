@@ -6,6 +6,7 @@
     "pval",
     "repr",
     "subslice",
+    "Tessellator",
     "thiserror",
     "tonemapping",
     "Twips",

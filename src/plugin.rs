@@ -1,10 +1,9 @@
 use crate::assets::{SwfLoader, SwfMovie};
-use crate::bundle::SwfSprite;
 use crate::render::FlashRenderPlugin;
 use crate::swf::display_object::TDisplayObject;
 use bevy::app::{App, PostUpdate};
 use bevy::asset::Handle;
-use bevy::prelude::{IntoSystemConfigs, Query, Resource, With};
+use bevy::prelude::{Query, Resource, With};
 use bevy::render::view::{check_visibility, VisibilitySystems};
 use bevy::time::{Time, Timer, TimerMode};
 use bevy::{
@@ -28,11 +27,7 @@ impl Plugin for FlashPlugin {
                 24.0 / 1000.0,
                 TimerMode::Repeating,
             )))
-            .add_systems(Update, enter_frame)
-            .add_systems(
-                PostUpdate,
-                check_visibility::<With<SwfSprite>>.in_set(VisibilitySystems::CheckVisibility),
-            );
+            .add_systems(Update, enter_frame);
     }
 }
 
@@ -47,15 +42,6 @@ fn enter_frame(
             swf_movie
                 .root_movie_clip
                 .enter_frame(&mut swf_movie.library);
-        }
-    }
-}
-
-fn render_base(query: Query<&Handle<SwfMovie>>, mut swf_movie: ResMut<Assets<SwfMovie>>) {
-    for swf_handle in query.iter() {
-        if let Some(swf_movie) = swf_movie.get_mut(swf_handle.id()) {
-            let root_movie_clip = swf_movie.root_movie_clip.clone();
-            root_movie_clip.render_self();
         }
     }
 }

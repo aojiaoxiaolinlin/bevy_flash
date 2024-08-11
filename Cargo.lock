@@ -565,6 +565,7 @@ dependencies = [
  "bitflags 2.6.0",
  "fnv",
  "glam",
+ "lyon_tessellation",
  "ruffle_macros",
  "ruffle_render",
  "ruffle_render_wgpu",

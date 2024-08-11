@@ -1,8 +1,8 @@
-use crate::{assets::SwfMovie, bundle::SwfBundle, plugin::FlashPlugin};
+use crate::{bundle::SwfBundle, plugin::FlashPlugin};
 use bevy::{
     app::{App, Startup},
-    asset::{AssetServer, Assets, Handle},
-    prelude::{default, Commands, PluginGroup, Res, ResMut},
+    asset::AssetServer,
+    prelude::{default, Commands, PluginGroup, Res},
     render::{settings::WgpuSettings, RenderPlugin},
     winit::WinitPlugin,
     DefaultPlugins,

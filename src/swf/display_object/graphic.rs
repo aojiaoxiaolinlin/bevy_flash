@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bevy::sprite::Mesh2dHandle;
+use ruffle_render::{tessellator::ShapeTessellator, transform::Transform};
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
 use crate::swf::{library::MovieLibrary, tag_utils::SwfMovie};
@@ -13,6 +15,7 @@ pub struct Graphic {
     bounds: Rectangle<Twips>,
     base: DisplayObjectBase,
     swf_movie: Arc<SwfMovie>,
+    mesh: Option<Mesh2dHandle>,
 }
 
 impl Graphic {
@@ -23,6 +26,7 @@ impl Graphic {
             shape,
             base: DisplayObjectBase::default(),
             swf_movie,
+            mesh: None,
         }
     }
 }
@@ -54,4 +58,6 @@ impl TDisplayObject for Graphic {
             dbg!("PlaceObject: expected Graphic at character ID {}", id);
         }
     }
+    // TODO: Implement render_self
+    fn render_self(&mut self, transform: Transform) {}
 }
