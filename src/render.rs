@@ -75,7 +75,7 @@ fn render(
                             commands.spawn(MaterialMesh2dBundle {
                                 mesh: mesh.into(),
                                 material: materials.add(CustomMaterial {}),
-                                transform: Transform::from_scale(Vec3::splat(8.)),
+                                // transform: Transform::from_scale(Vec3::splat(10.)),
                                 ..Default::default()
                             });
                         }
