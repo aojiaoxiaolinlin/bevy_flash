@@ -563,8 +563,10 @@ dependencies = [
  "anyhow",
  "bevy",
  "bitflags 2.6.0",
+ "copyless",
  "fnv",
  "glam",
+ "indexmap",
  "lyon_tessellation",
  "ruffle_macros",
  "ruffle_render",
@@ -1455,6 +1457,12 @@ checksum = "e1aaf9b65849a68662ac6c0810c8893a765c960b907dd7cfab9c4a50bf764fbc"
 dependencies = [
  "const_soft_float",
 ]
+
+[[package]]
+name = "copyless"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2df960f5d869b2dd8532793fde43eb5427cceb126c929747a26823ab0eeb536"
 
 [[package]]
 name = "core-foundation"

@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
-use bevy::sprite::Mesh2dHandle;
-use ruffle_render::{tessellator::ShapeTessellator, transform::Transform};
+use bevy::{
+    asset::Handle,
+    prelude::{Image, Mesh},
+};
+use ruffle_render::transform::Transform;
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
 use crate::swf::{library::MovieLibrary, tag_utils::SwfMovie};
@@ -11,11 +14,12 @@ use super::{DisplayObjectBase, TDisplayObject};
 #[derive(Clone)]
 pub struct Graphic {
     pub id: CharacterId,
-    shape: Shape,
+    pub shape: Shape,
     bounds: Rectangle<Twips>,
     base: DisplayObjectBase,
     swf_movie: Arc<SwfMovie>,
-    mesh: Option<Mesh2dHandle>,
+    texture: Option<Handle<Image>>,
+    mesh: Option<Handle<Mesh>>,
 }
 
 impl Graphic {
@@ -26,8 +30,20 @@ impl Graphic {
             shape,
             base: DisplayObjectBase::default(),
             swf_movie,
+            texture: None,
             mesh: None,
         }
+    }
+    pub fn set_texture(&mut self, texture: Handle<Image>) {
+        self.texture = Some(texture);
+    }
+
+    pub fn set_mesh(&mut self, mesh: Handle<Mesh>) {
+        self.mesh = Some(mesh);
+    }
+
+    pub fn mesh(&self) -> Option<Handle<Mesh>> {
+        self.mesh.clone()
     }
 }
 

@@ -1,4 +1,7 @@
-use bevy::prelude::Resource;
+pub struct CommonGradient {}
 
-// #[derive(Resource, )]
-// pub struct Shape()
+impl CommonGradient {
+    pub fn new() -> Self {
+        Self {}
+    }
+}

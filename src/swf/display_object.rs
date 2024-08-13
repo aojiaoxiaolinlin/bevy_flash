@@ -383,6 +383,9 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
     fn base_mut(&mut self) -> &mut DisplayObjectBase;
     fn movie(&self) -> Arc<SwfMovie>;
     fn character_id(&self) -> CharacterId;
+    fn depth(&self) -> Depth {
+        self.base().depth
+    }
 
     fn is_bitmap_cached(&self) -> bool {
         self.base().cache.is_some()
