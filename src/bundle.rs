@@ -1,7 +1,7 @@
 use bevy::{
     asset::Handle,
     prelude::{Bundle, SpatialBundle},
-    sprite::Mesh2dHandle,
+    sprite::{Anchor, Mesh2dHandle},
 };
 
 use crate::assets::SwfMovie;

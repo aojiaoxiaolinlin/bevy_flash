@@ -1,17 +1,24 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    cmp::max,
+    collections::HashMap,
+    sync::{Arc, RwLock},
+    usize,
+};
 
 use anyhow::anyhow;
 use bevy::log::info;
 use bitflags::bitflags;
 
-use ruffle_render::transform::{self, Transform};
+use ruffle_render::transform::Transform;
+use smallvec::SmallVec;
 use swf::{
-    extensions::ReadSwfExt, read::Reader, CharacterId, Depth, PlaceObjectAction, SwfStr, TagCode,
+    extensions::ReadSwfExt, read::Reader, CharacterId, Color, Depth, PlaceObjectAction, SwfStr,
+    TagCode,
 };
 
 use crate::swf::{
     characters::Character,
-    container::{ChildContainer, RenderIter},
+    container::ChildContainer,
     library::MovieLibrary,
     tag_utils::{self, ControlFlow, Error, SwfMovie, SwfSlice, SwfStream},
 };
@@ -84,7 +91,7 @@ impl MovieClip {
         Self {
             base: DisplayObjectBase::default(),
             id: Default::default(),
-            current_frame: Default::default(),
+            current_frame: 0,
             total_frames: movie.num_frames(),
             frame_labels: Default::default(),
             swf: SwfSlice::empty(movie),
@@ -99,7 +106,7 @@ impl MovieClip {
             base: DisplayObjectBase::default(),
             id,
             total_frames,
-            current_frame: Default::default(),
+            current_frame: 0,
             frame_labels: Default::default(),
             swf,
             container: ChildContainer::new(),
@@ -121,15 +128,11 @@ impl MovieClip {
         self.raw_container_mut().replace_at_depth(depth, child);
     }
 
-    pub fn iter_render_list(self) -> RenderIter {
-        RenderIter::from_container(self.into())
-    }
-
     pub fn num_children(&self) -> usize {
         self.container.render_list_len()
     }
 
-    fn child_by_depth(&self, depth: Depth) -> Option<DisplayObject> {
+    fn child_by_depth(&mut self, depth: Depth) -> Option<&mut DisplayObject> {
         self.container.child_by_depth(depth)
     }
 
@@ -204,12 +207,14 @@ impl MovieClip {
     }
 
     pub fn run_frame_internal(&mut self, library: &mut MovieLibrary, is_action_script_3: bool) {
-        let next_frame = self.determine_next_frame();
+        let next_frame: NextFrame = self.determine_next_frame();
         match next_frame {
-            NextFrame::Next => {}
+            NextFrame::Next => {
+                // dbg!("next frame");
+            }
             NextFrame::First => {
-                self.current_frame = 1;
                 // dbg!("first frame");
+                return self.run_goto(library, 0, true);
             }
             NextFrame::Same => {
                 // dbg!("same frame");
@@ -267,15 +272,18 @@ impl MovieClip {
                 self.instantiate_child(id, place_object.depth, &place_object, library);
             }
             PlaceObjectAction::Replace(id) => {
-                if let Some(mut child) = self.child_by_depth(place_object.depth.into()) {
+                let swf = self.swf.clone();
+                let current_frame = self.current_frame;
+                if let Some(child) = self.child_by_depth(place_object.depth.into()) {
                     child.replace_with(id, library);
-                    child.apply_place_object(&place_object, self.swf.version());
-                    child.set_place_frame(self.current_frame);
+                    child.apply_place_object(&place_object, swf.version());
+                    child.set_place_frame(current_frame);
                 }
             }
             PlaceObjectAction::Modify => {
-                if let Some(mut child) = self.child_by_depth(place_object.depth.into()) {
-                    child.apply_place_object(&place_object, self.swf.version());
+                let swf = self.swf.clone();
+                if let Some(child) = self.child_by_depth(place_object.depth.into()) {
+                    child.apply_place_object(&place_object, swf.version());
                 }
             }
         }
@@ -353,6 +361,185 @@ impl MovieClip {
         }
     }
 
+    pub fn run_goto(&mut self, library: &mut MovieLibrary, frame: FrameNumber, is_implicit: bool) {
+        // let frame_before_rewind = self.current_frame;
+        let mut goto_commands: Vec<GotoPlaceObject> = Vec::new();
+
+        let is_rewind = if frame <= self.current_frame {
+            self.tag_stream_pos = 0;
+            self.current_frame = 0;
+            true
+        } else {
+            false
+        };
+        // let from_frame = self.current_frame;
+        let tag_stream_start = self.swf.as_ref().as_ptr() as u64;
+        let mut frame_pos = self.tag_stream_pos;
+        let data = self.swf.clone();
+        let mut index = 0;
+
+        let clamped_frame = frame.min(max(self.total_frames, 0));
+        let mut reader = data.read_from(frame_pos);
+        while self.current_frame < clamped_frame && !reader.get_ref().is_empty() {
+            self.current_frame += 1;
+            frame_pos = reader.get_ref().as_ptr() as u64 - tag_stream_start;
+
+            let tag_callback = |reader: &mut _, tag_code, _tag_len| {
+                match tag_code {
+                    TagCode::PlaceObject => {
+                        index += 1;
+                        self.goto_place_object(reader, 1, &mut goto_commands, is_rewind, index)
+                    }
+                    TagCode::PlaceObject2 => {
+                        index += 1;
+                        self.goto_place_object(reader, 2, &mut goto_commands, is_rewind, index)
+                    }
+                    TagCode::PlaceObject3 => {
+                        index += 1;
+                        self.goto_place_object(reader, 3, &mut goto_commands, is_rewind, index)
+                    }
+                    TagCode::PlaceObject4 => {
+                        index += 1;
+                        self.goto_place_object(reader, 4, &mut goto_commands, is_rewind, index)
+                    }
+                    // TagCode::RemoveObject => self.goto_remove_object(
+                    //     reader,
+                    //     1,
+                    //     &mut goto_commands,
+                    //     is_rewind,
+                    //     from_frame,
+                    //     &mut removed_frame_scripts,
+                    // ),
+                    // TagCode::RemoveObject2 => self.goto_remove_object(
+                    //     reader,
+                    //     2,
+                    //     &mut goto_commands,
+                    //     is_rewind,
+                    //     from_frame,
+                    //     &mut removed_frame_scripts,
+                    // ),
+                    TagCode::ShowFrame => return Ok(ControlFlow::Exit),
+                    _ => Ok(()),
+                }?;
+                Ok(ControlFlow::Continue)
+            };
+            let _ = tag_utils::decode_tags(&mut reader, tag_callback);
+        }
+        let hit_target_frame = self.current_frame == frame;
+
+        let render_list = self.raw_container().render_list();
+        if is_rewind {
+            let children: SmallVec<[_; 16]> = render_list
+                .iter()
+                .filter(|clip| {
+                    self.container
+                        .display_objects()
+                        .get(clip)
+                        .unwrap()
+                        .place_frame()
+                        > frame
+                })
+                .map(|clip| self.container.display_objects().get(clip).unwrap().depth())
+                .collect();
+
+            for child in children {
+                self.raw_container_mut().remove_child(child);
+            }
+        }
+        let movie = self.movie();
+        let mut run_goto_command = |clip: &mut MovieClip, params: &GotoPlaceObject<'_>| {
+            let child_entry = clip.child_by_depth(params.depth());
+
+            if movie.is_action_script_3() && is_implicit && child_entry.is_none() {
+                let new_tag = QueuedTag {
+                    tag_type: QueuedTagAction::Place(params.version),
+                    tag_start: params.tag_start,
+                };
+                let bucket = clip
+                    .queued_tags
+                    .entry(params.place_object.depth as Depth)
+                    .or_insert_with(|| QueuedTagList::None);
+                bucket.queue_add(new_tag);
+                return;
+            }
+
+            match (params.place_object.action, child_entry, is_rewind) {
+                (_, Some(prev_child), true) | (PlaceObjectAction::Modify, Some(prev_child), _) => {
+                    prev_child.apply_place_object(&params.place_object, movie.version());
+                }
+                (PlaceObjectAction::Replace(id), Some(prev_child), _) => {
+                    prev_child.replace_with(id, library);
+                    prev_child.apply_place_object(&params.place_object, movie.version());
+                    prev_child.set_place_frame(params.frame);
+                }
+                (PlaceObjectAction::Place(id), _, _)
+                | (swf::PlaceObjectAction::Replace(id), _, _) => {
+                    if let Some(mut child) =
+                        clip.instantiate_child(id, params.depth(), &params.place_object, library)
+                    {
+                        // Set the place frame to the frame where the object *would* have been placed.
+                        child.set_place_frame(params.frame);
+                    }
+                }
+                _ => {
+                    dbg!("Unhandled goto command: {:?}", &params.place_object);
+                }
+            }
+        };
+
+        goto_commands.sort_by_key(|params| params.index);
+
+        goto_commands
+            .iter()
+            .filter(|params| params.frame < frame)
+            .for_each(|goto| run_goto_command(self, goto));
+
+        // if hit_target_frame {
+        //     self.current_frame -= 1;
+        //     self.tag_stream_pos = frame_pos;
+        //     self.run_frame_internal(library, self.movie().is_action_script_3());
+        // } else {
+        //     self.current_frame = clamped_frame;
+        // }
+
+        // goto_commands
+        //     .iter()
+        //     .filter(|params| params.frame >= frame)
+        //     .for_each(|goto| run_goto_command(self, goto));
+    }
+
+    #[inline]
+    fn goto_place_object<'a>(
+        &mut self,
+        reader: &mut SwfStream<'a>,
+        version: SwfVersion,
+        goto_commands: &mut Vec<GotoPlaceObject<'a>>,
+        is_rewind: bool,
+        index: usize,
+    ) -> Result<(), Error> {
+        let tag_start = reader.get_ref().as_ptr() as u64 - self.swf.as_ref().as_ptr() as u64;
+        let place_object = if version == 1 {
+            reader.read_place_object()
+        } else {
+            reader.read_place_object_2_or_3(version)
+        }?;
+        let depth: Depth = place_object.depth.into();
+        let mut goto_place = GotoPlaceObject::new(
+            self.current_frame,
+            place_object,
+            is_rewind,
+            index,
+            tag_start,
+            version,
+        );
+        if let Some(i) = goto_commands.iter().position(|o| o.depth() == depth) {
+            goto_commands[i].merge(&mut goto_place);
+        } else {
+            goto_commands.push(goto_place);
+        }
+        Ok(())
+    }
+
     fn playing(&self) -> bool {
         self.flags.contains(MovieClipFlags::PLAYING)
     }
@@ -428,11 +615,18 @@ impl TDisplayObject for MovieClip {
 
         // let skip_frame = self.base().should_skip_next_enter_frame();
 
-        for child in self.raw_container_mut().render_list_mut().iter_mut().rev() {
+        for child in self.raw_container_mut().render_list().iter().rev() {
+            if let Some(display_object) = self
+                .raw_container_mut()
+                .display_objects_mut()
+                .get_mut(child)
+            {
+                display_object.enter_frame(library);
+            }
+
             // if skip_frame {
             //     child.base_mut().set_skip_next_enter_frame(true);
             // }
-            child.enter_frame(library);
         }
         // if skip_frame {
         //     self.base_mut().set_skip_next_enter_frame(false);
@@ -463,8 +657,12 @@ impl TDisplayObject for MovieClip {
 
     fn render_self(&mut self, transform: Transform) {
         // 影片剪辑渲染子元素
-        for child in self.raw_container_mut().render_list_mut() {
-            child.render(transform.clone());
+        for child in self.raw_container().render_list().iter() {
+            self.raw_container_mut()
+                .display_objects_mut()
+                .get(child)
+                .unwrap()
+                .render(transform.clone());
         }
     }
 }
@@ -545,4 +743,104 @@ pub struct QueuedTag {
 pub enum QueuedTagAction {
     Place(u8),
     Remove(u8),
+}
+
+#[derive(Debug)]
+pub struct GotoPlaceObject<'a> {
+    frame: FrameNumber,
+
+    place_object: swf::PlaceObject<'a>,
+
+    index: usize,
+
+    tag_start: u64,
+
+    version: SwfVersion,
+}
+
+impl<'a> GotoPlaceObject<'a> {
+    fn new(
+        frame: FrameNumber,
+        mut place_object: swf::PlaceObject<'a>,
+        is_rewind: bool,
+        index: usize,
+        tag_start: u64,
+        version: SwfVersion,
+    ) -> Self {
+        if is_rewind {
+            if let swf::PlaceObjectAction::Place(_) = place_object.action {
+                if place_object.matrix.is_none() {
+                    place_object.matrix = Some(Default::default());
+                }
+                if place_object.color_transform.is_none() {
+                    place_object.color_transform = Some(Default::default());
+                }
+                if place_object.ratio.is_none() {
+                    place_object.ratio = Some(Default::default());
+                }
+                if place_object.blend_mode.is_none() {
+                    place_object.blend_mode = Some(Default::default());
+                }
+                if place_object.is_bitmap_cached.is_none() {
+                    place_object.is_bitmap_cached = Some(Default::default());
+                }
+                if place_object.background_color.is_none() {
+                    place_object.background_color = Some(Color::from_rgba(0));
+                }
+                if place_object.filters.is_none() {
+                    place_object.filters = Some(Default::default());
+                }
+            }
+        }
+        Self {
+            frame,
+            place_object,
+            index,
+            tag_start,
+            version,
+        }
+    }
+
+    #[inline]
+    fn depth(&self) -> Depth {
+        self.place_object.depth.into()
+    }
+
+    fn merge(&mut self, next: &mut GotoPlaceObject<'a>) {
+        let cur_place = &mut self.place_object;
+        let next_place = &mut next.place_object;
+        match (cur_place.action, next_place.action) {
+            (cur, PlaceObjectAction::Modify) => {
+                cur_place.action = cur;
+            }
+            (_, new) => {
+                cur_place.action = new;
+                self.frame = next.frame;
+            }
+        };
+        if next_place.matrix.is_some() {
+            cur_place.matrix = next_place.matrix.take();
+        }
+        if next_place.color_transform.is_some() {
+            cur_place.color_transform = next_place.color_transform.take();
+        }
+        if next_place.ratio.is_some() {
+            cur_place.ratio = next_place.ratio.take();
+        }
+        if next_place.blend_mode.is_some() {
+            cur_place.blend_mode = next_place.blend_mode.take();
+        }
+        if next_place.is_bitmap_cached.is_some() {
+            cur_place.is_bitmap_cached = next_place.is_bitmap_cached.take();
+        }
+        if next_place.is_visible.is_some() {
+            cur_place.is_visible = next_place.is_visible.take();
+        }
+        if next_place.background_color.is_some() {
+            cur_place.background_color = next_place.background_color.take();
+        }
+        if next_place.filters.is_some() {
+            cur_place.filters = next_place.filters.take();
+        }
+    }
 }

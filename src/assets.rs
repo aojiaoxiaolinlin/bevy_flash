@@ -9,8 +9,10 @@ use bevy::{
         mesh::{Indices, VertexAttributeValues},
         render_asset::RenderAssetUsages,
     },
+    utils::dbg,
 };
 use copyless::VecHelper;
+use glam::Vec2;
 use ruffle_render::tessellator::DrawType;
 use swf::GradientInterpolation;
 use wgpu::PrimitiveTopology;
@@ -115,13 +117,24 @@ impl SwfMovie {
                         );
                     }
 
+                    let center: Vec2 = Vec2::new(
+                        (graphic.bounds.x_max + graphic.bounds.x_min).to_pixels() as f32 / 2.,
+                        (graphic.bounds.y_max + graphic.bounds.y_min).to_pixels() as f32 / 2.,
+                    );
+
                     for draw in lyon_mesh.draws {
+                        dbg("draw");
                         if matches!(draw.draw_type, DrawType::Color) {
                             let mut positions = Vec::with_capacity(draw.vertices.len());
                             let mut colors = Vec::with_capacity(draw.vertices.len());
 
                             for vertex in draw.vertices {
-                                positions.alloc().init([vertex.x, vertex.y, 0.0]);
+                                // 平移顶点使得中心点在bevy原点
+                                positions.alloc().init([
+                                    vertex.x - center.x,
+                                    vertex.y - center.y,
+                                    0.0,
+                                ]);
 
                                 let linear_color = Color::srgba_u8(
                                     vertex.color.r,
@@ -132,7 +145,6 @@ impl SwfMovie {
                                 .to_linear();
                                 colors.alloc().init(linear_color.to_f32_array());
                             }
-
                             let mut mesh = Mesh::new(
                                 PrimitiveTopology::TriangleList,
                                 RenderAssetUsages::default(),

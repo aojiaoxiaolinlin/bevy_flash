@@ -264,6 +264,10 @@ impl DisplayObjectBase {
         self.name = name;
     }
 
+    pub fn set_transform(&mut self, transform: Transform) {
+        self.transform = transform;
+    }
+
     pub fn set_depth(&mut self, depth: Depth) {
         self.depth = depth;
     }
@@ -385,6 +389,10 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
     fn character_id(&self) -> CharacterId;
     fn depth(&self) -> Depth {
         self.base().depth
+    }
+
+    fn place_frame(&self) -> u16 {
+        self.base().place_frame
     }
 
     fn is_bitmap_cached(&self) -> bool {

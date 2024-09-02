@@ -1,21 +1,34 @@
+use std::{collections::BTreeMap, sync::Arc};
+
 use bevy::{
     app::{App, Plugin, PostUpdate},
-    asset::{load_internal_asset, Asset, AssetApp, Assets, Handle},
+    asset::{load_internal_asset, Asset, AssetApp, AssetId, Assets, Handle},
+    color::palettes::css::{GREEN, WHITE},
     ecs::entity::EntityHashMap,
+    math::VectorSpace,
     prelude::{
-        Commands, IntoSystemConfigs, Mesh, Query, ReflectDefault, ResMut, Resource, Shader,
-        Transform,
+        Commands, Component, Entity, Gizmos, IntoSystemConfigs, Mesh, Query, ReflectDefault,
+        ResMut, Resource, Shader, Transform, With,
     },
     reflect::{self, Reflect},
     render::render_resource::{AsBindGroup, ShaderRef},
-    sprite::{Material2d, Material2dPlugin, MaterialMesh2dBundle},
+    sprite::{
+        ColorMaterial, ColorMesh2dBundle, Material2d, Material2dPlugin, MaterialMesh2dBundle,
+        Mesh2dHandle,
+    },
 };
-use glam::Vec3;
-use ruffle_render::transform::Transform as RuffleTransform;
+use glam::{Quat, Vec2, Vec3};
+use ruffle_render::transform::{self, Transform as RuffleTransform};
 
 use crate::{
     assets::SwfMovie,
-    swf::{characters::Character, display_object::render_base},
+    swf::{
+        characters::Character,
+        display_object::{
+            graphic::{self, Graphic},
+            render_base, DisplayObject, TDisplayObject,
+        },
+    },
 };
 
 /// 使用UUID指定,SWF着色器Handle
@@ -26,25 +39,17 @@ pub(crate) mod commands;
 mod pipeline;
 pub(crate) mod tessellator;
 
-pub struct ExtractedSWFShape {}
-#[derive(Resource, Default)]
-pub struct ExtractedSWFShapes {
-    pub swf_sprites: EntityHashMap<ExtractedSWFShape>,
+#[derive(Component)]
+pub struct SWFComponent {
+    pub id: AssetId<Mesh>,
+    pub base_transform: Transform,
 }
 
 pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(Material2dPlugin::<CustomMaterial>::default())
-            .register_asset_reflect::<CustomMaterial>()
-            .add_systems(PostUpdate, (pre_render, render).chain());
-        load_internal_asset!(
-            app,
-            SWF_GRAPHIC_HANDLE,
-            "./render/shaders/graphic.wgsl",
-            Shader::from_wgsl
-        );
+        app.add_systems(PostUpdate, (pre_render, render).chain());
     }
 }
 
@@ -53,46 +58,140 @@ impl Plugin for FlashRenderPlugin {
 fn pre_render(query: Query<&Handle<SwfMovie>>, mut swf_movie: ResMut<Assets<SwfMovie>>) {
     for swf_handle in query.iter() {
         if let Some(swf_movie) = swf_movie.get_mut(swf_handle.id()) {
-            let root_movie_clip = swf_movie.root_movie_clip.clone();
-            render_base(root_movie_clip.into(), RuffleTransform::default());
+            // render_base(
+            //     swf_movie.root_movie_clip.clone().into(),
+            //     RuffleTransform::default(),
+            // );
         }
     }
 }
 
 fn render(
     mut commands: Commands,
-    mut materials: ResMut<Assets<CustomMaterial>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut swf_movie: ResMut<Assets<SwfMovie>>,
     query: Query<&Handle<SwfMovie>>,
+    mut query_entity: Query<(&SWFComponent, &mut Transform)>,
+    mut gizmos: Gizmos,
 ) {
-    for swf_handle in query.iter() {
+    query.iter().for_each(|swf_handle| {
         if let Some(swf_movie) = swf_movie.get_mut(swf_handle.id()) {
-            let library = &mut swf_movie.library;
-            for (_, character) in library.characters_mut() {
-                match character {
-                    Character::Graphic(graphic) => {
-                        if let Some(mesh) = graphic.mesh() {
-                            commands.spawn(MaterialMesh2dBundle {
-                                mesh: mesh.into(),
-                                material: materials.add(CustomMaterial {}),
-                                // transform: Transform::from_scale(Vec3::splat(10.)),
-                                ..Default::default()
-                            });
+            let render_list = swf_movie.root_movie_clip.raw_container_mut().render_list();
+            let display_objects = swf_movie
+                .root_movie_clip
+                .raw_container_mut()
+                .display_objects();
+            handler_render_list(
+                &mut commands,
+                &mut materials,
+                render_list,
+                display_objects,
+                &mut query_entity,
+                &mut gizmos,
+            );
+        }
+    });
+}
+
+pub fn handler_render_list(
+    commands: &mut Commands,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    render_list: Arc<Vec<u16>>,
+    display_objects: &BTreeMap<u16, DisplayObject>,
+    query_entity: &mut Query<(&SWFComponent, &mut Transform)>,
+    gizmos: &mut Gizmos,
+) {
+    for display_object in render_list.iter() {
+        if let Some(display_object) = display_objects.get(display_object) {
+            match display_object {
+                DisplayObject::Graphic(graphic) => {
+                    if let Some(mesh) = graphic.mesh() {
+                        // 如果已经存在，则不再创建
+                        for (swf_component, mut transform) in query_entity.iter_mut() {
+                            if swf_component.id == mesh.id() {
+                                let graphic_transform: Transform =
+                                    SWFTransform(graphic.base().transform().clone()).into();
+                                // 减去基础变换以定位到基础位置
+                                transform.rotation = graphic_transform.rotation;
+                                dbg!(transform.rotation);
+                                transform.scale =
+                                    graphic_transform.scale * swf_component.base_transform.scale;
+
+                                let width = graphic.bounds.width().to_pixels() as f32;
+                                let height = graphic.bounds.height().to_pixels() as f32;
+
+                                let new_width = width * transform.scale.x;
+                                let new_height = height * transform.scale.y;
+
+                                let translation = swf_component.base_transform.translation
+                                    - graphic_transform.translation;
+
+                                let delta = Vec3::new(
+                                    (new_width - width) / 2.0,
+                                    (new_height - height) / 2.0,
+                                    0.0,
+                                );
+                                transform.translation = translation - delta;
+                                // 绘制矩形边框
+                                gizmos.rect_2d(
+                                    Vec2::ZERO,
+                                    0.,
+                                    Vec2::new(
+                                        width * transform.scale.x,
+                                        height * transform.scale.y,
+                                    ),
+                                    WHITE,
+                                );
+                                return;
+                            }
                         }
+                        let base_transform: Transform =
+                            SWFTransform(graphic.base().transform().clone()).into();
+                        commands.spawn((
+                            SWFComponent {
+                                id: mesh.clone().id(),
+                                base_transform,
+                            },
+                            ColorMesh2dBundle {
+                                mesh: mesh.into(),
+                                material: materials.add(ColorMaterial::default()),
+                                transform: base_transform,
+                                ..Default::default()
+                            },
+                        ));
                     }
-                    _ => {}
+                }
+                DisplayObject::MovieClip(movie_clip) => {
+                    handler_render_list(
+                        commands,
+                        materials,
+                        movie_clip.clone().raw_container_mut().render_list(),
+                        display_objects,
+                        query_entity,
+                        gizmos,
+                    );
                 }
             }
         }
     }
 }
 
-#[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
-#[reflect(Default, Debug)]
-struct CustomMaterial {}
+struct SWFTransform(RuffleTransform);
 
-impl Material2d for CustomMaterial {
-    fn fragment_shader() -> ShaderRef {
-        SWF_GRAPHIC_HANDLE.into()
+impl From<SWFTransform> for Transform {
+    fn from(form: SWFTransform) -> Self {
+        let form = form.0;
+        let translation: [f32; 3] = [
+            form.matrix.tx.to_pixels() as f32,
+            form.matrix.ty.to_pixels() as f32,
+            0.0,
+        ];
+        let scale = [form.matrix.a, form.matrix.d, 1.0];
+        dbg!(form.matrix.b);
+        Self {
+            translation: Vec3::from(translation),
+            rotation: Quat::from_rotation_z(form.matrix.b.to_radians()),
+            scale: Vec3::from(scale),
+        }
     }
 }

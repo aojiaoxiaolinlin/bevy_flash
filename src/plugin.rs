@@ -1,10 +1,11 @@
 use crate::assets::{SwfLoader, SwfMovie};
-use crate::render::FlashRenderPlugin;
+use crate::render::{handler_render_list, FlashRenderPlugin, SWFComponent};
 use crate::swf::display_object::TDisplayObject;
 use bevy::app::{App, PostUpdate};
 use bevy::asset::Handle;
-use bevy::prelude::{Query, Resource, With};
+use bevy::prelude::{Commands, Query, Resource, Transform, With};
 use bevy::render::view::{check_visibility, VisibilitySystems};
+use bevy::sprite::ColorMaterial;
 use bevy::time::{Time, Timer, TimerMode};
 use bevy::{
     app::{Plugin, Update},
@@ -33,15 +34,20 @@ impl Plugin for FlashPlugin {
 
 fn enter_frame(
     query: Query<&Handle<SwfMovie>>,
-    _time: Res<Time>,
-    mut _timer: ResMut<PlayerTimer>,
+    time: Res<Time>,
+    mut timer: ResMut<PlayerTimer>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut swf_movie: ResMut<Assets<SwfMovie>>,
+    mut query_entity: Query<(&SWFComponent, &mut Transform)>,
 ) {
-    for swf_handle in query.iter() {
-        if let Some(swf_movie) = swf_movie.get_mut(swf_handle.id()) {
-            swf_movie
-                .root_movie_clip
-                .enter_frame(&mut swf_movie.library);
+    if timer.0.tick(time.delta()).just_finished() {
+        for swf_handle in query.iter() {
+            if let Some(swf_movie) = swf_movie.get_mut(swf_handle.id()) {
+                swf_movie
+                    .root_movie_clip
+                    .enter_frame(&mut swf_movie.library);
+            }
         }
     }
 }

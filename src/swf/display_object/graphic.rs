@@ -15,7 +15,7 @@ use super::{DisplayObjectBase, TDisplayObject};
 pub struct Graphic {
     pub id: CharacterId,
     pub shape: Shape,
-    bounds: Rectangle<Twips>,
+    pub bounds: Rectangle<Twips>,
     base: DisplayObjectBase,
     swf_movie: Arc<SwfMovie>,
     texture: Option<Handle<Image>>,
@@ -74,6 +74,6 @@ impl TDisplayObject for Graphic {
             dbg!("PlaceObject: expected Graphic at character ID {}", id);
         }
     }
-    // TODO: Implement render_self
+
     fn render_self(&mut self, transform: Transform) {}
 }
