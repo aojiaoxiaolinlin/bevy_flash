@@ -49,20 +49,7 @@ pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, (pre_render, render).chain());
-    }
-}
-
-/// 从SWF中提取形状，提前转为`Mesh2d`。swf加载完成后执行 。
-
-fn pre_render(query: Query<&Handle<SwfMovie>>, mut swf_movie: ResMut<Assets<SwfMovie>>) {
-    for swf_handle in query.iter() {
-        if let Some(swf_movie) = swf_movie.get_mut(swf_handle.id()) {
-            // render_base(
-            //     swf_movie.root_movie_clip.clone().into(),
-            //     RuffleTransform::default(),
-            // );
-        }
+        app.add_systems(PostUpdate, (render).chain());
     }
 }
 
@@ -76,7 +63,7 @@ fn render(
 ) {
     query.iter().for_each(|swf_handle| {
         if let Some(swf_movie) = swf_movie.get_mut(swf_handle.id()) {
-            let render_list = swf_movie.root_movie_clip.raw_container_mut().render_list();
+            let render_list = swf_movie.root_movie_clip.raw_container().render_list();
             let display_objects = swf_movie
                 .root_movie_clip
                 .raw_container_mut()
@@ -113,7 +100,6 @@ pub fn handler_render_list(
                                     SWFTransform(graphic.base().transform().clone()).into();
                                 // 减去基础变换以定位到基础位置
                                 transform.rotation = graphic_transform.rotation;
-                                dbg!(transform.rotation);
                                 transform.scale =
                                     graphic_transform.scale * swf_component.base_transform.scale;
 
@@ -165,8 +151,8 @@ pub fn handler_render_list(
                     handler_render_list(
                         commands,
                         materials,
-                        movie_clip.clone().raw_container_mut().render_list(),
-                        display_objects,
+                        movie_clip.raw_container().render_list(),
+                        movie_clip.raw_container().display_objects(),
                         query_entity,
                         gizmos,
                     );
@@ -187,7 +173,6 @@ impl From<SWFTransform> for Transform {
             0.0,
         ];
         let scale = [form.matrix.a, form.matrix.d, 1.0];
-        dbg!(form.matrix.b);
         Self {
             translation: Vec3::from(translation),
             rotation: Quat::from_rotation_z(form.matrix.b.to_radians()),

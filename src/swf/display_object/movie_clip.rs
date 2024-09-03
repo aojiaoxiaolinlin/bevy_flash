@@ -182,7 +182,6 @@ impl MovieClip {
         let id = reader.read_character_id()?;
         let num_frames = reader.read_u16()?;
         let num_read = reader.pos(start);
-
         let mut movie_clip = MovieClip::new_with_data(
             id,
             num_frames,
@@ -214,7 +213,7 @@ impl MovieClip {
             }
             NextFrame::First => {
                 // dbg!("first frame");
-                return self.run_goto(library, 0, true);
+                // return self.run_goto(library, 0, true);
             }
             NextFrame::Same => {
                 // dbg!("same frame");
@@ -338,7 +337,7 @@ impl MovieClip {
                 if let Some(clip_depth) = place_object.clip_depth {
                     child.set_clip_depth(clip_depth);
                 }
-                // child.post_instantiation(library);
+                child.post_instantiation(library);
                 self.replace_at_depth(depth, child.clone());
                 Some(child)
             }
@@ -615,7 +614,7 @@ impl TDisplayObject for MovieClip {
 
         // let skip_frame = self.base().should_skip_next_enter_frame();
 
-        for child in self.raw_container_mut().render_list().iter().rev() {
+        for child in self.raw_container().render_list().iter().rev() {
             if let Some(display_object) = self
                 .raw_container_mut()
                 .display_objects_mut()

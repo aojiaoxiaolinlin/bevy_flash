@@ -17,12 +17,13 @@ fn main() {
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
+        // swf: assert_server.load("sprite.swf"),
         // swf: assert_server.load("scale.swf"),
-        swf: assert_server.load("rotate.swf"),
+        // swf: assert_server.load("rotate.swf"),
         // swf: assert_server.load("head_scale2.swf"),
         // swf: assert_server.load("head-animation.swf"),
         // swf: assert_server.load("head.swf"),
-        // swf: assert_server.load("spirit2471src.swf"),
+        swf: assert_server.load("spirit2158src.swf"),
         ..Default::default()
     });
 }

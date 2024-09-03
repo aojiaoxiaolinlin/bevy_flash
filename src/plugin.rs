@@ -1,9 +1,9 @@
 use crate::assets::{SwfLoader, SwfMovie};
-use crate::render::{handler_render_list, FlashRenderPlugin, SWFComponent};
+use crate::render::{FlashRenderPlugin, SWFComponent};
 use crate::swf::display_object::TDisplayObject;
-use bevy::app::{App, PostUpdate};
+use bevy::app::App;
 use bevy::asset::Handle;
-use bevy::prelude::{Commands, Query, Resource, Transform, With};
+use bevy::prelude::{Commands, Query, Resource, Transform};
 use bevy::render::view::{check_visibility, VisibilitySystems};
 use bevy::sprite::ColorMaterial;
 use bevy::time::{Time, Timer, TimerMode};
@@ -48,6 +48,11 @@ fn enter_frame(
                     .root_movie_clip
                     .enter_frame(&mut swf_movie.library);
             }
+
+            // render_base(
+            //     swf_movie.root_movie_clip.clone().into(),
+            //     RuffleTransform::default(),
+            // );
         }
     }
 }

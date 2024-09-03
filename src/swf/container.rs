@@ -71,6 +71,10 @@ impl ChildContainer {
         self.render_list_mut().insert(id, child);
     }
 
+    fn push_id(&mut self, child: DisplayId) {
+        self.render_list_mut().push(child);
+    }
+
     pub fn remove_child_from_depth_list(&mut self, child: Depth) {
         if let Some(_other_child) = self.depth_list.get(&child) {
             let remove = self.depth_list.remove(&child);
@@ -107,24 +111,16 @@ impl ChildContainer {
             let above = self
                 .depth_list
                 .range((Bound::Excluded(depth), Bound::Unbounded))
-                .map(|(_, v)| v.clone())
+                .map(|(_, v)| *v)
                 .next();
             if let Some(above_child) = above {
-                if let Some(position) = self.render_list.iter().position(|x| {
-                    let x = self.display_objects.get(x).unwrap().character_id();
-                    let above_child = self
-                        .display_objects
-                        .get(&above_child)
-                        .unwrap()
-                        .character_id();
-                    x == above_child
-                }) {
+                if let Some(position) = self.render_list.iter().position(|x| *x == above_child) {
                     self.insert_id(position, child_display_object_id);
                 } else {
-                    self.render_list_mut().push(child_display_object_id)
+                    self.push_id(child_display_object_id)
                 }
             } else {
-                self.render_list_mut().push(child_display_object_id)
+                self.push_id(child_display_object_id)
             }
         }
     }
