@@ -1,14 +1,11 @@
-use std::{
-    collections::BTreeMap,
-    ops::Bound,
-    sync::{mpsc::RecvError, Arc},
-};
+use std::{collections::BTreeMap, ops::Bound, sync::Arc};
 
 use swf::Depth;
+use uuid::Uuid;
 
-use super::display_object::{movie_clip::MovieClip, DisplayObject, TDisplayObject};
+use super::display_object::DisplayObject;
 
-type DisplayId = u16;
+type DisplayId = u128;
 
 #[derive(Clone)]
 pub struct ChildContainer {
@@ -16,6 +13,12 @@ pub struct ChildContainer {
     depth_list: BTreeMap<Depth, DisplayId>,
 
     display_objects: BTreeMap<DisplayId, DisplayObject>,
+}
+
+impl Default for ChildContainer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ChildContainer {
@@ -40,9 +43,10 @@ impl ChildContainer {
     }
 
     pub fn child_by_depth(&mut self, depth: Depth) -> Option<&mut DisplayObject> {
-        let display_object_id = self.depth_list.get_mut(&depth);
+        let display_object_id = self.depth_list.get(&depth);
         if let Some(display_object_id) = display_object_id {
-            self.display_objects.get_mut(display_object_id)
+            let display_object = self.display_objects.get_mut(display_object_id);
+            display_object
         } else {
             None
         }
@@ -61,7 +65,7 @@ impl ChildContainer {
         depth: Depth,
         child: DisplayObject,
     ) -> (Option<DisplayId>, DisplayId) {
-        let display_object_id = self.display_objects.len() as DisplayId;
+        let display_object_id = Uuid::new_v4().to_u128_le();
         self.display_objects.insert(display_object_id, child);
         let prev_child = self.depth_list.insert(depth, display_object_id);
         (prev_child, display_object_id)
@@ -75,18 +79,24 @@ impl ChildContainer {
         self.render_list_mut().push(child);
     }
 
-    pub fn remove_child_from_depth_list(&mut self, child: Depth) {
+    pub fn remove_child_from_depth_list(&mut self, child: Depth) -> Option<DisplayId> {
         if let Some(_other_child) = self.depth_list.get(&child) {
-            let remove = self.depth_list.remove(&child);
-            if let Some(remove) = remove {
+            if let Some(remove) = self.depth_list.remove(&child) {
                 self.display_objects.remove(&remove);
+                Some(remove)
+            } else {
+                None
             }
+        } else {
+            None
         }
     }
 
-    pub fn remove_child(&mut self, child: DisplayId) {
-        self.remove_child_from_depth_list(child);
-        Self::remove_child_from_render_list(self, child);
+    pub fn remove_child(&mut self, child: Depth) {
+        let display_id = self.remove_child_from_depth_list(child);
+        if let Some(display_id) = display_id {
+            Self::remove_child_from_render_list(self, display_id);
+        }
     }
 
     fn remove_child_from_render_list(container: &mut ChildContainer, child: DisplayId) -> bool {
@@ -100,12 +110,10 @@ impl ChildContainer {
     }
 
     pub fn replace_at_depth(&mut self, depth: Depth, child: DisplayObject) {
-        let (prev_child, child_display_object_id) =
-            self.insert_child_into_depth_list(depth, child.clone());
+        let (prev_child, child_display_object_id) = self.insert_child_into_depth_list(depth, child);
         if let Some(prev_child) = prev_child {
             if let Some(position) = self.render_list.iter().position(|x| *x == prev_child) {
-                dbg!("目前不会执行到这里");
-                // self.insert_id(position + 1, child_display_object_id);
+                self.insert_id(position + 1, child_display_object_id);
             }
         } else {
             let above = self

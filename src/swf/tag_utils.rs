@@ -152,6 +152,16 @@ pub struct SwfSlice {
     pub end: usize,
 }
 
+impl Default for SwfSlice {
+    fn default() -> Self {
+        Self {
+            movie: Arc::new(SwfMovie::empty(0)),
+            start: 0,
+            end: 0,
+        }
+    }
+}
+
 impl From<Arc<SwfMovie>> for SwfSlice {
     fn from(movie: Arc<SwfMovie>) -> Self {
         let end = movie.data().len();

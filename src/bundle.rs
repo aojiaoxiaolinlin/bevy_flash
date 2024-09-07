@@ -1,17 +1,14 @@
 use bevy::{
     asset::Handle,
-    prelude::{Bundle, SpatialBundle},
-    sprite::{Anchor, Mesh2dHandle},
+    prelude::{Bundle, Component, SpatialBundle},
 };
 
-use crate::assets::SwfMovie;
+use crate::{assets::SwfMovie, swf::display_object::movie_clip::MovieClip};
 
 #[derive(Bundle, Default)]
 pub struct SwfBundle {
     /// 要渲染的swf资源的引用计数句柄。
-    pub swf: Handle<SwfMovie>,
-    /// 用于在 2d 管道中使用网格进行渲染的组件。
-    pub mesh: Mesh2dHandle,
+    pub swf_handle: Handle<SwfMovie>,
     // /// 实体的local变换属性。
     // pub transform: Transform,
     // /// 实体的global变换属性。
@@ -24,4 +21,9 @@ pub struct SwfBundle {
     // pub view_visibility: ViewVisibility,
     /// 包含实体的空间属性。
     pub spatial: SpatialBundle,
+}
+
+#[derive(Component, Default)]
+pub struct Swf {
+    pub root_movie_clip: MovieClip,
 }

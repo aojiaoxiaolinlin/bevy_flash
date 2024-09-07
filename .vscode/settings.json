@@ -1,11 +1,16 @@
 {
   "cSpell.words": [
     "bitflags",
+    "copyless",
+    "despawn",
     "lerp",
     "lifetimeless",
+    "Msaa",
     "multisampled",
     "pval",
     "repr",
+    "smallvec",
+    "srgba",
     "subslice",
     "Tessellator",
     "thiserror",

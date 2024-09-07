@@ -17,13 +17,15 @@ fn main() {
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
-        // swf: assert_server.load("sprite.swf"),
-        // swf: assert_server.load("scale.swf"),
-        // swf: assert_server.load("rotate.swf"),
-        // swf: assert_server.load("head_scale2.swf"),
-        // swf: assert_server.load("head-animation.swf"),
-        // swf: assert_server.load("head.swf"),
-        swf: assert_server.load("spirit2158src.swf"),
+        // swf_handle: assert_server.load("sprite.swf"),
+        // swf_handle: assert_server.load("scale.swf"),
+        // swf_handle: assert_server.load("rotate.swf"),
+        // swf_handle: assert_server.load("head_scale2.swf"),
+        // swf_handle: assert_server.load("head-animation.swf"),
+        // swf_handle: assert_server.load("head.swf"),
+        // swf_handle: assert_server.load("spirit2158src.swf"),
+        swf_handle: assert_server.load("tou.swf"),
+        // swf_handle: assert_server.load("weiba.swf"),
         ..Default::default()
     });
 }

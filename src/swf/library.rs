@@ -1,10 +1,31 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
 
+use bevy::{asset::Asset, reflect::TypePath};
 use swf::CharacterId;
+use weak_table::PtrWeakKeyHashMap;
+
+use crate::assets::SwfMovie;
 
 use super::{characters::Character, display_object::graphic::Graphic};
 
-#[derive(Clone)]
+#[derive(Default, Asset, TypePath)]
+pub struct Library {
+    movie_libraries: PtrWeakKeyHashMap<Weak<SwfMovie>, MovieLibrary>,
+}
+
+impl Library {
+    pub fn library_for_movie(&self, movie: Arc<SwfMovie>) -> Option<&MovieLibrary> {
+        self.movie_libraries.get(&movie)
+    }
+    pub fn library_for_movie_mut(&mut self, movie: Arc<SwfMovie>) -> Option<&mut MovieLibrary> {
+        self.movie_libraries.get_mut(&movie)
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct MovieLibrary {
     characters: HashMap<CharacterId, Character>,
     pub instance_count: u16,

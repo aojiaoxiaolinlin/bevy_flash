@@ -1,9 +1,4 @@
-use std::{
-    cmp::max,
-    collections::HashMap,
-    sync::{Arc, RwLock},
-    usize,
-};
+use std::{cmp::max, collections::HashMap, sync::Arc, usize};
 
 use anyhow::anyhow;
 use bevy::log::info;
@@ -77,7 +72,7 @@ pub struct MovieClip {
     base: DisplayObjectBase,
     swf: SwfSlice,
     pub id: CharacterId,
-    current_frame: FrameNumber,
+    pub current_frame: FrameNumber,
     pub total_frames: FrameNumber,
     frame_labels: Vec<(FrameNumber, String)>,
     container: ChildContainer,
@@ -85,7 +80,22 @@ pub struct MovieClip {
     tag_stream_pos: u64,
     queued_tags: HashMap<Depth, QueuedTagList>,
 }
-
+impl Default for MovieClip {
+    fn default() -> Self {
+        Self {
+            base: Default::default(),
+            swf: Default::default(),
+            id: Default::default(),
+            current_frame: Default::default(),
+            total_frames: Default::default(),
+            frame_labels: Default::default(),
+            container: Default::default(),
+            flags: MovieClipFlags::PLAYING,
+            tag_stream_pos: Default::default(),
+            queued_tags: Default::default(),
+        }
+    }
+}
 impl MovieClip {
     pub fn new(movie: Arc<SwfMovie>) -> Self {
         Self {
@@ -205,40 +215,50 @@ impl MovieClip {
         Ok(())
     }
 
-    pub fn run_frame_internal(&mut self, library: &mut MovieLibrary, is_action_script_3: bool) {
+    pub fn run_frame_internal(
+        &mut self,
+        library: &mut MovieLibrary,
+        run_display_actions: bool,
+        is_action_script_3: bool,
+    ) {
         let next_frame: NextFrame = self.determine_next_frame();
         match next_frame {
             NextFrame::Next => {
-                // dbg!("next frame");
+                info!("current frame:{}", self.current_frame);
             }
             NextFrame::First => {
-                // dbg!("first frame");
-                // return self.run_goto(library, 0, true);
+                return self.run_goto(library, 1, true);
             }
-            NextFrame::Same => {
-                // dbg!("same frame");
-            }
+            NextFrame::Same => {}
         }
         let data = self.swf.clone();
         let mut reader = data.read_from(self.tag_stream_pos);
         let tag_callback = |reader: &mut SwfStream<'_>, tag_code, _tag_len| {
             match tag_code {
-                TagCode::PlaceObject if !is_action_script_3 => {
+                TagCode::PlaceObject if run_display_actions && !is_action_script_3 => {
                     self.place_object(library, reader, 1)
                 }
-                TagCode::PlaceObject2 if !is_action_script_3 => {
+                TagCode::PlaceObject2 if run_display_actions && !is_action_script_3 => {
                     self.place_object(library, reader, 2)
                 }
-                TagCode::PlaceObject3 if !is_action_script_3 => {
+                TagCode::PlaceObject3 if run_display_actions && !is_action_script_3 => {
                     self.place_object(library, reader, 3)
                 }
-                TagCode::PlaceObject4 if !is_action_script_3 => {
+                TagCode::PlaceObject4 if run_display_actions && !is_action_script_3 => {
                     self.place_object(library, reader, 4)
                 }
-                TagCode::PlaceObject if is_action_script_3 => self.queue_place_object(reader, 1),
-                TagCode::PlaceObject2 if is_action_script_3 => self.queue_place_object(reader, 2),
-                TagCode::PlaceObject3 if is_action_script_3 => self.queue_place_object(reader, 3),
-                TagCode::PlaceObject4 if is_action_script_3 => self.queue_place_object(reader, 4),
+                TagCode::PlaceObject if run_display_actions && is_action_script_3 => {
+                    self.queue_place_object(reader, 1)
+                }
+                TagCode::PlaceObject2 if run_display_actions && is_action_script_3 => {
+                    self.queue_place_object(reader, 2)
+                }
+                TagCode::PlaceObject3 if run_display_actions && is_action_script_3 => {
+                    self.queue_place_object(reader, 3)
+                }
+                TagCode::PlaceObject4 if run_display_actions && is_action_script_3 => {
+                    self.queue_place_object(reader, 4)
+                }
 
                 // TagCode::SetBackgroundColor => self.set_background_color(library, reader),
                 TagCode::ShowFrame => return Ok(ControlFlow::Exit),
@@ -249,7 +269,7 @@ impl MovieClip {
         let _ = tag_utils::decode_tags(&mut reader, tag_callback);
         let tag_stream_start = self.swf.as_ref().as_ptr() as u64;
         self.tag_stream_pos = reader.get_ref().as_ptr() as u64 - tag_stream_start;
-        if matches!(next_frame, NextFrame::Next) {
+        if matches!(next_frame, NextFrame::Next) && is_action_script_3 {
             self.current_frame += 1;
         }
     }
@@ -268,9 +288,11 @@ impl MovieClip {
         }?;
         match place_object.action {
             PlaceObjectAction::Place(id) => {
+                dbg!(id);
                 self.instantiate_child(id, place_object.depth, &place_object, library);
             }
             PlaceObjectAction::Replace(id) => {
+                dbg!(id);
                 let swf = self.swf.clone();
                 let current_frame = self.current_frame;
                 if let Some(child) = self.child_by_depth(place_object.depth.into()) {
@@ -361,7 +383,7 @@ impl MovieClip {
     }
 
     pub fn run_goto(&mut self, library: &mut MovieLibrary, frame: FrameNumber, is_implicit: bool) {
-        // let frame_before_rewind = self.current_frame;
+        let frame_before_rewind = self.current_frame;
         let mut goto_commands: Vec<GotoPlaceObject> = Vec::new();
 
         let is_rewind = if frame <= self.current_frame {
@@ -371,7 +393,7 @@ impl MovieClip {
         } else {
             false
         };
-        // let from_frame = self.current_frame;
+        let from_frame = self.current_frame;
         let tag_stream_start = self.swf.as_ref().as_ptr() as u64;
         let mut frame_pos = self.tag_stream_pos;
         let data = self.swf.clone();
@@ -430,15 +452,20 @@ impl MovieClip {
         if is_rewind {
             let children: SmallVec<[_; 16]> = render_list
                 .iter()
-                .filter(|clip| {
+                .filter(|display_id| {
+                    if let Some(display_object) = self.container.display_objects().get(display_id) {
+                        display_object.place_frame() > frame
+                    } else {
+                        false
+                    }
+                })
+                .map(|display_id| {
                     self.container
                         .display_objects()
-                        .get(clip)
+                        .get(display_id)
                         .unwrap()
-                        .place_frame()
-                        > frame
+                        .depth()
                 })
-                .map(|clip| self.container.display_objects().get(clip).unwrap().depth())
                 .collect();
 
             for child in children {
@@ -446,7 +473,9 @@ impl MovieClip {
             }
         }
         let movie = self.movie();
-        let mut run_goto_command = |clip: &mut MovieClip, params: &GotoPlaceObject<'_>| {
+        let run_goto_command = |clip: &mut MovieClip,
+                                params: &GotoPlaceObject<'_>,
+                                library: &mut MovieLibrary| {
             let child_entry = clip.child_by_depth(params.depth());
 
             if movie.is_action_script_3() && is_implicit && child_entry.is_none() {
@@ -476,6 +505,7 @@ impl MovieClip {
                     if let Some(mut child) =
                         clip.instantiate_child(id, params.depth(), &params.place_object, library)
                     {
+                        dbg!(child.character_id());
                         // Set the place frame to the frame where the object *would* have been placed.
                         child.set_place_frame(params.frame);
                     }
@@ -491,20 +521,20 @@ impl MovieClip {
         goto_commands
             .iter()
             .filter(|params| params.frame < frame)
-            .for_each(|goto| run_goto_command(self, goto));
+            .for_each(|goto| run_goto_command(self, goto, library));
+        // TODO: 会导致跳过第一帧，待修复，暂时不用
+        if hit_target_frame {
+            self.current_frame -= 1;
+            self.tag_stream_pos = frame_pos;
+            self.run_frame_internal(library, false, self.movie().is_action_script_3());
+        } else {
+            self.current_frame = clamped_frame;
+        }
 
-        // if hit_target_frame {
-        //     self.current_frame -= 1;
-        //     self.tag_stream_pos = frame_pos;
-        //     self.run_frame_internal(library, self.movie().is_action_script_3());
-        // } else {
-        //     self.current_frame = clamped_frame;
-        // }
-
-        // goto_commands
-        //     .iter()
-        //     .filter(|params| params.frame >= frame)
-        //     .for_each(|goto| run_goto_command(self, goto));
+        goto_commands
+            .iter()
+            .filter(|params| params.frame >= frame)
+            .for_each(|goto| run_goto_command(self, goto, library));
     }
 
     #[inline]
@@ -633,7 +663,7 @@ impl TDisplayObject for MovieClip {
         // }
         if self.movie().is_action_script_3() {
             if is_playing {
-                self.run_frame_internal(library, true);
+                self.run_frame_internal(library, true, true);
             }
             let place_actions = self.unqueue_adds();
 
