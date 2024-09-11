@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
-use bevy::{
-    asset::Handle,
-    log::info,
-    prelude::{Image, Mesh},
-};
+use bevy::{asset::Handle, log::info, prelude::Mesh};
 use ruffle_render::transform::Transform;
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
-use crate::swf::{library::MovieLibrary, tag_utils::SwfMovie};
+use crate::{
+    render::material::GradientMaterial,
+    swf::{library::MovieLibrary, tag_utils::SwfMovie},
+};
 
 use super::{DisplayObjectBase, TDisplayObject};
 
@@ -26,7 +25,7 @@ pub struct Graphic {
     pub bounds: Rectangle<Twips>,
     base: DisplayObjectBase,
     swf_movie: Arc<SwfMovie>,
-    texture: Option<Handle<Image>>,
+    gradient_mesh: Vec<(Handle<Mesh>, Handle<GradientMaterial>)>,
     mesh: Option<Handle<Mesh>>,
     status: GraphicStatus,
 }
@@ -40,13 +39,17 @@ impl Graphic {
             shape,
             base: DisplayObjectBase::default(),
             swf_movie,
-            texture: None,
+            gradient_mesh: Vec::new(),
             mesh: None,
             status: GraphicStatus::Place,
         }
     }
-    pub fn set_texture(&mut self, texture: Handle<Image>) {
-        self.texture = Some(texture);
+    pub fn add_gradient_mesh(
+        &mut self,
+        mesh: Handle<Mesh>,
+        gradient_material: Handle<GradientMaterial>,
+    ) {
+        self.gradient_mesh.push((mesh, gradient_material));
     }
 
     pub fn set_mesh(&mut self, mesh: Handle<Mesh>) {
@@ -59,6 +62,10 @@ impl Graphic {
 
     pub fn mesh(&self) -> Option<Handle<Mesh>> {
         self.mesh.clone()
+    }
+
+    pub fn gradient_mesh(&self) -> &Vec<(Handle<Mesh>, Handle<GradientMaterial>)> {
+        &self.gradient_mesh
     }
 
     pub fn status(&self) -> GraphicStatus {
@@ -89,6 +96,7 @@ impl TDisplayObject for Graphic {
             self.shape = new_graphic.shape;
             self.bounds = new_graphic.bounds;
             self.mesh = new_graphic.mesh;
+            self.gradient_mesh = new_graphic.gradient_mesh;
             self.status = GraphicStatus::Replace;
         } else {
             dbg!("PlaceObject: expected Graphic at character ID {}", id);

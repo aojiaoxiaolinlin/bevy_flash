@@ -1,5 +1,6 @@
 use crate::assets::{SwfLoader, SwfMovie};
 use crate::bundle::Swf;
+use crate::render::material::{Gradient, GradientMaterial};
 use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
@@ -15,8 +16,6 @@ use bevy::prelude::{
 };
 use bevy::render::mesh::{Indices, VertexAttributeValues};
 use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::view::{check_visibility, VisibilitySystems};
-use bevy::sprite::{ColorMaterial, Mesh2d};
 use bevy::time::{Time, Timer, TimerMode};
 use bevy::{
     app::{Plugin, Update},
@@ -24,10 +23,10 @@ use bevy::{
     prelude::{Res, ResMut},
 };
 use copyless::VecHelper;
-use glam::Vec2;
+use glam::{Mat3, Mat4, Vec2};
 use ruffle_render::tessellator::DrawType;
+use ruffle_render_wgpu::GradientUniforms;
 use swf::GradientInterpolation;
-use wgpu::hal::auxil::db;
 use wgpu::PrimitiveTopology;
 
 /// 制作多大得渐变纹理，越大细节越丰富，但是内存占用也越大
@@ -58,6 +57,8 @@ fn pre_parse(
     mut swf_events: EventReader<AssetEvent<SwfMovie>>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut gradient_materials: ResMut<Assets<GradientMaterial>>,
 ) {
     for event in swf_events.read() {
         match event {
@@ -80,6 +81,9 @@ fn pre_parse(
                                     shape_tessellator.tessellate_shape((&graphic.shape).into());
 
                                 let gradients = lyon_mesh.gradients;
+
+                                let mut gradients_texture = Vec::new();
+
                                 for gradient in gradients {
                                     let colors = if gradient.records.is_empty() {
                                         vec![0; GRADIENT_SIZE * 4]
@@ -88,7 +92,7 @@ fn pre_parse(
                                         let convert = if gradient.interpolation
                                             == GradientInterpolation::LinearRgb
                                         {
-                                            |color| Srgba::gamma_function(color / 255.0) * 255.0
+                                            |color| color
                                         } else {
                                             |color| color
                                         };
@@ -144,7 +148,7 @@ fn pre_parse(
                                         colors
                                     };
 
-                                    let _texture = Image::new(
+                                    let texture = Image::new(
                                         wgpu::Extent3d {
                                             width: GRADIENT_SIZE as u32,
                                             height: 1,
@@ -155,6 +159,9 @@ fn pre_parse(
                                         wgpu::TextureFormat::Rgba8Unorm,
                                         RenderAssetUsages::default(),
                                     );
+
+                                    let gradient_uniforms = GradientUniforms::from(gradient);
+                                    gradients_texture.push((texture.clone(), gradient_uniforms));
                                 }
 
                                 let _center: Vec2 = Vec2::new(
@@ -169,29 +176,65 @@ fn pre_parse(
                                 let mut result_colors = Vec::new();
                                 let mut result_indices = Vec::new();
                                 let mut vertex_num = 0;
+
                                 for draw in lyon_mesh.draws {
-                                    if matches!(draw.draw_type, DrawType::Color) {
-                                        // let mut positions = Vec::with_capacity(draw.vertices.len());
-                                        // let mut colors = Vec::with_capacity(draw.vertices.len());
-                                        let current_vertex_num = draw.vertices.len() as u32;
-                                        for vertex in draw.vertices {
-                                            // 平移顶点使得中心点在bevy原点
-                                            // positions.alloc().init([vertex.x, vertex.y, 0.0]);
-                                            result_positions.push([vertex.x, vertex.y, 0.0]);
-                                            let linear_color = Color::srgba_u8(
-                                                vertex.color.r,
-                                                vertex.color.g,
-                                                vertex.color.b,
-                                                vertex.color.a,
-                                            )
-                                            .to_linear();
-                                            // colors.alloc().init(linear_color.to_f32_array());
-                                            result_colors.push(linear_color.to_f32_array());
+                                    match draw.draw_type {
+                                        DrawType::Color => {
+                                            let current_vertex_num = draw.vertices.len() as u32;
+                                            for vertex in draw.vertices {
+                                                // 平移顶点使得中心点在bevy原点
+                                                // positions.alloc().init([vertex.x, vertex.y, 0.0]);
+                                                result_positions.push([vertex.x, vertex.y, 0.0]);
+                                                let linear_color = Color::srgba_u8(
+                                                    vertex.color.r,
+                                                    vertex.color.g,
+                                                    vertex.color.b,
+                                                    vertex.color.a,
+                                                )
+                                                .to_linear();
+                                                // colors.alloc().init(linear_color.to_f32_array());
+                                                result_colors.push(linear_color.to_f32_array());
+                                            }
+                                            draw.indices.iter().for_each(|index| {
+                                                result_indices.push(*index + vertex_num);
+                                            });
+                                            vertex_num += current_vertex_num;
                                         }
-                                        draw.indices.iter().for_each(|index| {
-                                            result_indices.push(*index + vertex_num);
-                                        });
-                                        vertex_num += current_vertex_num;
+                                        DrawType::Gradient { matrix, gradient } => {
+                                            let mut positions =
+                                                Vec::with_capacity(draw.vertices.len());
+                                            for vertex in draw.vertices {
+                                                positions.alloc().init([vertex.x, vertex.y, 0.0]);
+                                            }
+                                            let mut mesh = Mesh::new(
+                                                PrimitiveTopology::TriangleList,
+                                                RenderAssetUsages::default(),
+                                            );
+                                            mesh.insert_attribute(
+                                                Mesh::ATTRIBUTE_POSITION,
+                                                positions,
+                                            );
+                                            mesh.insert_indices(Indices::U32(draw.indices));
+                                            flip_mesh_vertically(&mut mesh);
+                                            let texture =
+                                                gradients_texture.get(gradient).unwrap().clone();
+                                            graphic.add_gradient_mesh(
+                                                meshes.add(mesh),
+                                                gradient_materials.add(GradientMaterial {
+                                                    gradient: Gradient {
+                                                        focal_point: texture.1.focal_point,
+                                                        interpolation: texture.1.interpolation,
+                                                        shape: texture.1.shape,
+                                                        repeat: texture.1.repeat,
+                                                    },
+                                                    texture_transform: Mat4::from_mat3(
+                                                        Mat3::from_cols_array_2d(&matrix),
+                                                    ),
+                                                    texture: Some(images.add(texture.0)),
+                                                }),
+                                            );
+                                        }
+                                        _ => {}
                                     }
                                 }
                                 let mut mesh = Mesh::new(

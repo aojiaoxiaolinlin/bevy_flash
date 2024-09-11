@@ -1,10 +1,11 @@
 use bevy::{
     app::{App, Startup},
     asset::AssetServer,
-    prelude::{Camera2dBundle, Commands, Msaa, Res},
+    prelude::{Camera2dBundle, Commands, Msaa, Res, SpatialBundle, Transform},
     DefaultPlugins,
 };
 use bevy_flash::{bundle::SwfBundle, plugin::FlashPlugin};
+use glam::Vec3;
 
 fn main() {
     App::new()
@@ -25,7 +26,14 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         // swf_handle: assert_server.load("head.swf"),
         // swf_handle: assert_server.load("spirit2158src.swf"),
         swf_handle: assert_server.load("tou.swf"),
+        // swf_handle: assert_server.load("frame_animation.swf"),
+        // swf_handle: assert_server.load("gradient.swf"),
         // swf_handle: assert_server.load("weiba.swf"),
+        // swf_handle: assert_server.load("spirit1src.swf"),
+        spatial: SpatialBundle {
+            transform: Transform::from_scale(Vec3::splat(1.0)),
+            ..Default::default()
+        },
         ..Default::default()
     });
 }

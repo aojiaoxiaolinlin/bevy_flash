@@ -1,0 +1,124 @@
+#import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
+
+struct Gradient {
+    focal_point: f32,
+    interpolation: i32,
+    shape: i32,
+    repeat: i32,
+}
+
+@group(2) @binding(0) var<uniform> gradient: Gradient;
+@group(2) @binding(1) var texture: texture_2d<f32>;
+@group(2) @binding(2) var texture_sampler: sampler;
+@group(2) @binding(3) var<uniform> texture_transform: mat4x4<f32>;
+// struct Vertex {
+//     @builtin(instance_index) instance_index: u32,
+//     @location(0) position: vec3<f32>,
+// }
+struct Vertex {
+    @builtin(instance_index) instance_index: u32,
+#ifdef VERTEX_POSITIONS
+    @location(0) position: vec3<f32>,
+#endif
+#ifdef VERTEX_NORMALS
+    @location(1) normal: vec3<f32>,
+#endif
+#ifdef VERTEX_UVS
+    @location(2) uv: vec2<f32>,
+#endif
+#ifdef VERTEX_TANGENTS
+    @location(3) tangent: vec4<f32>,
+#endif
+#ifdef VERTEX_COLORS
+    @location(4) color: vec4<f32>,
+#endif
+};
+
+
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+    var position: vec3<f32>;
+#ifdef VERTEX_POSITIONS
+    var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    out.world_position = mesh_functions::mesh2d_position_local_to_world(
+        world_from_local,
+        vec4<f32>(vertex.position, 1.0)
+    );
+    out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
+#endif
+    out.uv = (mat3x3<f32>(texture_transform[0].xyz, texture_transform[1].xyz, texture_transform[2].xyz) * vec3<f32>(vertex.position.x, -vertex.position.y, 1.0)).xy;
+    return out;
+}
+
+fn find_t(uv: vec2<f32>) -> f32 {
+    if gradient.shape == 1 {
+        // linear
+        return uv.x;
+    } if gradient.shape == 2 {
+        // radial
+        return length(uv * 2.0 - 1.0);
+    } else {
+        // focal
+        let uv = uv * 2.0 - 1.0;
+        var d: vec2<f32> = vec2<f32>(gradient.focal_point, 0.0) - uv;
+        let l = length(d);
+        d = d / l;
+        return l / (sqrt(1.0 - gradient.focal_point * gradient.focal_point * d.y * d.y) + gradient.focal_point * d.x);
+    }
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    var t: f32 = find_t(in.uv);
+    if gradient.repeat == 1 {
+        // Pad
+        t = saturate(t);
+    } else if gradient.repeat == 2 {
+        // Reflect
+        if t < 0.0 {
+            t = -t;
+        }
+        if (i32(t) & 1) == 0 {
+            t = fract(t);
+        } else {
+            t = 1.0 - fract(t);
+        }
+    } else if gradient.repeat == 3 {
+        // Repeat
+        t = fract(t);
+    }
+    var color = textureSample(texture, texture_sampler, vec2<f32>(t, 0.0));
+    if gradient.interpolation == 0 {
+        color = common__srgb_to_linear(color);
+    }
+    // let out = saturate(color * transforms.mult_color + transforms.add_color);
+    // let alpha = saturate(out.a);
+    // return vec4<f32>(out.rgb * alpha, alpha);
+    // return vec4<f32>(t, 0.0, 0.0, 1.0);
+    return color;
+}
+
+/// Converts a color from linear to sRGB color space.
+fn common__linear_to_srgb(linear_: vec4<f32>) -> vec4<f32> {
+    var rgb: vec3<f32> = linear_.rgb;
+    if linear_.a > 0.0 {
+        rgb = rgb / linear_.a;
+    }
+    let a = 12.92 * rgb;
+    let b = 1.055 * pow(rgb, vec3<f32>(1.0 / 2.4)) - 0.055;
+    let c = step(vec3<f32>(0.0031308), rgb);
+    return vec4<f32>(mix(a, b, c) * linear_.a, linear_.a);
+}
+
+/// Converts a color from sRGB to linear color space.
+fn common__srgb_to_linear(srgb: vec4<f32>) -> vec4<f32> {
+    var rgb: vec3<f32> = srgb.rgb;
+    if srgb.a > 0.0 {
+        rgb = rgb / srgb.a;
+    }
+    let a = rgb / 12.92;
+    let b = pow((rgb + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    let c = step(vec3<f32>(0.04045), rgb);
+    return vec4<f32>(mix(a, b, c) * srgb.a, srgb.a);
+}

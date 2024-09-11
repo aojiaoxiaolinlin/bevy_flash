@@ -1,6 +1,7 @@
 {
   "cSpell.words": [
     "bitflags",
+    "bytemuck",
     "copyless",
     "despawn",
     "lerp",
@@ -10,6 +11,7 @@
     "pval",
     "repr",
     "smallvec",
+    "srgb",
     "srgba",
     "subslice",
     "Tessellator",
@@ -20,6 +22,7 @@
     "unqueue",
     "Wgpu",
     "wgsl",
-    "Winit"
+    "Winit",
+    "Zeroable"
   ]
 }

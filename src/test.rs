@@ -7,6 +7,7 @@ use bevy::{
     winit::WinitPlugin,
     DefaultPlugins,
 };
+use glam::Mat4;
 
 pub fn test_app() -> App {
     let mut app = App::new();
@@ -28,7 +29,7 @@ pub fn test_app() -> App {
 }
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(SwfBundle {
-        swf: assert_server.load("head.swf"),
+        swf_handle: assert_server.load("head.swf"),
         ..Default::default()
     });
 }

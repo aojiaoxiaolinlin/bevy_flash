@@ -2,16 +2,21 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use bevy::{
     app::{App, Plugin, PostUpdate},
-    asset::{Assets, Handle},
+    asset::{load_internal_asset, Assets, Handle},
     ecs::entity::EntityHashMap,
     log::info,
-    prelude::{Commands, Component, Entity, Gizmos, Local, Mesh, Query, ResMut, Shader, Transform},
+    prelude::{
+        BuildChildren, Commands, Component, DespawnRecursiveExt, Entity, Gizmos, Local, Mesh,
+        Query, ResMut, Shader, Transform, With,
+    },
+    render::texture,
     sprite::{
         ColorMaterial, ColorMesh2dBundle, Material2d, Material2dPlugin, MaterialMesh2dBundle,
         Mesh2dHandle,
     },
 };
 use glam::{Quat, Vec3};
+use material::GradientMaterial;
 use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::{
@@ -19,18 +24,16 @@ use crate::{
     swf::display_object::{graphic::GraphicStatus, render_base, DisplayObject, TDisplayObject},
 };
 
-/// 使用UUID指定,SWF着色器Handle
-// pub const SWF_GRAPHIC_HANDLE: Handle<Shader> =
-//     Handle::weak_from_u128(251354789657743035148351631714426867038);
 pub(crate) mod commands;
+pub(crate) mod material;
 mod pipeline;
 pub(crate) mod tessellator;
-
 pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, render_swf);
+        app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
+            .add_systems(PostUpdate, render_swf);
     }
 }
 
@@ -38,9 +41,8 @@ pub fn render_swf(
     mut commands: Commands,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut query: Query<&mut Swf>,
-    mut mesh_query: Query<&mut Mesh2dHandle>,
     mut gizmos: Gizmos,
-    mut entities: Local<Vec<Entity>>,
+    entities_query: Query<Entity, With<Mesh2dHandle>>,
 ) {
     query.iter_mut().for_each(|mut swf| {
         let render_list = swf.root_movie_clip.raw_container().render_list();
@@ -48,14 +50,15 @@ pub fn render_swf(
             .root_movie_clip
             .raw_container_mut()
             .display_objects_mut();
+        entities_query.iter().for_each(|entity| {
+            commands.entity(entity).despawn();
+        });
         handler_render_list(
             &mut commands,
             &mut materials,
-            &mut mesh_query,
             render_list,
             display_objects,
             &mut gizmos,
-            &mut entities,
         );
     });
 }
@@ -63,16 +66,13 @@ pub fn render_swf(
 pub fn handler_render_list(
     commands: &mut Commands,
     materials: &mut ResMut<Assets<ColorMaterial>>,
-    mesh_query: &mut Query<&mut Mesh2dHandle>,
     render_list: Arc<Vec<u128>>,
     display_objects: &mut BTreeMap<u128, DisplayObject>,
     gizmos: &mut Gizmos,
-    entities: &mut Vec<Entity>,
 ) {
-    entities.iter().for_each(|entity| {
-        commands.entity(*entity).despawn();
-    });
-    entities.clear();
+    if render_list.len() == 2 {
+        dbg!("render_list.len() == 2");
+    }
     for display_object in render_list.iter() {
         if let Some(display_object) = display_objects.get_mut(display_object) {
             match display_object {
@@ -118,13 +118,26 @@ pub fn handler_render_list(
                         // }
                         let base_transform: Transform =
                             SWFTransform(graphic.base().transform().clone()).into();
-                        let entity = commands.spawn(ColorMesh2dBundle {
+                        commands.spawn(ColorMesh2dBundle {
                             mesh: mesh.into(),
                             material: materials.add(ColorMaterial::default()),
                             transform: base_transform,
                             ..Default::default()
                         });
-                        entities.push(entity.id());
+                        let mut i = 0.0;
+                        for (mesh_handle, material) in graphic.gradient_mesh() {
+                            commands.spawn(MaterialMesh2dBundle {
+                                mesh: mesh_handle.clone().into(),
+                                material: material.clone(),
+                                transform: base_transform.with_translation(Vec3::new(
+                                    0.0,
+                                    0.0,
+                                    i + 0.1,
+                                )),
+                                ..Default::default()
+                            });
+                            i += 0.1;
+                        }
                         // let status = graphic.status();
                         // match status {
                         //     GraphicStatus::Place => {
@@ -147,11 +160,9 @@ pub fn handler_render_list(
                     handler_render_list(
                         commands,
                         materials,
-                        mesh_query,
                         movie_clip.raw_container().render_list(),
                         movie_clip.raw_container_mut().display_objects_mut(),
                         gizmos,
-                        entities,
                     );
                 }
             }

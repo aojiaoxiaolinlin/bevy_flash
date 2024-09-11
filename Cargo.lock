@@ -563,6 +563,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "bitflags 2.6.0",
+ "bytemuck",
  "copyless",
  "fnv",
  "glam",

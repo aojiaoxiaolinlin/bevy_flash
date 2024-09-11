@@ -1,7 +1,7 @@
 use std::{cmp::max, collections::HashMap, sync::Arc, usize};
 
 use anyhow::anyhow;
-use bevy::log::info;
+use bevy::log::{error, info};
 use bitflags::bitflags;
 
 use ruffle_render::transform::Transform;
@@ -223,9 +223,7 @@ impl MovieClip {
     ) {
         let next_frame: NextFrame = self.determine_next_frame();
         match next_frame {
-            NextFrame::Next => {
-                info!("current frame:{}", self.current_frame);
-            }
+            NextFrame::Next => {}
             NextFrame::First => {
                 return self.run_goto(library, 1, true);
             }
@@ -247,6 +245,12 @@ impl MovieClip {
                 TagCode::PlaceObject4 if run_display_actions && !is_action_script_3 => {
                     self.place_object(library, reader, 4)
                 }
+                TagCode::RemoveObject if run_display_actions && !is_action_script_3 => {
+                    self.remove_object(reader, 1)
+                }
+                TagCode::RemoveObject2 if run_display_actions && !is_action_script_3 => {
+                    self.remove_object(reader, 2)
+                }
                 TagCode::PlaceObject if run_display_actions && is_action_script_3 => {
                     self.queue_place_object(reader, 1)
                 }
@@ -259,7 +263,12 @@ impl MovieClip {
                 TagCode::PlaceObject4 if run_display_actions && is_action_script_3 => {
                     self.queue_place_object(reader, 4)
                 }
-
+                TagCode::RemoveObject if run_display_actions && is_action_script_3 => {
+                    self.queue_remove_object(reader, 1)
+                }
+                TagCode::RemoveObject2 if run_display_actions && is_action_script_3 => {
+                    self.queue_remove_object(reader, 2)
+                }
                 // TagCode::SetBackgroundColor => self.set_background_color(library, reader),
                 TagCode::ShowFrame => return Ok(ControlFlow::Exit),
                 _ => Ok(()),
@@ -268,6 +277,21 @@ impl MovieClip {
         };
         let _ = tag_utils::decode_tags(&mut reader, tag_callback);
         let tag_stream_start = self.swf.as_ref().as_ptr() as u64;
+
+        let remove_actions = self.unqueue_removes();
+
+        for (_, tag) in remove_actions {
+            let mut reader = data.read_from(tag.tag_start);
+            let version = match tag.tag_type {
+                QueuedTagAction::Remove(v) => v,
+                _ => unreachable!(),
+            };
+
+            if let Err(e) = self.remove_object(&mut reader, version) {
+                error!("Error running queued tag: {:?}, got {}", tag.tag_type, e);
+            }
+        }
+
         self.tag_stream_pos = reader.get_ref().as_ptr() as u64 - tag_stream_start;
         if matches!(next_frame, NextFrame::Next) && is_action_script_3 {
             self.current_frame += 1;
@@ -288,11 +312,9 @@ impl MovieClip {
         }?;
         match place_object.action {
             PlaceObjectAction::Place(id) => {
-                dbg!(id);
                 self.instantiate_child(id, place_object.depth, &place_object, library);
             }
             PlaceObjectAction::Replace(id) => {
-                dbg!(id);
                 let swf = self.swf.clone();
                 let current_frame = self.current_frame;
                 if let Some(child) = self.child_by_depth(place_object.depth.into()) {
@@ -333,6 +355,44 @@ impl MovieClip {
             .entry(place_object.depth as Depth)
             .or_insert_with(|| QueuedTagList::None);
         bucket.queue_add(new_tag);
+        Ok(())
+    }
+
+    #[inline]
+    fn remove_object(&mut self, reader: &mut SwfStream, version: SwfVersion) -> Result<(), Error> {
+        let remove_object = if version == 1 {
+            reader.read_remove_object_1()
+        } else {
+            reader.read_remove_object_2()
+        }?;
+        if let Some(child) = self.child_by_depth(remove_object.depth.into()) {
+            self.raw_container_mut()
+                .remove_child(remove_object.depth.into());
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn queue_remove_object(
+        &mut self,
+        reader: &mut SwfStream,
+        version: SwfVersion,
+    ) -> Result<(), Error> {
+        let tag_start = reader.get_ref().as_ptr() as u64 - self.swf.as_ref().as_ptr() as u64;
+        let remove_object = if version == 1 {
+            reader.read_remove_object_1()
+        } else {
+            reader.read_remove_object_2()
+        }?;
+        let new_tag = QueuedTag {
+            tag_type: QueuedTagAction::Remove(version),
+            tag_start,
+        };
+        let bucket = self
+            .queued_tags
+            .entry(remove_object.depth as Depth)
+            .or_insert_with(|| QueuedTagList::None);
+        bucket.queue_remove(new_tag);
         Ok(())
     }
 
@@ -383,7 +443,7 @@ impl MovieClip {
     }
 
     pub fn run_goto(&mut self, library: &mut MovieLibrary, frame: FrameNumber, is_implicit: bool) {
-        let frame_before_rewind = self.current_frame;
+        // let frame_before_rewind = self.current_frame;
         let mut goto_commands: Vec<GotoPlaceObject> = Vec::new();
 
         let is_rewind = if frame <= self.current_frame {
@@ -423,22 +483,20 @@ impl MovieClip {
                         index += 1;
                         self.goto_place_object(reader, 4, &mut goto_commands, is_rewind, index)
                     }
-                    // TagCode::RemoveObject => self.goto_remove_object(
-                    //     reader,
-                    //     1,
-                    //     &mut goto_commands,
-                    //     is_rewind,
-                    //     from_frame,
-                    //     &mut removed_frame_scripts,
-                    // ),
-                    // TagCode::RemoveObject2 => self.goto_remove_object(
-                    //     reader,
-                    //     2,
-                    //     &mut goto_commands,
-                    //     is_rewind,
-                    //     from_frame,
-                    //     &mut removed_frame_scripts,
-                    // ),
+                    TagCode::RemoveObject => self.goto_remove_object(
+                        reader,
+                        1,
+                        &mut goto_commands,
+                        is_rewind,
+                        from_frame,
+                    ),
+                    TagCode::RemoveObject2 => self.goto_remove_object(
+                        reader,
+                        2,
+                        &mut goto_commands,
+                        is_rewind,
+                        from_frame,
+                    ),
                     TagCode::ShowFrame => return Ok(ControlFlow::Exit),
                     _ => Ok(()),
                 }?;
@@ -569,6 +627,39 @@ impl MovieClip {
         Ok(())
     }
 
+    #[inline]
+    fn goto_remove_object(
+        &mut self,
+        reader: &mut SwfStream,
+        version: SwfVersion,
+        goto_commands: &mut Vec<GotoPlaceObject>,
+        is_rewind: bool,
+        from_frame: FrameNumber,
+    ) -> Result<(), Error> {
+        let remove_object = if version == 1 {
+            reader.read_remove_object_1()
+        } else {
+            reader.read_remove_object_2()
+        }?;
+        let depth: Depth = remove_object.depth.into();
+        if let Some(i) = goto_commands.iter().position(|o| o.depth() == depth) {
+            goto_commands.swap_remove(i);
+        }
+        if is_rewind {
+            let to_frame = self.current_frame;
+            self.current_frame = from_frame;
+
+            let child = self.child_by_depth(depth);
+
+            if let Some(child) = child {
+                let depth = child.depth();
+                self.raw_container_mut().remove_child(depth);
+            }
+            self.current_frame = to_frame;
+        }
+        Ok(())
+    }
+
     fn playing(&self) -> bool {
         self.flags.contains(MovieClipFlags::PLAYING)
     }
@@ -587,6 +678,21 @@ impl MovieClip {
             .filter_map(|(d, b)| b.unqueue_add().map(|b| (*d, b)))
             .collect();
         unqueued.sort_by(|(_, t1), (_, t2)| t1.tag_start.cmp(&t2.tag_start));
+        for (depth, _tag) in unqueued.iter() {
+            if matches!(self.queued_tags.get(depth), Some(QueuedTagList::None)) {
+                self.queued_tags.remove(depth);
+            }
+        }
+        unqueued
+    }
+    fn unqueue_removes(&mut self) -> Vec<(Depth, QueuedTag)> {
+        let mut unqueued: Vec<_> = self
+            .queued_tags
+            .iter_mut()
+            .filter_map(|(d, b)| b.unqueue_remove().map(|b| (*d, b)))
+            .collect();
+        unqueued.sort_by(|(_, t1), (_, t2)| t1.tag_start.cmp(&t2.tag_start));
+
         for (depth, _tag) in unqueued.iter() {
             if matches!(self.queued_tags.get(depth), Some(QueuedTagList::None)) {
                 self.queued_tags.remove(depth);
@@ -674,7 +780,7 @@ impl TDisplayObject for MovieClip {
                     _ => unreachable!(),
                 };
                 if let Err(e) = self.place_object(library, &mut reader, version) {
-                    dbg!("Error placing object: {:?}", e);
+                    info!("Error placing object: {:?}", e);
                 }
             }
         }
