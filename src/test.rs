@@ -7,7 +7,6 @@ use bevy::{
     winit::WinitPlugin,
     DefaultPlugins,
 };
-use glam::Mat4;
 
 pub fn test_app() -> App {
     let mut app = App::new();

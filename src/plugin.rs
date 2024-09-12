@@ -5,11 +5,11 @@ use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
 use crate::swf::display_object::movie_clip::MovieClip;
-use crate::swf::display_object::TDisplayObject;
+use crate::swf::display_object::{render_base, TDisplayObject};
 use crate::swf::library::MovieLibrary;
 use bevy::app::App;
 use bevy::asset::{AssetEvent, Handle};
-use bevy::color::{Color, ColorToComponents, Srgba};
+use bevy::color::{Color, ColorToComponents};
 use bevy::log::info;
 use bevy::prelude::{
     Commands, Entity, EventReader, Image, IntoSystemConfigs, Mesh, Query, Resource,
@@ -25,6 +25,7 @@ use bevy::{
 use copyless::VecHelper;
 use glam::{Mat3, Mat4, Vec2};
 use ruffle_render::tessellator::DrawType;
+use ruffle_render::transform::Transform;
 use ruffle_render_wgpu::GradientUniforms;
 use swf::GradientInterpolation;
 use wgpu::PrimitiveTopology;
@@ -164,19 +165,10 @@ fn pre_parse(
                                     gradients_texture.push((texture.clone(), gradient_uniforms));
                                 }
 
-                                let _center: Vec2 = Vec2::new(
-                                    (graphic.bounds.x_max + graphic.bounds.x_min).to_pixels()
-                                        as f32
-                                        / 2.,
-                                    (graphic.bounds.y_max + graphic.bounds.y_min).to_pixels()
-                                        as f32
-                                        / 2.,
-                                );
                                 let mut result_positions = Vec::new();
                                 let mut result_colors = Vec::new();
                                 let mut result_indices = Vec::new();
                                 let mut vertex_num = 0;
-
                                 for draw in lyon_mesh.draws {
                                     match draw.draw_type {
                                         DrawType::Color => {
@@ -215,7 +207,6 @@ fn pre_parse(
                                                 positions,
                                             );
                                             mesh.insert_indices(Indices::U32(draw.indices));
-                                            flip_mesh_vertically(&mut mesh);
                                             let texture =
                                                 gradients_texture.get(gradient).unwrap().clone();
                                             graphic.add_gradient_mesh(
@@ -231,6 +222,7 @@ fn pre_parse(
                                                         Mat3::from_cols_array_2d(&matrix),
                                                     ),
                                                     texture: Some(images.add(texture.0)),
+                                                    ..Default::default()
                                                 }),
                                             );
                                         }
@@ -245,7 +237,7 @@ fn pre_parse(
                                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, result_colors);
                                 mesh.insert_indices(Indices::U32(result_indices));
 
-                                flip_mesh_vertically(&mut mesh);
+                                // flip_mesh_vertically(&mut mesh);
                                 let mesh_handle = meshes.add(mesh);
                                 graphic.set_mesh(mesh_handle);
                             }
@@ -277,10 +269,6 @@ fn enter_frame(
                 swf.root_movie_clip
                     .enter_frame(&mut swf_movie.movie_library);
             }
-            // render_base(
-            //     swf_movie.root_movie_clip.clone().into(),
-            //     RuffleTransform::default(),
-            // );
         }
     }
 }

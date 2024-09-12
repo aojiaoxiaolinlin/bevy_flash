@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bevy::{asset::Handle, log::info, prelude::Mesh};
+use bevy::{asset::Handle, prelude::Mesh};
 use ruffle_render::transform::Transform;
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
@@ -12,13 +12,6 @@ use crate::{
 use super::{DisplayObjectBase, TDisplayObject};
 
 #[derive(Clone)]
-pub enum GraphicStatus {
-    Normal,
-    Place,
-    Replace,
-}
-
-#[derive(Clone)]
 pub struct Graphic {
     pub id: CharacterId,
     pub shape: Shape,
@@ -27,12 +20,10 @@ pub struct Graphic {
     swf_movie: Arc<SwfMovie>,
     gradient_mesh: Vec<(Handle<Mesh>, Handle<GradientMaterial>)>,
     mesh: Option<Handle<Mesh>>,
-    status: GraphicStatus,
 }
 
 impl Graphic {
     pub fn from_swf_tag(shape: Shape, swf_movie: Arc<SwfMovie>) -> Self {
-        info!("Graphic::from_swf_tag:{}", shape.id);
         Self {
             id: shape.id,
             bounds: shape.shape_bounds.clone(),
@@ -41,7 +32,6 @@ impl Graphic {
             swf_movie,
             gradient_mesh: Vec::new(),
             mesh: None,
-            status: GraphicStatus::Place,
         }
     }
     pub fn add_gradient_mesh(
@@ -56,20 +46,12 @@ impl Graphic {
         self.mesh = Some(mesh);
     }
 
-    pub fn set_status(&mut self, status: GraphicStatus) {
-        self.status = status;
-    }
-
     pub fn mesh(&self) -> Option<Handle<Mesh>> {
         self.mesh.clone()
     }
 
     pub fn gradient_mesh(&self) -> &Vec<(Handle<Mesh>, Handle<GradientMaterial>)> {
         &self.gradient_mesh
-    }
-
-    pub fn status(&self) -> GraphicStatus {
-        self.status.clone()
     }
 }
 
@@ -97,7 +79,6 @@ impl TDisplayObject for Graphic {
             self.bounds = new_graphic.bounds;
             self.mesh = new_graphic.mesh;
             self.gradient_mesh = new_graphic.gradient_mesh;
-            self.status = GraphicStatus::Replace;
         } else {
             dbg!("PlaceObject: expected Graphic at character ID {}", id);
         }

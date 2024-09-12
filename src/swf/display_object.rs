@@ -264,15 +264,15 @@ impl DisplayObjectBase {
         self.name = name;
     }
 
-    pub fn set_transform(&mut self, transform: Transform) {
+    fn set_transform(&mut self, transform: Transform) {
         self.transform = transform;
     }
 
-    pub fn set_depth(&mut self, depth: Depth) {
+    fn set_depth(&mut self, depth: Depth) {
         self.depth = depth;
     }
 
-    pub fn set_matrix(&mut self, matrix: Matrix) {
+    fn set_matrix(&mut self, matrix: Matrix) {
         self.transform.matrix = matrix;
     }
 

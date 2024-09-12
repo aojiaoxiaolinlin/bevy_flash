@@ -6,22 +6,18 @@ use bevy::{
     ecs::entity::EntityHashMap,
     log::info,
     prelude::{
-        BuildChildren, Commands, Component, DespawnRecursiveExt, Entity, Gizmos, Local, Mesh,
-        Query, ResMut, Shader, Transform, With,
+        BuildChildren, Commands, Component, Entity, Gizmos, Local, Mesh, Query, ResMut, Shader,
+        Transform, With,
     },
-    render::texture,
-    sprite::{
-        ColorMaterial, ColorMesh2dBundle, Material2d, Material2dPlugin, MaterialMesh2dBundle,
-        Mesh2dHandle,
-    },
+    sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
 };
-use glam::{Quat, Vec3};
-use material::GradientMaterial;
+use glam::{Mat4, Vec3};
+use material::{GradientMaterial, SWFColorMaterial, SWFTransform};
 use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::{
     bundle::Swf,
-    swf::display_object::{graphic::GraphicStatus, render_base, DisplayObject, TDisplayObject},
+    swf::display_object::{DisplayObject, TDisplayObject},
 };
 
 pub(crate) mod commands;
@@ -33,19 +29,21 @@ pub struct FlashRenderPlugin;
 impl Plugin for FlashRenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
+            .add_plugins(Material2dPlugin::<SWFColorMaterial>::default())
             .add_systems(PostUpdate, render_swf);
     }
 }
 
 pub fn render_swf(
     mut commands: Commands,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<SWFColorMaterial>>,
     mut query: Query<&mut Swf>,
     mut gizmos: Gizmos,
     entities_query: Query<Entity, With<Mesh2dHandle>>,
 ) {
     query.iter_mut().for_each(|mut swf| {
         let render_list = swf.root_movie_clip.raw_container().render_list();
+        let transform = swf.root_movie_clip.base().transform().clone();
         let display_objects = swf
             .root_movie_clip
             .raw_container_mut()
@@ -59,20 +57,19 @@ pub fn render_swf(
             render_list,
             display_objects,
             &mut gizmos,
+            &transform,
         );
     });
 }
 
 pub fn handler_render_list(
     commands: &mut Commands,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
+    materials: &mut ResMut<Assets<SWFColorMaterial>>,
     render_list: Arc<Vec<u128>>,
     display_objects: &mut BTreeMap<u128, DisplayObject>,
     gizmos: &mut Gizmos,
+    parent_transform: &RuffleTransform,
 ) {
-    if render_list.len() == 2 {
-        dbg!("render_list.len() == 2");
-    }
     for display_object in render_list.iter() {
         if let Some(display_object) = display_objects.get_mut(display_object) {
             match display_object {
@@ -116,20 +113,27 @@ pub fn handler_render_list(
                         //         return;
                         //     }
                         // }
-                        let base_transform: Transform =
-                            SWFTransform(graphic.base().transform().clone()).into();
-                        commands.spawn(ColorMesh2dBundle {
+                        let current_transform = graphic.base().transform();
+                        let transform = RuffleTransform {
+                            matrix: parent_transform.matrix * current_transform.matrix,
+                            color_transform: parent_transform.color_transform
+                                * current_transform.color_transform,
+                        };
+
+                        commands.spawn(MaterialMesh2dBundle {
                             mesh: mesh.into(),
-                            material: materials.add(ColorMaterial::default()),
-                            transform: base_transform,
+                            material: materials.add(SWFColorMaterial {
+                                transform: transform.into(),
+                            }),
                             ..Default::default()
                         });
                         let mut i = 0.0;
                         for (mesh_handle, material) in graphic.gradient_mesh() {
+                            info!("渐变渲染:{}", graphic.character_id());
                             commands.spawn(MaterialMesh2dBundle {
                                 mesh: mesh_handle.clone().into(),
                                 material: material.clone(),
-                                transform: base_transform.with_translation(Vec3::new(
+                                transform: Transform::from_translation(Vec3::new(
                                     0.0,
                                     0.0,
                                     i + 0.1,
@@ -157,12 +161,18 @@ pub fn handler_render_list(
                     }
                 }
                 DisplayObject::MovieClip(movie_clip) => {
+                    let current_transform = RuffleTransform {
+                        matrix: parent_transform.matrix * movie_clip.base().transform().matrix,
+                        color_transform: parent_transform.color_transform
+                            * movie_clip.base().transform().color_transform,
+                    };
                     handler_render_list(
                         commands,
                         materials,
                         movie_clip.raw_container().render_list(),
                         movie_clip.raw_container_mut().display_objects_mut(),
                         gizmos,
+                        &current_transform,
                     );
                 }
             }
@@ -170,21 +180,27 @@ pub fn handler_render_list(
     }
 }
 
-struct SWFTransform(RuffleTransform);
-
-impl From<SWFTransform> for Transform {
-    fn from(form: SWFTransform) -> Self {
-        let form = form.0;
-        let translation: [f32; 3] = [
-            form.matrix.tx.to_pixels() as f32,
-            form.matrix.ty.to_pixels() as f32,
-            0.0,
-        ];
-        let scale = [form.matrix.a, form.matrix.d, 1.0];
-        Self {
-            translation: Vec3::from(translation),
-            rotation: Quat::from_rotation_z(form.matrix.b.to_radians()),
-            scale: Vec3::from(scale),
-        }
-    }
-}
+// impl From<SWFTransform> for Transform {
+//     fn from(form: SWFTransform) -> Self {
+//         let matrix = form.0.matrix;
+//         Transform::from_matrix(
+//             // Mat4::from_cols_array_2d(&[
+//             //     [1.0, 0.0, 0.0, 0.0],
+//             //     [0.0, -1.0, 0.0, 0.0],
+//             //     [0.0, 0.0, 1.0, 0.0],
+//             //     [-1.0, 1.0, 0.0, 1.0],
+//             // ]) *
+//             Mat4::from_cols_array_2d(&[
+//                 [matrix.a, matrix.b, 0.0, 0.0],
+//                 [matrix.c, matrix.d, 0.0, 0.0],
+//                 [0.0, 0.0, 1.0, 0.0],
+//                 [
+//                     matrix.tx.to_pixels() as f32,
+//                     matrix.ty.to_pixels() as f32,
+//                     0.0,
+//                     1.0,
+//                 ],
+//             ]),
+//         )
+//     }
+// }

@@ -28,8 +28,6 @@ smallvec = { version = "1.13.2", features = ["union"] }
 wgpu = { version = "0.20", default-features = false }
 glam = { version = "0.27" }
 uuid = "1.10"
-weak-table = "0.3.2"
-bytemuck = "1.7"
 
 [dev-dependencies]
 bevy = { version = "0.14" }

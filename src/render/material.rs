@@ -1,21 +1,24 @@
 use bevy::{
     asset::{Asset, Handle},
-    prelude::{Image, Mesh},
+    prelude::Image,
     reflect::TypePath,
     render::render_resource::{AsBindGroup, ShaderType},
     sprite::Material2d,
 };
-use glam::Mat4;
+use glam::{Mat4, Vec4};
+use ruffle_render::transform::Transform;
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone)]
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 pub struct GradientMaterial {
     #[uniform(0)]
     pub gradient: Gradient,
-    #[uniform(3)]
-    pub texture_transform: Mat4,
     #[texture(1)]
     #[sampler(2)]
     pub texture: Option<Handle<Image>>,
+    #[uniform(3)]
+    pub texture_transform: Mat4,
+    #[uniform(4)]
+    pub transform: SWFTransform,
 }
 
 impl Material2d for GradientMaterial {
@@ -25,17 +28,6 @@ impl Material2d for GradientMaterial {
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
         "shaders/gradient.wgsl".into()
     }
-    // fn specialize(
-    //     descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-    //     layout: &bevy::render::mesh::MeshVertexBufferLayoutRef,
-    //     _key: bevy::sprite::Material2dKey<Self>,
-    // ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
-    //     let vertex_layout = layout
-    //         .0
-    //         .get_layout(&[Mesh::ATTRIBUTE_POSITION.at_shader_location(0)])?;
-    //     descriptor.vertex.buffers = vec![vertex_layout];
-    //     Ok(())
-    // }
 }
 
 #[derive(Debug, Clone, Default, ShaderType)]
@@ -46,75 +38,46 @@ pub struct Gradient {
     pub repeat: i32,
 }
 
-// impl ShaderType for Gradient {
-//     type ExtraMetadata = ();
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
+pub struct SWFColorMaterial {
+    #[uniform(0)]
+    pub transform: SWFTransform,
+}
 
-//     const METADATA: encase::private::Metadata<Self::ExtraMetadata> = {
-//         let size =
-//             encase::private::SizeValue::from(<f32 as encase::private::ShaderSize>::SHADER_SIZE)
-//                 .mul(4);
-//         let alignment = encase::private::AlignmentValue::from_next_power_of_two_size(size);
+impl Material2d for SWFColorMaterial {
+    fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
+        "shaders/color.wgsl".into()
+    }
+    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
+        "shaders/color.wgsl".into()
+    }
+}
 
-//         encase::private::Metadata {
-//             alignment,
-//             has_uniform_min_alignment: false,
-//             is_pod: true,
-//             min_size: size,
-//             extra: (),
-//         }
-//     };
+#[derive(Debug, Clone, Default, ShaderType)]
+pub struct SWFTransform {
+    world_transform: Mat4,
+    mult_color: Vec4,
+    add_color: Vec4,
+}
 
-//     const UNIFORM_COMPAT_ASSERT: fn() = || {};
-// }
-
-// impl encase::private::WriteInto for Gradient {
-//     fn write_into<B: encase::private::BufferMut>(&self, writer: &mut encase::internal::Writer<B>) {
-//         for el in &[self.focal_point, self.interpolation] {
-//             encase::private::WriteInto::write_into(el, writer)
-//         }
-//         for el in &[self.shape, self.repeat] {
-//             encase::private::WriteInto::write_into(el, writer)
-//         }
-//     }
-// }
-
-// impl encase::private::ReadFrom for Gradient {
-//     fn read_from<B>(&mut self, reader: &mut encase::internal::Reader<B>)
-//     where
-//         B: encase::internal::BufferRef,
-//     {
-//         let mut buffer = [0.0f32; 2];
-//         for el in &mut buffer {
-//             encase::private::ReadFrom::read_from(el, reader)
-//         }
-//         let mut buffer_2 = [0i32; 2];
-//         for el in &mut buffer_2 {
-//             encase::private::ReadFrom::read_from(el, reader)
-//         }
-//         *self = Gradient {
-//             focal_point: buffer[0],
-//             interpolation: buffer[1],
-//             shape: buffer_2[0],
-//             repeat: buffer_2[1],
-//         };
-//     }
-// }
-
-// impl encase::private::CreateFrom for Gradient {
-//     fn create_from<B: encase::internal::BufferRef>(
-//         reader: &mut encase::internal::Reader<B>,
-//     ) -> Self {
-//         let focal_point = encase::private::CreateFrom::create_from(reader);
-//         let interpolation = encase::private::CreateFrom::create_from(reader);
-//         let shape = encase::private::CreateFrom::create_from(reader);
-//         let repeat = encase::private::CreateFrom::create_from(reader);
-//         Gradient {
-//             focal_point,
-//             interpolation,
-//             shape,
-//             repeat,
-//         }
-//     }
-// }
-
-// impl encase::ShaderSize for Gradient {}
+impl From<Transform> for SWFTransform {
+    fn from(transform: Transform) -> Self {
+        let matrix = transform.matrix;
+        let color_transform = transform.color_transform;
+        SWFTransform {
+            world_transform: Mat4::from_cols_array_2d(&[
+                [matrix.a, matrix.b, 0.0, 0.0],
+                [matrix.c, matrix.d, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [
+                    matrix.tx.to_pixels() as f32,
+                    matrix.ty.to_pixels() as f32,
+                    0.0,
+                    1.0,
+                ],
+            ]),
+            mult_color: Vec4::from_array(color_transform.mult_rgba_normalized()),
+            add_color: Vec4::from_array(color_transform.add_rgba_normalized()),
+        }
+    }
+}

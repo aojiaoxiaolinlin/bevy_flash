@@ -365,7 +365,7 @@ impl MovieClip {
         } else {
             reader.read_remove_object_2()
         }?;
-        if let Some(child) = self.child_by_depth(remove_object.depth.into()) {
+        if let Some(_child) = self.child_by_depth(remove_object.depth.into()) {
             self.raw_container_mut()
                 .remove_child(remove_object.depth.into());
         }
