@@ -15,6 +15,7 @@
 
 - `Color`填充
 ![展示](./assets/docs/shape.png)
+
 - `Gradient`填充
 ![展示](./assets/docs/shape_gradient.png)
 
