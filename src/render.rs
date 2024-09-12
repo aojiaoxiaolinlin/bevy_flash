@@ -94,8 +94,7 @@ pub fn handler_render_list(
                                 0.0,
                                 0.0,
                                 *z_index + 0.1,
-                            ))
-                            .with_scale(Vec3::splat(8.0)),
+                            )),
                             ..Default::default()
                         });
                         *z_index += 0.1;
@@ -112,8 +111,7 @@ pub fn handler_render_list(
                                     0.0,
                                     0.0,
                                     *z_index + 0.1,
-                                ))
-                                .with_scale(Vec3::splat(8.0)),
+                                )),
                                 ..Default::default()
                             });
                             *z_index += 0.1;
