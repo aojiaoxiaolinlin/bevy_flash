@@ -20,11 +20,11 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(SwfBundle {
         // swf_handle: assert_server.load("sprite.swf"),
         // swf_handle: assert_server.load("scale.swf"),
-        swf_handle: assert_server.load("rotate.swf"),
+        // swf_handle: assert_server.load("rotate.swf"),
         // swf_handle: assert_server.load("head_scale2.swf"),
         // swf_handle: assert_server.load("head-animation.swf"),
         // swf_handle: assert_server.load("head.swf"),
-        // swf_handle: assert_server.load("spirit1src.swf"),
+        swf_handle: assert_server.load("spirit2256src.swf"),
         // swf_handle: assert_server.load("tou.swf"),
         // swf_handle: assert_server.load("frame_animation.swf"),
         // swf_handle: assert_server.load("gradient.swf"),

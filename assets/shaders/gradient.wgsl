@@ -7,10 +7,11 @@ struct Gradient {
     repeat: i32,
 }
 struct SWFTransform {
-    world_transform: Mat4,
-    mult_color: Vec4,
-    add_color: Vec4,
+    world_matrix: mat4x4<f32>,
+    muld_color: vec4<f32>,
+    add_color: vec4<f32>,
 }
+
 
 @group(2) @binding(0) var<uniform> gradient: Gradient;
 @group(2) @binding(1) var texture: texture_2d<f32>;
@@ -36,7 +37,7 @@ struct Vertex {
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     out.uv = (mat3x3<f32>(texture_transform[0].xyz, texture_transform[1].xyz, texture_transform[2].xyz) * vec3<f32>(vertex.position.x, vertex.position.y, 1.0)).xy;
-    var position: vec4<f32> = view_matrix * swf_transforms.world_transform * vec4<f32>(vertex.position, 1.0);
+    var position: vec4<f32> = view_matrix * swf_transforms.world_matrix * vec4<f32>(vertex.position, 1.0);
     var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh2d_position_local_to_world(
         world_from_local,

@@ -37,6 +37,7 @@ impl Plugin for FlashRenderPlugin {
 pub fn render_swf(
     mut commands: Commands,
     mut materials: ResMut<Assets<SWFColorMaterial>>,
+    mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut query: Query<&mut Swf>,
     mut gizmos: Gizmos,
     entities_query: Query<Entity, With<Mesh2dHandle>>,
@@ -51,13 +52,18 @@ pub fn render_swf(
         entities_query.iter().for_each(|entity| {
             commands.entity(entity).despawn();
         });
+
+        let mut z_index = 0.0;
+
         handler_render_list(
             &mut commands,
             &mut materials,
+            &mut gradient_materials,
             render_list,
             display_objects,
             &mut gizmos,
             &transform,
+            &mut z_index,
         );
     });
 }
@@ -65,10 +71,12 @@ pub fn render_swf(
 pub fn handler_render_list(
     commands: &mut Commands,
     materials: &mut ResMut<Assets<SWFColorMaterial>>,
+    gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
     render_list: Arc<Vec<u128>>,
     display_objects: &mut BTreeMap<u128, DisplayObject>,
     gizmos: &mut Gizmos,
     parent_transform: &RuffleTransform,
+    z_index: &mut f32,
 ) {
     for display_object in render_list.iter() {
         if let Some(display_object) = display_objects.get_mut(display_object) {
@@ -123,24 +131,33 @@ pub fn handler_render_list(
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: mesh.into(),
                             material: materials.add(SWFColorMaterial {
-                                transform: transform.into(),
+                                transform: transform.clone().into(),
                             }),
+                            transform: Transform::from_translation(Vec3::new(
+                                0.0,
+                                0.0,
+                                *z_index + 0.1,
+                            )),
                             ..Default::default()
                         });
-                        let mut i = 0.0;
+                        *z_index += 0.1;
                         for (mesh_handle, material) in graphic.gradient_mesh() {
-                            info!("渐变渲染:{}", graphic.character_id());
+                            if let Some(gradient_material) =
+                                gradient_materials.get_mut(material.id())
+                            {
+                                gradient_material.transform = transform.clone().into();
+                            }
                             commands.spawn(MaterialMesh2dBundle {
                                 mesh: mesh_handle.clone().into(),
                                 material: material.clone(),
                                 transform: Transform::from_translation(Vec3::new(
                                     0.0,
                                     0.0,
-                                    i + 0.1,
+                                    *z_index + 0.1,
                                 )),
                                 ..Default::default()
                             });
-                            i += 0.1;
+                            *z_index += 0.1;
                         }
                         // let status = graphic.status();
                         // match status {
@@ -169,38 +186,15 @@ pub fn handler_render_list(
                     handler_render_list(
                         commands,
                         materials,
+                        gradient_materials,
                         movie_clip.raw_container().render_list(),
                         movie_clip.raw_container_mut().display_objects_mut(),
                         gizmos,
                         &current_transform,
+                        z_index,
                     );
                 }
             }
         }
     }
 }
-
-// impl From<SWFTransform> for Transform {
-//     fn from(form: SWFTransform) -> Self {
-//         let matrix = form.0.matrix;
-//         Transform::from_matrix(
-//             // Mat4::from_cols_array_2d(&[
-//             //     [1.0, 0.0, 0.0, 0.0],
-//             //     [0.0, -1.0, 0.0, 0.0],
-//             //     [0.0, 0.0, 1.0, 0.0],
-//             //     [-1.0, 1.0, 0.0, 1.0],
-//             // ]) *
-//             Mat4::from_cols_array_2d(&[
-//                 [matrix.a, matrix.b, 0.0, 0.0],
-//                 [matrix.c, matrix.d, 0.0, 0.0],
-//                 [0.0, 0.0, 1.0, 0.0],
-//                 [
-//                     matrix.tx.to_pixels() as f32,
-//                     matrix.ty.to_pixels() as f32,
-//                     0.0,
-//                     1.0,
-//                 ],
-//             ]),
-//         )
-//     }
-// }
