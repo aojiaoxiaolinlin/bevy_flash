@@ -4,7 +4,6 @@ use anyhow::anyhow;
 use bevy::log::{error, info};
 use bitflags::bitflags;
 
-use ruffle_render::transform::Transform;
 use smallvec::SmallVec;
 use swf::{
     extensions::ReadSwfExt, read::Reader, CharacterId, Color, Depth, PlaceObjectAction, SwfStr,
@@ -788,17 +787,6 @@ impl TDisplayObject for MovieClip {
 
     fn movie(&self) -> Arc<SwfMovie> {
         self.swf.movie.clone()
-    }
-
-    fn render_self(&mut self, transform: Transform) {
-        // 影片剪辑渲染子元素
-        for child in self.raw_container().render_list().iter() {
-            self.raw_container_mut()
-                .display_objects_mut()
-                .get(child)
-                .unwrap()
-                .render(transform.clone());
-        }
     }
 }
 

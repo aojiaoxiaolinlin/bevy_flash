@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use bevy::{asset::Handle, prelude::Mesh};
-use ruffle_render::transform::Transform;
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
 use crate::{
@@ -83,6 +82,4 @@ impl TDisplayObject for Graphic {
             dbg!("PlaceObject: expected Graphic at character ID {}", id);
         }
     }
-
-    fn render_self(&mut self, transform: Transform) {}
 }

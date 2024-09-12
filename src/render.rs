@@ -5,14 +5,11 @@ use bevy::{
     asset::{load_internal_asset, Assets, Handle},
     ecs::entity::EntityHashMap,
     log::info,
-    prelude::{
-        BuildChildren, Commands, Component, Entity, Gizmos, Local, Mesh, Query, ResMut, Shader,
-        Transform, With,
-    },
+    prelude::{BuildChildren, Commands, Entity, Gizmos, Query, ResMut, Transform, With},
     sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
 };
-use glam::{Mat4, Vec3};
-use material::{GradientMaterial, SWFColorMaterial, SWFTransform};
+use glam::Vec3;
+use material::{GradientMaterial, SWFColorMaterial};
 use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::{
@@ -20,9 +17,7 @@ use crate::{
     swf::display_object::{DisplayObject, TDisplayObject},
 };
 
-pub(crate) mod commands;
 pub(crate) mod material;
-mod pipeline;
 pub(crate) mod tessellator;
 pub struct FlashRenderPlugin;
 
@@ -83,44 +78,6 @@ pub fn handler_render_list(
             match display_object {
                 DisplayObject::Graphic(graphic) => {
                     if let Some(mesh) = graphic.mesh() {
-                        // 如果已经存在，则不再创建
-                        // for (swf_component, mut transform) in query_entity.iter_mut() {
-                        //     if swf_component.id == mesh.id() {
-                        //         let graphic_transform: Transform =
-                        //             SWFTransform(graphic.base().transform().clone()).into();
-                        //         // 减去基础变换以定位到基础位置
-                        //         transform.rotation = graphic_transform.rotation;
-                        //         transform.scale =
-                        //             graphic_transform.scale * swf_component.base_transform.scale;
-
-                        //         let width = graphic.bounds.width().to_pixels() as f32;
-                        //         let height = graphic.bounds.height().to_pixels() as f32;
-
-                        //         let new_width = width * transform.scale.x;
-                        //         let new_height = height * transform.scale.y;
-
-                        //         let translation = swf_component.base_transform.translation
-                        //             - graphic_transform.translation;
-
-                        //         let delta = Vec3::new(
-                        //             (new_width - width) / 2.0,
-                        //             (new_height - height) / 2.0,
-                        //             0.0,
-                        //         );
-                        //         transform.translation = translation - delta;
-                        //         // 绘制矩形边框
-                        //         gizmos.rect_2d(
-                        //             Vec2::ZERO,
-                        //             0.,
-                        //             Vec2::new(
-                        //                 width * transform.scale.x,
-                        //                 height * transform.scale.y,
-                        //             ),
-                        //             WHITE,
-                        //         );
-                        //         return;
-                        //     }
-                        // }
                         let current_transform = graphic.base().transform();
                         let transform = RuffleTransform {
                             matrix: parent_transform.matrix * current_transform.matrix,
@@ -137,7 +94,8 @@ pub fn handler_render_list(
                                 0.0,
                                 0.0,
                                 *z_index + 0.1,
-                            )),
+                            ))
+                            .with_scale(Vec3::splat(8.0)),
                             ..Default::default()
                         });
                         *z_index += 0.1;
@@ -154,7 +112,8 @@ pub fn handler_render_list(
                                     0.0,
                                     0.0,
                                     *z_index + 0.1,
-                                )),
+                                ))
+                                .with_scale(Vec3::splat(8.0)),
                                 ..Default::default()
                             });
                             *z_index += 0.1;

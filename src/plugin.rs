@@ -5,7 +5,7 @@ use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
 use crate::swf::display_object::movie_clip::MovieClip;
-use crate::swf::display_object::{render_base, TDisplayObject};
+use crate::swf::display_object::TDisplayObject;
 use crate::swf::library::MovieLibrary;
 use bevy::app::App;
 use bevy::asset::{AssetEvent, Handle};
@@ -14,7 +14,7 @@ use bevy::log::info;
 use bevy::prelude::{
     Commands, Entity, EventReader, Image, IntoSystemConfigs, Mesh, Query, Resource,
 };
-use bevy::render::mesh::{Indices, VertexAttributeValues};
+use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::time::{Time, Timer, TimerMode};
 use bevy::{
@@ -23,9 +23,8 @@ use bevy::{
     prelude::{Res, ResMut},
 };
 use copyless::VecHelper;
-use glam::{Mat3, Mat4, Vec2};
+use glam::{Mat3, Mat4};
 use ruffle_render::tessellator::DrawType;
-use ruffle_render::transform::Transform;
 use ruffle_render_wgpu::GradientUniforms;
 use swf::GradientInterpolation;
 use wgpu::PrimitiveTopology;
@@ -45,7 +44,7 @@ impl Plugin for FlashPlugin {
             .init_asset_loader::<SwfLoader>()
             .insert_resource(PlayerTimer(Timer::from_seconds(
                 // TODO: 24fps
-                24.0 / 1000.0,
+                30.0 / 1000.0,
                 TimerMode::Repeating,
             )))
             .add_systems(Update, (pre_parse, enter_frame).chain());
@@ -273,17 +272,6 @@ fn enter_frame(
     }
 }
 
-/// Bevy 有一个不同的y轴原点，所以我们需要翻转y坐标
-fn flip_mesh_vertically(mesh: &mut Mesh) {
-    if let Some(VertexAttributeValues::Float32x3(positions)) =
-        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
-    {
-        for position in positions.iter_mut() {
-            // Invert the y-coordinate to flip the mesh vertically
-            position[1] = -position[1];
-        }
-    }
-}
 /// 线性插值
 fn lerp(a: f32, b: f32, factor: f32) -> f32 {
     a + (b - a) * factor
