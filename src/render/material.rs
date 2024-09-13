@@ -6,12 +6,13 @@ use bevy::{
     sprite::Material2d,
 };
 use glam::{Mat4, Vec4};
-use ruffle_render::transform::Transform;
+use ruffle_render::{shape_utils::GradientType, tessellator::Gradient, transform::Transform};
+use swf::GradientSpread;
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 pub struct GradientMaterial {
     #[uniform(0)]
-    pub gradient: Gradient,
+    pub gradient: GradientUniforms,
     #[texture(1)]
     #[sampler(2)]
     pub texture: Option<Handle<Image>>,
@@ -31,11 +32,29 @@ impl Material2d for GradientMaterial {
 }
 
 #[derive(Debug, Clone, Default, ShaderType)]
-pub struct Gradient {
+pub struct GradientUniforms {
     pub focal_point: f32,
     pub interpolation: i32,
     pub shape: i32,
     pub repeat: i32,
+}
+impl From<Gradient> for GradientUniforms {
+    fn from(gradient: Gradient) -> Self {
+        Self {
+            focal_point: gradient.focal_point.to_f32().clamp(-0.98, 0.98),
+            interpolation: (gradient.interpolation == swf::GradientInterpolation::LinearRgb) as i32,
+            shape: match gradient.gradient_type {
+                GradientType::Linear => 1,
+                GradientType::Radial => 2,
+                GradientType::Focal => 3,
+            },
+            repeat: match gradient.repeat_mode {
+                GradientSpread::Pad => 1,
+                GradientSpread::Reflect => 2,
+                GradientSpread::Repeat => 3,
+            },
+        }
+    }
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]

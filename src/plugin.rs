@@ -1,6 +1,6 @@
 use crate::assets::{SwfLoader, SwfMovie};
 use crate::bundle::Swf;
-use crate::render::material::{Gradient, GradientMaterial};
+use crate::render::material::{GradientMaterial, GradientUniforms};
 use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
@@ -25,7 +25,6 @@ use bevy::{
 use copyless::VecHelper;
 use glam::{Mat3, Mat4};
 use ruffle_render::tessellator::DrawType;
-use ruffle_render_wgpu::GradientUniforms;
 use swf::GradientInterpolation;
 use wgpu::PrimitiveTopology;
 
@@ -173,8 +172,6 @@ fn pre_parse(
                                         DrawType::Color => {
                                             let current_vertex_num = draw.vertices.len() as u32;
                                             for vertex in draw.vertices {
-                                                // 平移顶点使得中心点在bevy原点
-                                                // positions.alloc().init([vertex.x, vertex.y, 0.0]);
                                                 result_positions.push([vertex.x, vertex.y, 0.0]);
                                                 let linear_color = Color::srgba_u8(
                                                     vertex.color.r,
@@ -183,7 +180,6 @@ fn pre_parse(
                                                     vertex.color.a,
                                                 )
                                                 .to_linear();
-                                                // colors.alloc().init(linear_color.to_f32_array());
                                                 result_colors.push(linear_color.to_f32_array());
                                             }
                                             draw.indices.iter().for_each(|index| {
@@ -211,12 +207,7 @@ fn pre_parse(
                                             graphic.add_gradient_mesh(
                                                 meshes.add(mesh),
                                                 gradient_materials.add(GradientMaterial {
-                                                    gradient: Gradient {
-                                                        focal_point: texture.1.focal_point,
-                                                        interpolation: texture.1.interpolation,
-                                                        shape: texture.1.shape,
-                                                        repeat: texture.1.repeat,
-                                                    },
+                                                    gradient: texture.1,
                                                     texture_transform: Mat4::from_mat3(
                                                         Mat3::from_cols_array_2d(&matrix),
                                                     ),

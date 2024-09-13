@@ -202,7 +202,8 @@ pub struct DisplayObjectBase {
     filters: Vec<Filter>,
     cache: Option<BitmapCache>,
 }
-
+unsafe impl Send for DisplayObjectBase {}
+unsafe impl Sync for DisplayObjectBase {}
 impl Default for DisplayObjectBase {
     fn default() -> Self {
         Self {

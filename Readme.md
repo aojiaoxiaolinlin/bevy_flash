@@ -21,3 +21,5 @@
 
 - example
 ![展示](./assets/docs/image.png)
+
+> **note:** 目前依赖的`ruffle-render`版本是nightly-2024-08-06。后续版本wgpu版本不兼容。
