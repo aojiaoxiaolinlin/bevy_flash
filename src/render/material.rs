@@ -53,6 +53,26 @@ impl Material2d for SWFColorMaterial {
     }
 }
 
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
+pub struct BitmapMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub texture: Handle<Image>,
+    #[uniform(2)]
+    pub texture_transform: Mat4,
+    #[uniform(3)]
+    pub transform: SWFTransform,
+}
+
+impl Material2d for BitmapMaterial {
+    fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
+        "shaders/bitmap.wgsl".into()
+    }
+    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
+        "shaders/bitmap.wgsl".into()
+    }
+}
+
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct SWFTransform {
     world_transform: Mat4,

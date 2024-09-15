@@ -4,6 +4,7 @@
     "bytemuck",
     "copyless",
     "despawn",
+    "indexmap",
     "lerp",
     "lifetimeless",
     "Msaa",
