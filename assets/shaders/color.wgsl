@@ -10,7 +10,7 @@ const view_matrix: mat4x4<f32> = mat4x4<f32>(
 
 struct SWFTransform {
     world_matrix: mat4x4<f32>,
-    muld_color: vec4<f32>,
+    mult_color: vec4<f32>,
     add_color: vec4<f32>,
 }
 

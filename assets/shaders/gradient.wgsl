@@ -8,7 +8,7 @@ struct Gradient {
 }
 struct SWFTransform {
     world_matrix: mat4x4<f32>,
-    muld_color: vec4<f32>,
+    mult_color: vec4<f32>,
     add_color: vec4<f32>,
 }
 
@@ -88,11 +88,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if gradient.interpolation == 0 {
         color = common__srgb_to_linear(color);
     }
-    // let out = saturate(color * transforms.mult_color + transforms.add_color);
-    // let alpha = saturate(out.a);
-    // return vec4<f32>(out.rgb * alpha, alpha);
-    // return vec4<f32>(t, 0.0, 0.0, 1.0);
-    return color;
+    let out = saturate(color * swf_transform.mult_color + swf_transform.add_color);
+    let alpha = saturate(out.a);
+    return vec4<f32>(out.rgb * alpha, alpha);
+    // // return vec4<f32>(t, 0.0, 0.0, 1.0);
+    // return color;
 }
 
 /// Converts a color from linear to sRGB color space.

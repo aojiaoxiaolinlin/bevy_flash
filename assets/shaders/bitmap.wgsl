@@ -3,7 +3,7 @@
 
 struct SWFTransform {
     world_matrix: mat4x4<f32>,
-    muld_color: vec4<f32>,
+    mult_color: vec4<f32>,
     add_color: vec4<f32>,
 }
 @group(2) @binding(0) var texture: texture_2d<f32>;
@@ -45,7 +45,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if color.a > 0.0 {
         color = vec4<f32>(color.rgb / color.a, color.a);
-        color = color * swf_transform.muld_color + swf_transform.add_color;
+        color = color * swf_transform.mult_color + swf_transform.add_color;
         if !late_saturate {
             color = saturate(color);
         }
