@@ -1,6 +1,6 @@
 use crate::assets::{SwfLoader, SwfMovie};
 use crate::bundle::Swf;
-use crate::render::material::{GradientMaterial, GradientUniforms};
+use crate::render::material::{BitmapMaterial, Gradient, GradientMaterial};
 use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
@@ -10,9 +10,10 @@ use crate::swf::library::MovieLibrary;
 use bevy::app::App;
 use bevy::asset::{AssetEvent, Handle};
 use bevy::color::{Color, ColorToComponents};
-use bevy::log::info;
+use bevy::log::error;
 use bevy::prelude::{
-    Commands, Entity, EventReader, Image, IntoSystemConfigs, Mesh, Query, Resource,
+    Commands, Entity, Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query,
+    Resource,
 };
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
@@ -26,7 +27,7 @@ use copyless::VecHelper;
 use glam::{Mat3, Mat4};
 use ruffle_render::tessellator::DrawType;
 use swf::GradientInterpolation;
-use wgpu::PrimitiveTopology;
+use wgpu::{Extent3d, PrimitiveTopology};
 
 /// 制作多大得渐变纹理，越大细节越丰富，但是内存占用也越大
 const GRADIENT_SIZE: usize = 256;
@@ -34,19 +35,41 @@ const GRADIENT_SIZE: usize = 256;
 #[derive(Resource)]
 struct PlayerTimer(Timer);
 
+#[derive(Event)]
+pub struct SWFRenderEvent {}
+
 pub struct FlashPlugin;
 
 impl Plugin for FlashPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(FlashRenderPlugin)
+        app.add_event::<SWFRenderEvent>()
+            .add_plugins(FlashRenderPlugin)
             .init_asset::<SwfMovie>()
             .init_asset_loader::<SwfLoader>()
             .insert_resource(PlayerTimer(Timer::from_seconds(
                 // TODO: 24fps
-                30.0 / 1000.0,
+                1. / 24.,
                 TimerMode::Repeating,
             )))
             .add_systems(Update, (pre_parse, enter_frame).chain());
+    }
+}
+
+fn enter_frame(
+    mut query: Query<(&mut Swf, &Handle<SwfMovie>)>,
+    mut swf_movies: ResMut<Assets<SwfMovie>>,
+    time: Res<Time>,
+    mut timer: ResMut<PlayerTimer>,
+    mut swf_events: EventWriter<SWFRenderEvent>,
+) {
+    if timer.0.tick(time.delta()).just_finished() {
+        for (mut swf, swf_handle) in query.iter_mut() {
+            if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
+                swf.root_movie_clip
+                    .enter_frame(&mut swf_movie.movie_library);
+                swf_events.send(SWFRenderEvent {});
+            }
+        }
     }
 }
 
@@ -58,6 +81,7 @@ fn pre_parse(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
+    mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
 ) {
     for event in swf_events.read() {
         match event {
@@ -68,16 +92,13 @@ fn pre_parse(
                     let mut library = MovieLibrary::new();
                     root_movie_clip.parse_swf(&mut library);
                     root_movie_clip.current_frame = 0;
-                    info!(
-                        "root movie clip total frame:{}",
-                        root_movie_clip.total_frames
-                    );
+                    let library_clone = library.clone();
                     library.characters_mut().iter_mut().for_each(
                         |(_id, character)| match character {
                             Character::Graphic(graphic) => {
                                 let mut shape_tessellator = ShapeTessellator::new();
-                                let lyon_mesh =
-                                    shape_tessellator.tessellate_shape((&graphic.shape).into());
+                                let lyon_mesh = shape_tessellator
+                                    .tessellate_shape((&graphic.shape).into(), &library_clone);
 
                                 let gradients = lyon_mesh.gradients;
 
@@ -201,7 +222,7 @@ fn pre_parse(
                                                 Mesh::ATTRIBUTE_POSITION,
                                                 positions,
                                             );
-                                            mesh.insert_indices(Indices::U32(draw.indices));
+                                            mesh.insert_indices(Indices::U32(draw.indices.clone()));
                                             let texture =
                                                 gradients_texture.get(gradient).unwrap().clone();
                                             graphic.add_gradient_mesh(
@@ -216,7 +237,64 @@ fn pre_parse(
                                                 }),
                                             );
                                         }
-                                        _ => {}
+                                        DrawType::Bitmap(bitmap) => {
+                                            let texture_transform = bitmap.matrix;
+                                            if let Some(compressed_bitmap) =
+                                                library_clone.get_bitmap(bitmap.bitmap_id)
+                                            {
+                                                let decoded = match compressed_bitmap.decode() {
+                                                    Ok(decoded) => decoded,
+                                                    Err(e) => {
+                                                        error!("Failed to decode bitmap: {:?}", e);
+                                                        continue;
+                                                    }
+                                                };
+                                                let bitmap = decoded.to_rgba();
+
+                                                let bitmap_texture = Image::new(
+                                                    Extent3d {
+                                                        width: bitmap.width(),
+                                                        height: bitmap.height(),
+                                                        depth_or_array_layers: 1,
+                                                    },
+                                                    wgpu::TextureDimension::D2,
+                                                    bitmap.data().to_vec(),
+                                                    wgpu::TextureFormat::Rgba8Unorm,
+                                                    RenderAssetUsages::default(),
+                                                );
+
+                                                let mut positions =
+                                                    Vec::with_capacity(draw.vertices.len());
+                                                for vertex in draw.vertices {
+                                                    positions
+                                                        .alloc()
+                                                        .init([vertex.x, vertex.y, 0.0]);
+                                                }
+                                                let mut mesh = Mesh::new(
+                                                    PrimitiveTopology::TriangleList,
+                                                    RenderAssetUsages::default(),
+                                                );
+                                                mesh.insert_attribute(
+                                                    Mesh::ATTRIBUTE_POSITION,
+                                                    positions,
+                                                );
+                                                mesh.insert_indices(Indices::U32(
+                                                    draw.indices.clone(),
+                                                ));
+                                                graphic.add_bitmap_mesh((
+                                                    meshes.add(mesh),
+                                                    bitmap_materials.add(BitmapMaterial {
+                                                        texture: images.add(bitmap_texture),
+                                                        texture_transform: Mat4::from_mat3(
+                                                            Mat3::from_cols_array_2d(
+                                                                &texture_transform,
+                                                            ),
+                                                        ),
+                                                        ..Default::default()
+                                                    }),
+                                                ));
+                                            }
+                                        }
                                     }
                                 }
                                 let mut mesh = Mesh::new(
@@ -226,8 +304,6 @@ fn pre_parse(
                                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, result_positions);
                                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, result_colors);
                                 mesh.insert_indices(Indices::U32(result_indices));
-
-                                // flip_mesh_vertically(&mut mesh);
                                 let mesh_handle = meshes.add(mesh);
                                 graphic.set_mesh(mesh_handle);
                             }
@@ -243,22 +319,6 @@ fn pre_parse(
                 }
             }
             _ => {}
-        }
-    }
-}
-
-fn enter_frame(
-    mut query: Query<(&mut Swf, &Handle<SwfMovie>)>,
-    mut swf_movies: ResMut<Assets<SwfMovie>>,
-    time: Res<Time>,
-    mut timer: ResMut<PlayerTimer>,
-) {
-    if timer.0.tick(time.delta()).just_finished() {
-        for (mut swf, swf_handle) in query.iter_mut() {
-            if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
-                swf.root_movie_clip
-                    .enter_frame(&mut swf_movie.movie_library);
-            }
         }
     }
 }

@@ -8,8 +8,10 @@ use lyon_tessellation::{FillVertex, FillVertexConstructor, StrokeVertex, StrokeV
 use ruffle_render::matrix::Matrix;
 use ruffle_render::{
     shape_utils::{DistilledShape, DrawCommand, DrawPath, GradientType},
-    tessellator::{Draw, DrawType, Gradient, Mesh, Vertex},
+    tessellator::{Bitmap, Draw, DrawType, Gradient, Mesh, Vertex},
 };
+
+use crate::swf::library::MovieLibrary;
 
 pub struct ShapeTessellator {
     fill_tess: FillTessellator,
@@ -34,7 +36,7 @@ impl ShapeTessellator {
         }
     }
 
-    pub fn tessellate_shape(&mut self, shape: DistilledShape) -> Mesh {
+    pub fn tessellate_shape(&mut self, shape: DistilledShape, library: &MovieLibrary) -> Mesh {
         self.mesh = Vec::new();
         self.gradients = IndexSet::new();
         self.lyon_mesh = VertexBuffers::new();
@@ -107,7 +109,31 @@ impl ShapeTessellator {
                     matrix,
                     is_smoothed,
                     is_repeating,
-                } => continue,
+                } => {
+                    let bitmap_size = if let Some(compressed_bitmap) = library.get_bitmap(*id) {
+                        Some(compressed_bitmap.size())
+                    } else {
+                        None
+                    };
+                    if let Some(bitmap_size) = bitmap_size {
+                        (
+                            DrawType::Bitmap(Bitmap {
+                                matrix: swf_bitmap_to_gl_matrix(
+                                    (*matrix).into(),
+                                    bitmap_size.width.into(),
+                                    bitmap_size.height.into(),
+                                ),
+                                bitmap_id: *id,
+                                is_smoothed: *is_smoothed,
+                                is_repeating: *is_repeating,
+                            }),
+                            swf::Color::WHITE,
+                            true,
+                        )
+                    } else {
+                        continue;
+                    }
+                }
             };
 
             if needs_flush || (self.is_stroke && !next_is_stroke) {

@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use swf::CharacterId;
 
-use super::{characters::Character, display_object::graphic::Graphic};
+use super::{
+    characters::{Character, CompressedBitmap},
+    display_object::graphic::Graphic,
+};
 
 #[derive(Clone, Default)]
 pub struct MovieLibrary {
@@ -37,6 +40,14 @@ impl MovieLibrary {
     pub fn get_graphic(&self, id: CharacterId) -> Option<Graphic> {
         if let Some(Character::Graphic(graphic)) = self.characters.get(&id).clone() {
             Some(graphic.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_bitmap(&self, id: CharacterId) -> Option<CompressedBitmap> {
+        if let Some(Character::Bitmap(bitmap)) = self.characters.get(&id).clone() {
+            Some(bitmap.clone())
         } else {
             None
         }

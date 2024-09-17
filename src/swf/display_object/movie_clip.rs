@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use bevy::log::{error, info};
 use bitflags::bitflags;
 
+use ruffle_render::bitmap;
 use smallvec::SmallVec;
 use swf::{
     extensions::ReadSwfExt, read::Reader, CharacterId, Color, Depth, PlaceObjectAction, SwfStr,
@@ -11,7 +12,7 @@ use swf::{
 };
 
 use crate::swf::{
-    characters::Character,
+    characters::{Character, CompressedBitmap},
     container::ChildContainer,
     library::MovieLibrary,
     tag_utils::{self, ControlFlow, Error, SwfMovie, SwfSlice, SwfStream},
@@ -151,6 +152,8 @@ impl MovieClip {
         let tag_callback = |reader: &mut SwfStream<'_>, tag_code, tag_len| {
             match tag_code {
                 // TagCode::SetBackgroundColor => self.set_background_color(library, reader),
+                TagCode::DefineBitsJpeg3 => self.define_bits_jpeg_3_or_4(library, reader, 3),
+                TagCode::DefineBitsJpeg4 => self.define_bits_jpeg_3_or_4(library, reader, 4),
                 TagCode::DefineShape => self.define_shape(library, reader, 1),
                 TagCode::DefineShape2 => self.define_shape(library, reader, 2),
                 TagCode::DefineShape3 => self.define_shape(library, reader, 3),
@@ -166,6 +169,7 @@ impl MovieClip {
         let _ = tag_utils::decode_tags(&mut reader, tag_callback);
     }
 
+    #[inline]
     fn frame_label(&mut self, reader: &mut SwfStream) -> Result<(), Error> {
         let frame_label = reader.read_frame_label()?;
         let label = frame_label
@@ -176,11 +180,13 @@ impl MovieClip {
         Ok(())
     }
 
+    #[inline]
     fn show_frame(&mut self) -> Result<(), Error> {
         self.current_frame += 1;
         Ok(())
     }
 
+    #[inline]
     fn define_sprite(
         &mut self,
         library: &mut MovieLibrary,
@@ -201,6 +207,7 @@ impl MovieClip {
         Ok(ControlFlow::Continue)
     }
 
+    #[inline]
     fn define_shape(
         &mut self,
         library: &mut MovieLibrary,
@@ -214,6 +221,33 @@ impl MovieClip {
         Ok(())
     }
 
+    #[inline]
+    fn define_bits_jpeg_3_or_4(
+        &mut self,
+        library: &mut MovieLibrary,
+        reader: &mut SwfStream,
+        version: u8,
+    ) -> Result<(), Error> {
+        let id = reader.read_u16()?;
+        let jpeg_len = reader.read_u32()? as usize;
+        if version == 4 {
+            let _de_blocking = reader.read_u16()?;
+        }
+        let jpeg_data = reader.read_slice(jpeg_len)?;
+        let alpha_data = reader.read_slice_to_end();
+        let (width, height) = ruffle_render::utils::decode_define_bits_jpeg_dimensions(jpeg_data)?;
+        library.register_character(
+            id,
+            Character::Bitmap(CompressedBitmap::Jpeg {
+                data: jpeg_data.to_owned(),
+                alpha: Some(alpha_data.to_owned()),
+                width,
+                height,
+            }),
+        );
+        Ok(())
+    }
+
     pub fn run_frame_internal(
         &mut self,
         library: &mut MovieLibrary,
@@ -224,6 +258,7 @@ impl MovieClip {
         match next_frame {
             NextFrame::Next => {}
             NextFrame::First => {
+                // dbg!(self.name(), "end");
                 return self.run_goto(library, 1, true);
             }
             NextFrame::Same => {}
@@ -409,16 +444,26 @@ impl MovieClip {
                 child.set_place_frame(self.current_frame);
                 child.apply_place_object(&place_object, self.swf.version());
                 if let Some(name) = &place_object.name {
-                    child.set_name(Some(
-                        name.to_str_lossy(SwfStr::encoding_for_version(self.swf.version()))
-                            .into_owned(),
-                    ));
-                    info!("Instantiated named child: {:?}", name);
+                    let name = name
+                        .to_str_lossy(SwfStr::encoding_for_version(self.swf.version()))
+                        .into_owned();
+                    info!("影片剪辑实例名: {:?}", name);
+                    child.set_name(Some(name));
                 }
                 if let Some(clip_depth) = place_object.clip_depth {
                     child.set_clip_depth(clip_depth);
                 }
                 child.post_instantiation(library);
+                if let Some(name) = child.name() {
+                    if name == "_mc" {
+                        *self = match child {
+                            DisplayObject::MovieClip(movie_clip) => movie_clip,
+                            _ => unreachable!(),
+                        };
+                        return None;
+                    }
+                }
+                child.enter_frame(library);
                 self.replace_at_depth(depth, child.clone());
                 Some(child)
             }
@@ -435,6 +480,7 @@ impl MovieClip {
             match character.clone() {
                 Character::MovieClip(movie_clip) => Ok(movie_clip.into()),
                 Character::Graphic(graphic) => Ok(graphic.into()),
+                _ => unreachable!("Character id 不在库中"),
             }
         } else {
             Err(anyhow!("Character id 不在库中"))
@@ -670,6 +716,11 @@ impl MovieClip {
             self.set_playing(true);
         }
     }
+
+    pub fn stop(&mut self) {
+        self.set_playing(false);
+    }
+
     fn unqueue_adds(&mut self) -> Vec<(Depth, QueuedTag)> {
         let mut unqueued: Vec<_> = self
             .queued_tags
@@ -711,6 +762,21 @@ impl MovieClip {
             self.tag_stream_len() as i32
         }
     }
+
+    pub fn goto_frame(&mut self, library: &mut MovieLibrary, frame: FrameNumber, stop: bool) {
+        if stop {
+            self.stop();
+        } else {
+            self.play();
+        }
+
+        let frame = frame.max(1);
+
+        if frame != self.current_frame {
+            self.run_goto(library, frame, false)
+        }
+    }
+
     fn determine_next_frame(&self) -> NextFrame {
         if self.current_frame < self.total_frames {
             NextFrame::Next

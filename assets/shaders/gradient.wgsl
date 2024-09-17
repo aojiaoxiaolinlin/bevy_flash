@@ -8,7 +8,7 @@ struct Gradient {
 }
 struct SWFTransform {
     world_matrix: mat4x4<f32>,
-    muld_color: vec4<f32>,
+    mult_color: vec4<f32>,
     add_color: vec4<f32>,
 }
 
@@ -17,7 +17,7 @@ struct SWFTransform {
 @group(2) @binding(1) var texture: texture_2d<f32>;
 @group(2) @binding(2) var texture_sampler: sampler;
 @group(2) @binding(3) var<uniform> texture_transform: mat4x4<f32>;
-@group(2) @binding(4) var<uniform> swf_transforms: SWFTransform;
+@group(2) @binding(4) var<uniform> swf_transform: SWFTransform;
 /// 暂时定为固定值
 const view_matrix: mat4x4<f32> = mat4x4<f32>(
     vec4<f32>(1.0, 0.0, 0.0, 0.0),
@@ -37,7 +37,7 @@ struct Vertex {
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     out.uv = (mat3x3<f32>(texture_transform[0].xyz, texture_transform[1].xyz, texture_transform[2].xyz) * vec3<f32>(vertex.position.x, vertex.position.y, 1.0)).xy;
-    var position: vec4<f32> = view_matrix * swf_transforms.world_matrix * vec4<f32>(vertex.position, 1.0);
+    var position: vec4<f32> = view_matrix * swf_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
     var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh2d_position_local_to_world(
         world_from_local,
@@ -88,11 +88,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if gradient.interpolation == 0 {
         color = common__srgb_to_linear(color);
     }
-    // let out = saturate(color * transforms.mult_color + transforms.add_color);
-    // let alpha = saturate(out.a);
-    // return vec4<f32>(out.rgb * alpha, alpha);
-    // return vec4<f32>(t, 0.0, 0.0, 1.0);
-    return color;
+    let out = saturate(color * swf_transform.mult_color + swf_transform.add_color);
+    let alpha = saturate(out.a);
+    return vec4<f32>(out.rgb * alpha, alpha);
+    // // return vec4<f32>(t, 0.0, 0.0, 1.0);
+    // return color;
 }
 
 /// Converts a color from linear to sRGB color space.

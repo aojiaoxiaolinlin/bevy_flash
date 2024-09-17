@@ -1,7 +1,6 @@
-pub mod graphic;
-pub mod morph_shape;
-pub mod movie_clip;
-
+pub(crate) mod graphic;
+pub(crate) mod morph_shape;
+pub(crate) mod movie_clip;
 use std::sync::Arc;
 
 use bitflags::bitflags;

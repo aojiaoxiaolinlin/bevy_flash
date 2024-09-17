@@ -1,0 +1,72 @@
+#import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
+
+
+struct SWFTransform {
+    world_matrix: mat4x4<f32>,
+    mult_color: vec4<f32>,
+    add_color: vec4<f32>,
+}
+@group(2) @binding(0) var texture: texture_2d<f32>;
+@group(2) @binding(1) var texture_sampler: sampler;
+@group(2) @binding(2) var<uniform> texture_transform: mat4x4<f32>;
+@group(2) @binding(3) var<uniform> swf_transform: SWFTransform;
+override late_saturate: bool = false;
+
+/// 暂时定为固定值
+const view_matrix: mat4x4<f32> = mat4x4<f32>(
+    vec4<f32>(1.0, 0.0, 0.0, 0.0),
+    vec4<f32>(0.0, -1.0, 0.0, 0.0),
+    vec4<f32>(0.0, 0.0, 1.0, 0.0),
+    vec4<f32>(-1.0, 1.0, 0.0, 1.0)
+);
+
+struct Vertex {
+    @builtin(instance_index) instance_index: u32,
+    @location(0) position: vec3<f32>,
+};
+
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+    out.uv = (mat3x3<f32>(texture_transform[0].xyz, texture_transform[1].xyz, texture_transform[2].xyz) * vec3<f32>(vertex.position.x, vertex.position.y, 1.0)).xy;
+    var position: vec4<f32> = view_matrix * swf_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
+    var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    out.world_position = mesh_functions::mesh2d_position_local_to_world(
+        world_from_local,
+        position
+    );
+    out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
+    return out;
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    var color: vec4<f32> = textureSample(texture, texture_sampler, in.uv);
+
+    if color.a > 0.0 {
+        color = vec4<f32>(color.rgb / color.a, color.a);
+        color = color * swf_transform.mult_color + swf_transform.add_color;
+        if !late_saturate {
+            color = saturate(color);
+        }
+        color = vec4<f32>(color.rgb * color.a, color.a);
+        if late_saturate {
+            color = saturate(color);
+        }
+    }
+    return common__srgb_to_linear(color);
+}
+
+
+
+/// Converts a color from sRGB to linear color space.
+fn common__srgb_to_linear(srgb: vec4<f32>) -> vec4<f32> {
+    var rgb: vec3<f32> = srgb.rgb;
+    if srgb.a > 0.0 {
+        rgb = rgb / srgb.a;
+    }
+    let a = rgb / 12.92;
+    let b = pow((rgb + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    let c = step(vec3<f32>(0.04045), rgb);
+    return vec4<f32>(mix(a, b, c) * srgb.a, srgb.a);
+}

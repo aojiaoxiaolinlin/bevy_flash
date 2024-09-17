@@ -8,6 +8,9 @@
 
 - [x] DefineShape & GradientFill
 - [x] MovieClip Animation
+- [x] Bitmap rendering
+- [ ] Blend
+- [ ] Filter
 - [ ] Control Animation
 
 <!-- 插入图片 -->

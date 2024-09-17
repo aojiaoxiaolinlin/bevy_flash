@@ -4,7 +4,7 @@ use bevy::{asset::Handle, prelude::Mesh};
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
 use crate::{
-    render::material::GradientMaterial,
+    render::material::{BitmapMaterial, GradientMaterial},
     swf::{library::MovieLibrary, tag_utils::SwfMovie},
 };
 
@@ -19,6 +19,7 @@ pub struct Graphic {
     swf_movie: Arc<SwfMovie>,
     gradient_mesh: Vec<(Handle<Mesh>, Handle<GradientMaterial>)>,
     mesh: Option<Handle<Mesh>>,
+    bitmap_mesh: Vec<(Handle<Mesh>, Handle<BitmapMaterial>)>,
 }
 
 impl Graphic {
@@ -31,6 +32,7 @@ impl Graphic {
             swf_movie,
             gradient_mesh: Vec::new(),
             mesh: None,
+            bitmap_mesh: Vec::new(),
         }
     }
     pub fn add_gradient_mesh(
@@ -39,6 +41,10 @@ impl Graphic {
         gradient_material: Handle<GradientMaterial>,
     ) {
         self.gradient_mesh.push((mesh, gradient_material));
+    }
+
+    pub fn add_bitmap_mesh(&mut self, bitmap_mesh: (Handle<Mesh>, Handle<BitmapMaterial>)) {
+        self.bitmap_mesh.push(bitmap_mesh);
     }
 
     pub fn set_mesh(&mut self, mesh: Handle<Mesh>) {
@@ -51,6 +57,10 @@ impl Graphic {
 
     pub fn gradient_mesh(&self) -> &Vec<(Handle<Mesh>, Handle<GradientMaterial>)> {
         &self.gradient_mesh
+    }
+
+    pub fn bitmap_mesh(&self) -> &Vec<(Handle<Mesh>, Handle<BitmapMaterial>)> {
+        &self.bitmap_mesh
     }
 }
 
@@ -78,6 +88,7 @@ impl TDisplayObject for Graphic {
             self.bounds = new_graphic.bounds;
             self.mesh = new_graphic.mesh;
             self.gradient_mesh = new_graphic.gradient_mesh;
+            self.bitmap_mesh = new_graphic.bitmap_mesh;
         } else {
             dbg!("PlaceObject: expected Graphic at character ID {}", id);
         }
