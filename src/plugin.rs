@@ -1,6 +1,6 @@
 use crate::assets::{SwfLoader, SwfMovie};
 use crate::bundle::Swf;
-use crate::render::material::{BitmapMaterial, Gradient, GradientMaterial};
+use crate::render::material::{BitmapMaterial, GradientMaterial, GradientUniforms};
 use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
