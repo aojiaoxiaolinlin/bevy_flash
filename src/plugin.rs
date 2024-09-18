@@ -298,7 +298,7 @@ fn pre_parse(
                                                 ));
                                                 graphic.add_bitmap_mesh((
                                                     meshes.add(mesh),
-                                                    bitmap_materials.add(BitmapMaterial {
+                                                    BitmapMaterial {
                                                         texture: images.add(bitmap_texture),
                                                         texture_transform: Mat4::from_mat3(
                                                             Mat3::from_cols_array_2d(
@@ -306,7 +306,7 @@ fn pre_parse(
                                                             ),
                                                         ),
                                                         ..Default::default()
-                                                    }),
+                                                    },
                                                 ));
                                             }
                                         }

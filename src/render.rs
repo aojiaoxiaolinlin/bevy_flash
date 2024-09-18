@@ -47,7 +47,6 @@ pub fn render_swf(
                 .root_movie_clip
                 .raw_container_mut()
                 .display_objects_mut();
-            dbg!(entities_query.iter().count());
             entities_query.iter().for_each(|entity| {
                 commands.entity(entity).despawn();
             });
@@ -91,7 +90,6 @@ pub fn handler_render_list(
                             color_transform: parent_transform.color_transform
                                 * current_transform.color_transform,
                         };
-
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: mesh.into(),
                             material: materials.add(SWFColorMaterial {
@@ -124,13 +122,17 @@ pub fn handler_render_list(
                             *z_index += 0.1;
                         }
                         for (mesh_handle, material) in graphic.bitmap_mesh() {
-                            dbg!(graphic.character_id());
-                            if let Some(bitmap_material) = bitmap_materials.get_mut(material.id()) {
-                                bitmap_material.transform = transform.clone().into();
-                            }
+                            // 这里引用同一个Graphic会指向同一个material
+                            // dbg!(material.id());
+                            // if let Some(bitmap_material) = bitmap_materials.get_mut(material.id()) {
+                            //     bitmap_material.transform = transform.clone().into();
+                            // }
+                            // 暂时这样吧，以后看看有没有更好的渲染更新方式
+                            let mut bitmap_material = material.clone();
+                            bitmap_material.transform = transform.clone().into();
                             commands.spawn(MaterialMesh2dBundle {
                                 mesh: mesh_handle.clone().into(),
-                                material: material.clone(),
+                                material: bitmap_materials.add(bitmap_material),
                                 transform: Transform::from_translation(Vec3::new(
                                     0.0,
                                     0.0,
@@ -164,7 +166,7 @@ pub fn handler_render_list(
                         color_transform: parent_transform.color_transform
                             * movie_clip.base().transform().color_transform,
                     };
-                    dbg!(movie_clip.character_id(), movie_clip.depth());
+                    // dbg!(movie_clip.character_id(), movie_clip.depth());
                     // dbg!(movie_clip.blend_mode());
                     handler_render_list(
                         commands,

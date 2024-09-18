@@ -19,7 +19,7 @@ pub struct Graphic {
     swf_movie: Arc<SwfMovie>,
     gradient_mesh: Vec<(Handle<Mesh>, Handle<GradientMaterial>)>,
     mesh: Option<Handle<Mesh>>,
-    bitmap_mesh: Vec<(Handle<Mesh>, Handle<BitmapMaterial>)>,
+    bitmap_mesh: Vec<(Handle<Mesh>, BitmapMaterial)>,
 }
 
 impl Graphic {
@@ -43,7 +43,7 @@ impl Graphic {
         self.gradient_mesh.push((mesh, gradient_material));
     }
 
-    pub fn add_bitmap_mesh(&mut self, bitmap_mesh: (Handle<Mesh>, Handle<BitmapMaterial>)) {
+    pub fn add_bitmap_mesh(&mut self, bitmap_mesh: (Handle<Mesh>, BitmapMaterial)) {
         self.bitmap_mesh.push(bitmap_mesh);
     }
 
@@ -59,7 +59,7 @@ impl Graphic {
         &self.gradient_mesh
     }
 
-    pub fn bitmap_mesh(&self) -> &Vec<(Handle<Mesh>, Handle<BitmapMaterial>)> {
+    pub fn bitmap_mesh(&self) -> &Vec<(Handle<Mesh>, BitmapMaterial)> {
         &self.bitmap_mesh
     }
 }

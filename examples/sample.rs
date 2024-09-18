@@ -33,8 +33,9 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         // swf_handle: assert_server.load("head_scale2.swf"),
         // swf_handle: assert_server.load("head-animation.swf"),
         // swf_handle: assert_server.load("head.swf"),
-        // swf_handle: assert_server.load("spirit2159src.swf"),
-        swf_handle: assert_server.load("double_ref2.swf"),
+        swf_handle: assert_server.load("spirit2159src.swf"),
+        // swf_handle: assert_server.load("spirit2724src.swf"),
+        // swf_handle: assert_server.load("double_ref2.swf"),
         // swf_handle: assert_server.load("effect1209.swf"),
         // swf_handle: assert_server.load("frames.swf"),
         // swf_handle: assert_server.load("bitmap_test.swf"),
@@ -134,14 +135,14 @@ fn control(
         control(&mut query, 110);
     }
 
-    query.iter().for_each(|(swf, _)| {
-        let movie_clip = &swf.root_movie_clip;
-        println!("MovieClip:{}", movie_clip.character_id());
-        let space = 0;
-        show(movie_clip, space);
-    });
+    // query.iter().for_each(|(swf, _)| {
+    //     let movie_clip = &swf.root_movie_clip;
+    //     println!("MovieClip:{}", movie_clip.character_id());
+    //     let space = 0;
+    //     show(movie_clip, space);
+    // });
 
-    println!("-------------end----------------------");
+    // println!("-------------end----------------------");
 }
 
 fn show(movie_clip: &MovieClip, mut space: i32) {

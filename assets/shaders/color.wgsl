@@ -29,7 +29,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh2d_position_local_to_world(
         world_from_local,
-        vec4<f32>(position)
+        position
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
     out.color = vertex.color;
