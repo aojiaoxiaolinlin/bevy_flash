@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bevy::{asset::Handle, prelude::Mesh};
+use bevy::{asset::Handle, log::error, prelude::Mesh};
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
 use crate::{
@@ -90,7 +90,7 @@ impl TDisplayObject for Graphic {
             self.gradient_mesh = new_graphic.gradient_mesh;
             self.bitmap_mesh = new_graphic.bitmap_mesh;
         } else {
-            dbg!("PlaceObject: expected Graphic at character ID {}", id);
+            error!("PlaceObject: expected Graphic at character ID {}", id);
         }
     }
 }

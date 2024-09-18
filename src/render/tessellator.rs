@@ -1,3 +1,4 @@
+use bevy::log::error;
 use indexmap::IndexSet;
 use lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, StrokeOptions, StrokeTessellator, VertexBuffers,
@@ -205,7 +206,7 @@ impl ShapeTessellator {
                 }
                 Err(e) => {
                     // This may simply be a degenerate path.
-                    dbg!("Tessellation failure: {:?}", e);
+                    error!("Tessellation failure: {:?}", e);
                 }
             }
         }

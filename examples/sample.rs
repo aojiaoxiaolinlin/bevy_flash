@@ -1,17 +1,26 @@
 use bevy::{
-    app::{App, Startup},
-    asset::AssetServer,
-    prelude::{Camera2dBundle, Commands, Msaa, Res, SpatialBundle, Transform},
+    app::{App, Startup, Update},
+    asset::{AssetServer, Assets, Handle},
+    input::ButtonInput,
+    log::info,
+    prelude::{
+        Camera2dBundle, Commands, KeyCode, Msaa, Query, Res, ResMut, SpatialBundle, Transform,
+    },
     DefaultPlugins,
 };
-use bevy_flash::{bundle::SwfBundle, plugin::FlashPlugin};
+use bevy_flash::swf::display_object::{movie_clip::MovieClip, DisplayObject, TDisplayObject};
+use bevy_flash::{
+    assets::SwfMovie,
+    bundle::{Swf, SwfBundle},
+    plugin::FlashPlugin,
+};
 use glam::Vec3;
-
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, FlashPlugin))
         .insert_resource(Msaa::Sample8)
         .add_systems(Startup, setup)
+        .add_systems(Update, control)
         .run();
 }
 
@@ -24,7 +33,9 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         // swf_handle: assert_server.load("head_scale2.swf"),
         // swf_handle: assert_server.load("head-animation.swf"),
         // swf_handle: assert_server.load("head.swf"),
-        swf_handle: assert_server.load("spirit2158src.swf"),
+        // swf_handle: assert_server.load("spirit2159src.swf"),
+        swf_handle: assert_server.load("double_ref2.swf"),
+        // swf_handle: assert_server.load("effect1209.swf"),
         // swf_handle: assert_server.load("frames.swf"),
         // swf_handle: assert_server.load("bitmap_test.swf"),
         // swf_handle: assert_server.load("miaomiao.swf"),
@@ -35,10 +46,128 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         // swf_handle: assert_server.load("weiba.swf"),
         // swf_handle: assert_server.load("spirit1src.swf"),
         // swf_handle: assert_server.load("32.swf"),
+        swf: Swf {
+            name: Some(String::from("_mc")),
+            ..Default::default()
+        },
         spatial: SpatialBundle {
             transform: Transform::from_scale(Vec3::splat(1.0)),
             ..Default::default()
         },
         ..Default::default()
+    });
+}
+
+fn control(
+    mut query: Query<(&mut Swf, &Handle<SwfMovie>)>,
+    mut swf_movies: ResMut<Assets<SwfMovie>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+) {
+    let mut control = |query: &mut Query<'_, '_, (&mut Swf, &Handle<SwfMovie>)>, frame: u16| {
+        query.iter_mut().for_each(|(mut swf, handle_swf_movie)| {
+            if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
+                if swf.is_target_movie_clip() {
+                    swf.root_movie_clip
+                        .goto_frame(&mut swf_movie.movie_library, frame, true);
+                }
+            }
+        });
+    };
+
+    if keyboard_input.just_released(KeyCode::KeyW) {
+        info!("按W");
+        control(&mut query, 0);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyA) {
+        info!("按A");
+        control(&mut query, 10);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyS) {
+        info!("按S");
+        control(&mut query, 20);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyD) {
+        info!("按D");
+        control(&mut query, 30);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyF) {
+        info!("按F");
+        control(&mut query, 40);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyH) {
+        info!("按H");
+        control(&mut query, 50);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyJ) {
+        info!("按J");
+        control(&mut query, 60);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyK) {
+        info!("按K");
+        control(&mut query, 70);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyL) {
+        info!("按L");
+        control(&mut query, 80);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyM) {
+        info!("按M");
+        control(&mut query, 90);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyN) {
+        info!("按N");
+        control(&mut query, 100);
+    }
+
+    if keyboard_input.just_released(KeyCode::KeyO) {
+        info!("按O");
+        control(&mut query, 110);
+    }
+
+    query.iter().for_each(|(swf, _)| {
+        let movie_clip = &swf.root_movie_clip;
+        println!("MovieClip:{}", movie_clip.character_id());
+        let space = 0;
+        show(movie_clip, space);
+    });
+
+    println!("-------------end----------------------");
+}
+
+fn show(movie_clip: &MovieClip, mut space: i32) {
+    space += 2;
+    let render_list = movie_clip.raw_container().render_list();
+    let display_objects = movie_clip.raw_container().display_objects();
+    render_list.iter().for_each(|display_id| {
+        let display_object = display_objects.get(&display_id).unwrap();
+        match display_object {
+            DisplayObject::MovieClip(movie_clip) => {
+                for _ in 0..space {
+                    print!(" ");
+                }
+                println!(
+                    "MovieClip:{} depth:{}",
+                    movie_clip.character_id(),
+                    movie_clip.depth()
+                );
+                show(movie_clip, space);
+            }
+            DisplayObject::Graphic(graphic) => {
+                for _ in 0..space {
+                    print!(" ");
+                }
+                println!("Graphic:{:?}", graphic.character_id());
+            }
+        }
     });
 }

@@ -3,12 +3,17 @@ use bevy::{
     prelude::{Bundle, Component, SpatialBundle},
 };
 
-use crate::{assets::SwfMovie, swf::display_object::movie_clip::MovieClip};
+use crate::{
+    assets::SwfMovie,
+    swf::display_object::{movie_clip::MovieClip, TDisplayObject},
+};
 
 #[derive(Bundle, Default)]
 pub struct SwfBundle {
     /// 要渲染的swf资源的引用计数句柄。
     pub swf_handle: Handle<SwfMovie>,
+    /// 根movie_clip对象
+    pub swf: Swf,
     // /// 实体的local变换属性。
     // pub transform: Transform,
     // /// 实体的global变换属性。
@@ -23,7 +28,29 @@ pub struct SwfBundle {
     pub spatial: SpatialBundle,
 }
 
-#[derive(Component, Default)]
+#[derive(Component)]
 pub struct Swf {
     pub root_movie_clip: MovieClip,
+    /// 要渲染和控制的movie_clip，子影片默认为根影片
+    pub name: Option<String>,
+}
+impl Swf {
+    /// 判断根影片是否为目标影片
+    pub fn is_target_movie_clip(&self) -> bool {
+        if self.root_movie_clip.name().unwrap_or("root")
+            == self.name.clone().unwrap_or(String::from("root"))
+        {
+            true
+        } else {
+            false
+        }
+    }
+}
+impl Default for Swf {
+    fn default() -> Self {
+        Self {
+            root_movie_clip: Default::default(),
+            name: Some(String::from("root")),
+        }
+    }
 }

@@ -12,8 +12,7 @@ use bevy::asset::{AssetEvent, Handle};
 use bevy::color::{Color, ColorToComponents};
 use bevy::log::error;
 use bevy::prelude::{
-    Commands, Entity, Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query,
-    Resource,
+    Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query, Resource, With,
 };
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
@@ -63,6 +62,14 @@ fn enter_frame(
     mut timer: ResMut<PlayerTimer>,
     mut swf_events: EventWriter<SWFRenderEvent>,
 ) {
+    query.iter_mut().for_each(|(mut swf, _)| {
+        let target = swf.name.clone().unwrap_or("root".to_string());
+        if target != swf.root_movie_clip.name().unwrap_or("root") {
+            if let Some(target_movie_clip) = swf.root_movie_clip.query_movie_clip(&target) {
+                swf.root_movie_clip = target_movie_clip.clone();
+            }
+        }
+    });
     if timer.0.tick(time.delta()).just_finished() {
         for (mut swf, swf_handle) in query.iter_mut() {
             if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
@@ -75,8 +82,7 @@ fn enter_frame(
 }
 
 fn pre_parse(
-    mut commands: Commands,
-    query: Query<(Entity, &Handle<SwfMovie>)>,
+    mut query: Query<&mut Swf, With<Handle<SwfMovie>>>,
     mut swf_events: EventReader<AssetEvent<SwfMovie>>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -320,11 +326,9 @@ fn pre_parse(
                         },
                     );
                     swf_movie.movie_library = library;
-                    for (entity, ..) in query.iter().filter(|(_, handle)| handle.id() == *id) {
-                        commands.entity(entity).insert(Swf {
-                            root_movie_clip: root_movie_clip.clone(),
-                        });
-                    }
+                    query
+                        .iter_mut()
+                        .for_each(|mut swf| swf.root_movie_clip = root_movie_clip.clone());
                 }
             }
             _ => {}

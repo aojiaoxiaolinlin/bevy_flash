@@ -47,6 +47,7 @@ pub fn render_swf(
                 .root_movie_clip
                 .raw_container_mut()
                 .display_objects_mut();
+            dbg!(entities_query.iter().count());
             entities_query.iter().for_each(|entity| {
                 commands.entity(entity).despawn();
             });
@@ -123,6 +124,7 @@ pub fn handler_render_list(
                             *z_index += 0.1;
                         }
                         for (mesh_handle, material) in graphic.bitmap_mesh() {
+                            dbg!(graphic.character_id());
                             if let Some(bitmap_material) = bitmap_materials.get_mut(material.id()) {
                                 bitmap_material.transform = transform.clone().into();
                             }
@@ -162,6 +164,8 @@ pub fn handler_render_list(
                         color_transform: parent_transform.color_transform
                             * movie_clip.base().transform().color_transform,
                     };
+                    dbg!(movie_clip.character_id(), movie_clip.depth());
+                    // dbg!(movie_clip.blend_mode());
                     handler_render_list(
                         commands,
                         materials,

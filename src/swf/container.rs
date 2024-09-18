@@ -80,13 +80,9 @@ impl ChildContainer {
     }
 
     pub fn remove_child_from_depth_list(&mut self, child: Depth) -> Option<DisplayId> {
-        if let Some(_other_child) = self.depth_list.get(&child) {
-            if let Some(remove) = self.depth_list.remove(&child) {
-                self.display_objects.remove(&remove);
-                Some(remove)
-            } else {
-                None
-            }
+        if let Some(remove) = self.depth_list.remove(&child) {
+            self.display_objects.remove(&remove);
+            Some(remove)
         } else {
             None
         }
@@ -100,7 +96,8 @@ impl ChildContainer {
     }
 
     fn remove_child_from_render_list(container: &mut ChildContainer, child: DisplayId) -> bool {
-        let render_list_position = container.render_list.iter().position(|x| *x == child);
+        let render_list_position: Option<usize> =
+            container.render_list.iter().position(|x| *x == child);
         if let Some(position) = render_list_position {
             container.render_list_mut().remove(position);
             true

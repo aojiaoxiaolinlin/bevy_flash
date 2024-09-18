@@ -1,3 +1,4 @@
+use bevy::log::error;
 use std::sync::Arc;
 use swf::{CharacterId, Fixed8, HeaderExt, Rectangle, TagCode, Twips};
 use thiserror::Error;
@@ -328,8 +329,7 @@ where
     loop {
         let (tag_code, tag_len) = reader.read_tag_code_and_length()?;
         if tag_len > reader.get_ref().len() {
-            // tracing::error!("Unexpected EOF when reading tag");
-            dbg!("Unexpected EOF when reading tag");
+            error!("Unexpected EOF when reading tag");
             *reader.get_mut() = &reader.get_ref()[reader.get_ref().len()..];
             return Ok(false);
         }
@@ -352,8 +352,7 @@ where
                 Ok(ControlFlow::Continue) => {}
             }
         } else {
-            // tracing::warn!("Unknown tag code: {:?}", tag_code);
-            dbg!("Unknown tag code", tag_code);
+            error!("Unknown tag code: {:?}", tag_code);
         }
 
         *reader.get_mut() = end_slice;
