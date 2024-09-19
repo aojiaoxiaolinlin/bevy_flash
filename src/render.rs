@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use bevy::{
     app::{App, Plugin, PostUpdate},
-    asset::Assets,
-    prelude::{Commands, Entity, EventReader, Gizmos, Query, ResMut, Transform, With},
+    asset::{load_internal_asset, Assets, Handle},
+    prelude::{Commands, Entity, EventReader, Gizmos, Query, ResMut, Shader, Transform, With},
     sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
 };
 use glam::Vec3;
@@ -16,12 +16,39 @@ use crate::{
     swf::display_object::{DisplayObject, TDisplayObject},
 };
 
+pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(283691495474896754103765489274589);
+pub const GRADIENT_MATERIAL_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(55042096615683885463288330940691701066);
+pub const BITMAP_MATERIAL_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(1209708179628049255077713250256144531);
+
 pub(crate) mod material;
 pub(crate) mod tessellator;
 pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {
     fn build(&self, app: &mut App) {
+        load_internal_asset!(
+            app,
+            SWF_COLOR_MATERIAL_SHADER_HANDLE,
+            "render/shaders/color.wgsl",
+            Shader::from_wgsl
+        );
+
+        load_internal_asset!(
+            app,
+            GRADIENT_MATERIAL_SHADER_HANDLE,
+            "render/shaders/gradient.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            BITMAP_MATERIAL_SHADER_HANDLE,
+            "render/shaders/bitmap.wgsl",
+            Shader::from_wgsl
+        );
+
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
             .add_plugins(Material2dPlugin::<SWFColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
@@ -34,15 +61,15 @@ pub fn render_swf(
     mut materials: ResMut<Assets<SWFColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
-    mut query: Query<&mut Swf>,
+    mut query: Query<(&mut Swf, &Transform)>,
     mut gizmos: Gizmos,
     entities_query: Query<Entity, With<Mesh2dHandle>>,
     mut swf_render_events: EventReader<SWFRenderEvent>,
 ) {
     for _swf_render_event in swf_render_events.read() {
-        query.iter_mut().for_each(|mut swf| {
+        query.iter_mut().for_each(|(mut swf, transform)| {
             let render_list = swf.root_movie_clip.raw_container().render_list();
-            let transform = swf.root_movie_clip.base().transform().clone();
+            let parent_transform = swf.root_movie_clip.base().transform().clone();
             let display_objects = swf
                 .root_movie_clip
                 .raw_container_mut()
@@ -50,7 +77,6 @@ pub fn render_swf(
             entities_query.iter().for_each(|entity| {
                 commands.entity(entity).despawn();
             });
-
             let mut z_index = 0.0;
 
             handler_render_list(
@@ -61,7 +87,8 @@ pub fn render_swf(
                 render_list,
                 display_objects,
                 &mut gizmos,
-                &transform,
+                &parent_transform,
+                transform,
                 &mut z_index,
             );
         });
@@ -77,6 +104,7 @@ pub fn handler_render_list(
     display_objects: &mut BTreeMap<u128, DisplayObject>,
     gizmos: &mut Gizmos,
     parent_transform: &RuffleTransform,
+    transform: &Transform,
     z_index: &mut f32,
 ) {
     for display_object in render_list.iter() {
@@ -85,7 +113,7 @@ pub fn handler_render_list(
                 DisplayObject::Graphic(graphic) => {
                     if let Some(mesh) = graphic.mesh() {
                         let current_transform = graphic.base().transform();
-                        let transform = RuffleTransform {
+                        let swf_transform = RuffleTransform {
                             matrix: parent_transform.matrix * current_transform.matrix,
                             color_transform: parent_transform.color_transform
                                 * current_transform.color_transform,
@@ -93,9 +121,9 @@ pub fn handler_render_list(
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: mesh.into(),
                             material: materials.add(SWFColorMaterial {
-                                transform: transform.clone().into(),
+                                transform: swf_transform.clone().into(),
                             }),
-                            transform: Transform::from_translation(Vec3::new(
+                            transform: transform.with_translation(Vec3::new(
                                 0.0,
                                 0.0,
                                 *z_index + 0.1,
@@ -107,12 +135,12 @@ pub fn handler_render_list(
                             if let Some(gradient_material) =
                                 gradient_materials.get_mut(material.id())
                             {
-                                gradient_material.transform = transform.clone().into();
+                                gradient_material.transform = swf_transform.clone().into();
                             }
                             commands.spawn(MaterialMesh2dBundle {
                                 mesh: mesh_handle.clone().into(),
                                 material: material.clone(),
-                                transform: Transform::from_translation(Vec3::new(
+                                transform: transform.with_translation(Vec3::new(
                                     0.0,
                                     0.0,
                                     *z_index + 0.1,
@@ -129,7 +157,7 @@ pub fn handler_render_list(
                             // }
                             // 暂时这样吧，以后看看有没有更好的渲染更新方式
                             let mut bitmap_material = material.clone();
-                            bitmap_material.transform = transform.clone().into();
+                            bitmap_material.transform = swf_transform.clone().into();
                             commands.spawn(MaterialMesh2dBundle {
                                 mesh: mesh_handle.clone().into(),
                                 material: bitmap_materials.add(bitmap_material),
@@ -177,6 +205,7 @@ pub fn handler_render_list(
                         movie_clip.raw_container_mut().display_objects_mut(),
                         gizmos,
                         &current_transform,
+                        transform,
                         z_index,
                     );
                 }
