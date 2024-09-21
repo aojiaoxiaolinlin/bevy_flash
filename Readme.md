@@ -2,16 +2,19 @@
 
 ## Rendering flash animation in bevy engine
 
+## Example
+
+[See online demo](https://aojiaoxiaolinlin.github.io/bevy_flash_example/)
+
 > 部分技术参考[ruffle](https://github.com/ruffle-rs/ruffle/)项目
 
 ## 目前实现的功能
 
-- [x] DefineShape & GradientFill
+- [x] DefineShape Render
 - [x] MovieClip Animation
-- [x] Bitmap rendering
-- [ ] Blend
-- [ ] Filter
-- [ ] Control Animation
+- [ ] Blend Render
+- [ ] Filter Render
+- [x] Control Animation
 
 <!-- 插入图片 -->
 ## 初步实现渲染`Shape`
