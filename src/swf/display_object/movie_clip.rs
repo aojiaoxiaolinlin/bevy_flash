@@ -458,7 +458,7 @@ impl MovieClip {
                 }
                 child.post_instantiation(library);
                 // TODO: 此处跳帧有BUG, 待排查
-                // child.enter_frame(library);
+                child.enter_frame(library);
                 Some(child)
             }
             Err(_e) => None,

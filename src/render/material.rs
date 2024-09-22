@@ -80,7 +80,7 @@ impl Material2d for BitmapMaterial {
 
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct SWFTransform {
-    world_transform: Mat4,
+    pub world_transform: Mat4,
     mult_color: Vec4,
     add_color: Vec4,
 }

@@ -1,11 +1,16 @@
 use bevy::{
     app::{App, Startup, Update},
     asset::{AssetServer, Assets, Handle},
+    color::{palettes::css::GOLD, Color},
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
+    gizmos::gizmos,
     input::ButtonInput,
     log::info,
     prelude::{
-        Camera2dBundle, Commands, KeyCode, Msaa, Query, Res, ResMut, SpatialBundle, Transform,
+        Camera2dBundle, Commands, Component, Gizmos, KeyCode, Msaa, Query, Res, ResMut,
+        SpatialBundle, TextBundle, Transform, With,
     },
+    text::{Text, TextSection, TextStyle},
     DefaultPlugins,
 };
 use bevy_flash::swf::display_object::{movie_clip::MovieClip, DisplayObject, TDisplayObject};
@@ -14,13 +19,17 @@ use bevy_flash::{
     bundle::{Swf, SwfBundle},
     plugin::FlashPlugin,
 };
-use glam::Vec3;
+use glam::{Vec2, Vec3};
+
+#[derive(Component)]
+struct FpsText;
+
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, FlashPlugin))
+        .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin, FlashPlugin))
         .insert_resource(Msaa::Sample8)
         .add_systems(Startup, setup)
-        .add_systems(Update, control)
+        .add_systems(Update, (control, text_update_system, draw_grid))
         .run();
 }
 
@@ -33,8 +42,8 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         // swf_handle: assert_server.load("head_scale2.swf"),
         // swf_handle: assert_server.load("head-animation.swf"),
         // swf_handle: assert_server.load("head.swf"),
-        swf_handle: assert_server.load("spirit2159src.swf"),
-        // swf_handle: assert_server.load("spirit2724src.swf"),
+        // swf_handle: assert_server.load("spirit2159src.swf"),
+        swf_handle: assert_server.load("spirit2724src.swf"),
         // swf_handle: assert_server.load("double_ref2.swf"),
         // swf_handle: assert_server.load("effect1209.swf"),
         // swf_handle: assert_server.load("frames.swf"),
@@ -47,16 +56,41 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         // swf_handle: assert_server.load("weiba.swf"),
         // swf_handle: assert_server.load("spirit1src.swf"),
         // swf_handle: assert_server.load("32.swf"),
+        // swf_handle: assert_server.load("30.swf"),
         swf: Swf {
             name: Some(String::from("_mc")),
             ..Default::default()
         },
+        // TODO: Y坐标变换会引起渲染显示异常，不显示或渐变纹理没有填充，该异常还与窗口大小有关系
         spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(-500.0, 100.0, 0.0)),
+            transform: Transform::from_translation(Vec3::new(-600.0, 200.0, 0.0))
+                .with_scale(Vec3::splat(1.0)),
             ..Default::default()
         },
         ..Default::default()
     });
+
+    commands.spawn((
+        TextBundle::from_sections([
+            TextSection::new(
+                "FPS",
+                TextStyle {
+                    font_size: 40.0,
+                    ..Default::default()
+                },
+            ),
+            TextSection::from_style(TextStyle {
+                color: GOLD.into(),
+                ..Default::default()
+            }),
+        ]),
+        FpsText,
+    ));
+}
+
+fn draw_grid(mut gizmos: Gizmos) {
+    gizmos.line_2d(Vec2::new(-500.0, 0.0), Vec2::new(500.0, 0.0), Color::WHITE);
+    gizmos.line_2d(Vec2::new(0.0, -500.0), Vec2::new(0.0, 500.0), Color::WHITE);
 }
 
 fn control(
@@ -76,62 +110,50 @@ fn control(
     };
 
     if keyboard_input.just_released(KeyCode::KeyW) {
-        info!("按W");
         control(&mut query, 0);
     }
 
     if keyboard_input.just_released(KeyCode::KeyA) {
-        info!("按A");
         control(&mut query, 10);
     }
 
     if keyboard_input.just_released(KeyCode::KeyS) {
-        info!("按S");
         control(&mut query, 20);
     }
 
     if keyboard_input.just_released(KeyCode::KeyD) {
-        info!("按D");
         control(&mut query, 30);
     }
 
     if keyboard_input.just_released(KeyCode::KeyF) {
-        info!("按F");
         control(&mut query, 40);
     }
 
     if keyboard_input.just_released(KeyCode::KeyH) {
-        info!("按H");
         control(&mut query, 50);
     }
 
     if keyboard_input.just_released(KeyCode::KeyJ) {
-        info!("按J");
         control(&mut query, 60);
     }
 
     if keyboard_input.just_released(KeyCode::KeyK) {
-        info!("按K");
         control(&mut query, 70);
     }
 
     if keyboard_input.just_released(KeyCode::KeyL) {
-        info!("按L");
         control(&mut query, 80);
     }
 
     if keyboard_input.just_released(KeyCode::KeyM) {
-        info!("按M");
         control(&mut query, 90);
     }
 
     if keyboard_input.just_released(KeyCode::KeyN) {
-        info!("按N");
         control(&mut query, 100);
     }
 
     if keyboard_input.just_released(KeyCode::KeyO) {
-        info!("按O");
         control(&mut query, 110);
     }
 
@@ -171,4 +193,18 @@ fn show(movie_clip: &MovieClip, mut space: i32) {
             }
         }
     });
+}
+
+fn text_update_system(
+    diagnostics: Res<DiagnosticsStore>,
+    mut query: Query<&mut Text, With<FpsText>>,
+) {
+    for mut text in &mut query {
+        if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
+            if let Some(value) = fps.smoothed() {
+                // Update the value of the second section
+                text.sections[1].value = format!("{value:.2}");
+            }
+        }
+    }
 }

@@ -1,6 +1,6 @@
 use crate::assets::{SwfLoader, SwfMovie};
-use crate::bundle::Swf;
-use crate::render::material::{BitmapMaterial, Gradient, GradientMaterial};
+use crate::bundle::{Swf, SwfState};
+use crate::render::material::{BitmapMaterial, Gradient, GradientMaterial, SWFColorMaterial};
 use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
@@ -36,7 +36,7 @@ const GRADIENT_SIZE: usize = 256;
 struct PlayerTimer(Timer);
 
 #[derive(Event)]
-pub struct SWFRenderEvent {}
+pub struct SWFRenderEvent;
 
 pub struct FlashPlugin;
 
@@ -75,10 +75,22 @@ fn enter_frame(
             if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
                 swf.root_movie_clip
                     .enter_frame(&mut swf_movie.movie_library);
-                swf_events.send(SWFRenderEvent {});
+                swf_events.send(SWFRenderEvent);
             }
         }
     }
+}
+
+#[derive(Clone)]
+pub enum ShapeDrawType {
+    Color(SWFColorMaterial),
+    Gradient(Handle<GradientMaterial>),
+    Bitmap(BitmapMaterial),
+}
+#[derive(Clone)]
+pub struct ShapeMesh {
+    pub mesh: Handle<Mesh>,
+    pub draw_type: ShapeDrawType,
 }
 
 fn pre_parse(
@@ -108,9 +120,7 @@ fn pre_parse(
                                     .tessellate_shape((&graphic.shape).into(), &library_clone);
 
                                 let gradients = lyon_mesh.gradients;
-
                                 let mut gradients_texture = Vec::new();
-
                                 for gradient in gradients {
                                     let colors = if gradient.records.is_empty() {
                                         vec![0; GRADIENT_SIZE * 4]
@@ -191,18 +201,16 @@ fn pre_parse(
                                     gradients_texture.push((texture.clone(), gradient_uniforms));
                                 }
 
-                                let mut result_positions = Vec::new();
-                                let mut result_colors = Vec::new();
-                                let mut result_indices = Vec::new();
-                                let mut vertex_num = 0;
                                 for draw in lyon_mesh.draws {
                                     match draw.draw_type {
                                         DrawType::Color => {
-                                            let current_vertex_num = draw.vertices.len() as u32;
+                                            let mut positions =
+                                                Vec::with_capacity(draw.vertices.len());
+                                            let mut colors =
+                                                Vec::with_capacity(draw.vertices.len());
                                             for vertex in draw.vertices {
                                                 // 平移顶点使得中心点在bevy原点
-                                                // positions.alloc().init([vertex.x, vertex.y, 0.0]);
-                                                result_positions.push([vertex.x, vertex.y, 0.0]);
+                                                positions.alloc().init([vertex.x, vertex.y, 0.0]);
                                                 let linear_color = Color::srgba_u8(
                                                     vertex.color.r,
                                                     vertex.color.g,
@@ -210,13 +218,26 @@ fn pre_parse(
                                                     vertex.color.a,
                                                 )
                                                 .to_linear();
-                                                // colors.alloc().init(linear_color.to_f32_array());
-                                                result_colors.push(linear_color.to_f32_array());
+                                                colors.alloc().init(linear_color.to_f32_array());
                                             }
-                                            draw.indices.iter().for_each(|index| {
-                                                result_indices.push(*index + vertex_num);
+
+                                            let mut mesh = Mesh::new(
+                                                PrimitiveTopology::TriangleList,
+                                                RenderAssetUsages::default(),
+                                            );
+                                            mesh.insert_attribute(
+                                                Mesh::ATTRIBUTE_POSITION,
+                                                positions,
+                                            );
+                                            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+                                            mesh.insert_indices(Indices::U32(draw.indices));
+
+                                            graphic.add_shape_mesh(ShapeMesh {
+                                                mesh: meshes.add(mesh),
+                                                draw_type: ShapeDrawType::Color(SWFColorMaterial {
+                                                    ..Default::default()
+                                                }),
                                             });
-                                            vertex_num += current_vertex_num;
                                         }
                                         DrawType::Gradient { matrix, gradient } => {
                                             let mut positions =
@@ -235,22 +256,24 @@ fn pre_parse(
                                             mesh.insert_indices(Indices::U32(draw.indices.clone()));
                                             let texture =
                                                 gradients_texture.get(gradient).unwrap().clone();
-                                            graphic.add_gradient_mesh(
-                                                meshes.add(mesh),
-                                                gradient_materials.add(GradientMaterial {
-                                                    gradient: Gradient {
-                                                        focal_point: texture.1.focal_point,
-                                                        interpolation: texture.1.interpolation,
-                                                        shape: texture.1.shape,
-                                                        repeat: texture.1.repeat,
-                                                    },
-                                                    texture_transform: Mat4::from_mat3(
-                                                        Mat3::from_cols_array_2d(&matrix),
-                                                    ),
-                                                    texture: Some(images.add(texture.0)),
-                                                    ..Default::default()
-                                                }),
-                                            );
+                                            graphic.add_shape_mesh(ShapeMesh {
+                                                mesh: meshes.add(mesh),
+                                                draw_type: ShapeDrawType::Gradient(
+                                                    gradient_materials.add(GradientMaterial {
+                                                        gradient: Gradient {
+                                                            focal_point: texture.1.focal_point,
+                                                            interpolation: texture.1.interpolation,
+                                                            shape: texture.1.shape,
+                                                            repeat: texture.1.repeat,
+                                                        },
+                                                        texture_transform: Mat4::from_mat3(
+                                                            Mat3::from_cols_array_2d(&matrix),
+                                                        ),
+                                                        texture: Some(images.add(texture.0)),
+                                                        ..Default::default()
+                                                    }),
+                                                ),
+                                            });
                                         }
                                         DrawType::Bitmap(bitmap) => {
                                             let texture_transform = bitmap.matrix;
@@ -296,39 +319,33 @@ fn pre_parse(
                                                 mesh.insert_indices(Indices::U32(
                                                     draw.indices.clone(),
                                                 ));
-                                                graphic.add_bitmap_mesh((
-                                                    meshes.add(mesh),
-                                                    BitmapMaterial {
-                                                        texture: images.add(bitmap_texture),
-                                                        texture_transform: Mat4::from_mat3(
-                                                            Mat3::from_cols_array_2d(
-                                                                &texture_transform,
+                                                graphic.add_shape_mesh(ShapeMesh {
+                                                    mesh: meshes.add(mesh),
+                                                    draw_type: ShapeDrawType::Bitmap(
+                                                        BitmapMaterial {
+                                                            texture: images.add(bitmap_texture),
+                                                            texture_transform: Mat4::from_mat3(
+                                                                Mat3::from_cols_array_2d(
+                                                                    &texture_transform,
+                                                                ),
                                                             ),
-                                                        ),
-                                                        ..Default::default()
-                                                    },
-                                                ));
+                                                            ..Default::default()
+                                                        },
+                                                    ),
+                                                });
                                             }
                                         }
                                     }
                                 }
-                                let mut mesh = Mesh::new(
-                                    PrimitiveTopology::TriangleList,
-                                    RenderAssetUsages::default(),
-                                );
-                                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, result_positions);
-                                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, result_colors);
-                                mesh.insert_indices(Indices::U32(result_indices));
-                                let mesh_handle = meshes.add(mesh);
-                                graphic.set_mesh(mesh_handle);
                             }
                             _ => {}
                         },
                     );
                     swf_movie.movie_library = library;
-                    query
-                        .iter_mut()
-                        .for_each(|mut swf| swf.root_movie_clip = root_movie_clip.clone());
+                    query.iter_mut().for_each(|mut swf| {
+                        swf.root_movie_clip = root_movie_clip.clone();
+                        swf.status = SwfState::Ready;
+                    });
                 }
             }
             _ => {}
