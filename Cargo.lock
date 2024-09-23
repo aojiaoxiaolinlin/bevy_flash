@@ -2687,6 +2687,7 @@ dependencies = [
 [[package]]
 name = "naga-agal"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "bitflags 2.6.0",
  "naga",
@@ -2697,6 +2698,7 @@ dependencies = [
 [[package]]
 name = "naga-pixelbender"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "anyhow",
  "naga",
@@ -3481,6 +3483,7 @@ dependencies = [
 [[package]]
 name = "ruffle_macros"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "quote",
  "syn 2.0.77",
@@ -3489,6 +3492,7 @@ dependencies = [
 [[package]]
 name = "ruffle_render"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "byteorder",
  "downcast-rs",
@@ -3514,6 +3518,7 @@ dependencies = [
 [[package]]
 name = "ruffle_render_wgpu"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "bytemuck",
  "enum-map",
@@ -3535,6 +3540,7 @@ dependencies = [
 [[package]]
 name = "ruffle_wstr"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 
 [[package]]
 name = "rustc-hash"
@@ -3722,6 +3728,7 @@ checksum = "20e16a0f46cf5fd675563ef54f26e83e20f2366bcf027bcb3cc3ed2b98aaf2ca"
 [[package]]
 name = "swf"
 version = "0.2.1"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "bitflags 2.6.0",
  "bitstream-io",
