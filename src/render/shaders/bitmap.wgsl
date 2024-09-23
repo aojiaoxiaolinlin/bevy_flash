@@ -1,15 +1,14 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
 
 
-struct SWFTransform {
-    world_matrix: mat4x4<f32>,
+struct SWFColorTransform {
     mult_color: vec4<f32>,
     add_color: vec4<f32>,
 }
 @group(2) @binding(0) var texture: texture_2d<f32>;
 @group(2) @binding(1) var texture_sampler: sampler;
 @group(2) @binding(2) var<uniform> texture_transform: mat4x4<f32>;
-@group(2) @binding(3) var<uniform> swf_transform: SWFTransform;
+@group(2) @binding(3) var<uniform> swf_color_transform: SWFColorTransform;
 override late_saturate: bool = false;
 
 /// 暂时定为固定值
@@ -17,7 +16,7 @@ const view_matrix: mat4x4<f32> = mat4x4<f32>(
     vec4<f32>(1.0, 0.0, 0.0, 0.0),
     vec4<f32>(0.0, -1.0, 0.0, 0.0),
     vec4<f32>(0.0, 0.0, 1.0, 0.0),
-    vec4<f32>(-1.0, 1.0, 0.0, 1.0)
+    vec4<f32>(0.0, 0.0, 0.0, 1.0)
 );
 
 struct Vertex {
@@ -29,11 +28,11 @@ struct Vertex {
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     out.uv = (mat3x3<f32>(texture_transform[0].xyz, texture_transform[1].xyz, texture_transform[2].xyz) * vec3<f32>(vertex.position.x, vertex.position.y, 1.0)).xy;
-    var position: vec4<f32> = view_matrix * swf_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
+    // var position: vec4<f32> = swf_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
     var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh2d_position_local_to_world(
         world_from_local,
-        position
+        vec4<f32>(vertex.position, 1.0)
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
     return out;
@@ -45,7 +44,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if color.a > 0.0 {
         color = vec4<f32>(color.rgb / color.a, color.a);
-        color = color * swf_transform.mult_color + swf_transform.add_color;
+        color = color * swf_color_transform.mult_color + swf_color_transform.add_color;
         if !late_saturate {
             color = saturate(color);
         }

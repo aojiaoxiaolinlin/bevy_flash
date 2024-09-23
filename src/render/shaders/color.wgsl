@@ -5,16 +5,15 @@ const view_matrix: mat4x4<f32> = mat4x4<f32>(
     vec4<f32>(1.0, 0.0, 0.0, 0.0),
     vec4<f32>(0.0, -1.0, 0.0, 0.0),
     vec4<f32>(0.0, 0.0, 1.0, 0.0),
-    vec4<f32>(-1.0, 1.0, 0.0, 1.0)
+    vec4<f32>(0.0, 0.0, 0.0, 1.0)
 );
 
-struct SWFTransform {
-    world_matrix: mat4x4<f32>,
+struct SWFColorTransform {
     mult_color: vec4<f32>,
     add_color: vec4<f32>,
 }
 
-@group(2) @binding(0) var<uniform> swf_transform: SWFTransform;
+@group(2) @binding(0) var<uniform> swf_color_transform: SWFColorTransform;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -24,15 +23,15 @@ struct Vertex {
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
-    let position: vec4<f32> = view_matrix * swf_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
+    // let position: vec4<f32> = swf_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
     var out: VertexOutput;
     var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh2d_position_local_to_world(
         world_from_local,
-        position
+        vec4<f32>(vertex.position, 1.0)
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
-    out.color = vertex.color;
+    out.color = saturate(vertex.color * swf_color_transform.mult_color + swf_color_transform.add_color);
     return out;
 }
 

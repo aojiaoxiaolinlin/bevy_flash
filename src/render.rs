@@ -69,12 +69,13 @@ pub fn render_swf(
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
     mut query: Query<(&mut Swf, Entity, &mut ShapeMarkEntities)>,
     mut gizmos: Gizmos,
-    entities_material_query: Query<
+    mut entities_material_query: Query<
         (
             Entity,
             Option<&Handle<SWFColorMaterial>>,
             Option<&Handle<GradientMaterial>>,
             Option<&Handle<BitmapMaterial>>,
+            &mut Transform,
         ),
         With<SWFShapeMesh>,
     >,
@@ -105,7 +106,7 @@ pub fn render_swf(
                     &mut color_materials,
                     &mut gradient_materials,
                     &mut bitmap_materials,
-                    &entities_material_query,
+                    &mut entities_material_query,
                     &mut shape_mark_entities,
                     render_list,
                     display_objects,
@@ -139,7 +140,7 @@ pub fn handler_render_list(
     color_materials: &mut ResMut<Assets<SWFColorMaterial>>,
     gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
     bitmap_materials: &mut ResMut<Assets<BitmapMaterial>>,
-    entities_material_query: &Query<
+    entities_material_query: &mut Query<
         '_,
         '_,
         (
@@ -147,6 +148,7 @@ pub fn handler_render_list(
             Option<&Handle<SWFColorMaterial>>,
             Option<&Handle<GradientMaterial>>,
             Option<&Handle<BitmapMaterial>>,
+            &mut Transform,
         ),
         With<SWFShapeMesh>,
     >,
@@ -167,31 +169,8 @@ pub fn handler_render_list(
                         color_transform: parent_clip_transform.color_transform
                             * current_transform.color_transform,
                     };
-                    // debug
-                    let bundle = graphic.shape.shape_bounds.clone();
-                    let mut position = Vec4::new(
-                        (bundle.x_min + bundle.x_max).to_pixels() as f32 / 2.0,
-                        (bundle.y_min + bundle.y_max).to_pixels() as f32 / 2.0,
-                        0.0,
-                        1.0,
-                    );
-                    let view_matrix: SWFTransform = swf_transform.clone().into();
-                    let position = Mat4::from_cols_array_2d(&[
-                        [1.0, 0.0, 0.0, 0.0],
-                        [0.0, -1.0, 0.0, 0.0],
-                        [0.0, 0.0, 1.0, 0.0],
-                        [-1.0, 1.0, 0.0, 1.0],
-                    ]) * view_matrix.world_transform
-                        * position;
-                    // gizmos.rect_2d(
-                    //     Vec2::new(position.x - 500.0, position.y),
-                    //     0.0,
-                    //     Vec2::new(
-                    //         (bundle.x_max - bundle.x_min).to_pixels() as f32,
-                    //         (bundle.y_max - bundle.y_min).to_pixels() as f32,
-                    //     ),
-                    //     Color::WHITE,
-                    // );
+                    let swf_transform: SWFTransform = swf_transform.clone().into();
+                    let color_transform = swf_transform.1;
 
                     let mut shape_mark = ShapeMark {
                         depth: graphic.depth(),
@@ -203,6 +182,8 @@ pub fn handler_render_list(
                         .iter_mut()
                         .enumerate()
                         .for_each(|(index, shape)| {
+                            let mut transform = swf_transform.0;
+
                             // 记录当前帧生成的mesh实体
                             shape_mark.graphic_index = index;
                             shape_mark_entities.record_current_frame_entity(shape_mark);
@@ -210,8 +191,9 @@ pub fn handler_render_list(
                             if let Some(&existing_entity) = shape_mark_entities.entity(&shape_mark)
                             {
                                 let exists_material = entities_material_query
-                                    .iter()
-                                    .find(|(entity, _, _, _)| *entity == existing_entity);
+                                    .iter_mut()
+                                    .find(|(entity, _, _, _, _)| *entity == existing_entity);
+                                // TODO: 以下考虑使用宏解决重复代码
                                 match shape.draw_type.clone() {
                                     ShapeDrawType::Color(mut swf_color_material) => {
                                         // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质
@@ -222,14 +204,21 @@ pub fn handler_render_list(
                                                 color_materials.get_mut(color_material)
                                             {
                                                 swf_color_material.transform =
-                                                    swf_transform.clone().into();
+                                                    color_transform.clone();
+
+                                                let mut exists_transform = exists_material.4;
+                                                transform.translation.z =
+                                                    exists_transform.translation.z;
+                                                *exists_transform = transform;
                                             }
                                         } else {
-                                            swf_color_material.transform =
-                                                swf_transform.clone().into();
-                                            commands
-                                                .entity(existing_entity)
-                                                .insert(color_materials.add(swf_color_material));
+                                            transform.translation.z = *z_index;
+                                            // 由于本系统执行期间无法查询本系统生成的实体所以此时无法复用，新建
+                                            swf_color_material.transform = color_transform.clone();
+                                            commands.entity(existing_entity).insert((
+                                                color_materials.add(swf_color_material.clone()),
+                                                transform,
+                                            ));
                                         }
                                     }
                                     ShapeDrawType::Gradient(handle) => {
@@ -241,14 +230,21 @@ pub fn handler_render_list(
                                                 gradient_materials.get_mut(gradient_material)
                                             {
                                                 swf_gradient_material.transform =
-                                                    swf_transform.clone().into();
+                                                    color_transform.clone();
+                                                let mut exists_transform = exists_material.4;
+
+                                                transform.translation.z =
+                                                    exists_transform.translation.z;
+                                                *exists_transform = transform;
                                             }
                                         } else {
+                                            transform.translation.z = *z_index;
                                             if let Some(swf_gradient_material) =
                                                 gradient_materials.get_mut(&handle)
                                             {
                                                 swf_gradient_material.transform =
-                                                    swf_transform.clone().into()
+                                                    color_transform.clone();
+                                                commands.entity(existing_entity).insert(transform);
                                             }
                                         }
                                     }
@@ -260,21 +256,27 @@ pub fn handler_render_list(
                                                 bitmap_materials.get_mut(bitmap_material)
                                             {
                                                 swf_bitmap_material.transform =
-                                                    swf_transform.clone().into();
+                                                    color_transform.clone();
+                                                let mut exists_transform = exists_material.4;
+                                                transform.translation.z =
+                                                    exists_transform.translation.z;
+                                                *exists_transform = transform;
                                             }
                                         } else {
-                                            bitmap_material.transform =
-                                                swf_transform.clone().into();
-                                            commands
-                                                .entity(existing_entity)
-                                                .insert(bitmap_materials.add(bitmap_material));
+                                            bitmap_material.transform = color_transform.clone();
+                                            commands.entity(existing_entity).insert((
+                                                bitmap_materials.add(bitmap_material.clone()),
+                                                transform,
+                                            ));
                                         }
                                     }
                                 }
                             } else {
+                                transform.translation.z = transform.translation.z + *z_index;
                                 match &mut shape.draw_type {
                                     ShapeDrawType::Color(swf_color_material) => {
-                                        swf_color_material.transform = swf_transform.clone().into();
+                                        swf_color_material.transform = color_transform.clone();
+
                                         commands.entity(parent_entity).with_children(|parent| {
                                             let entity = parent
                                                 .spawn((
@@ -282,9 +284,7 @@ pub fn handler_render_list(
                                                         mesh: shape.mesh.clone().into(),
                                                         material: color_materials
                                                             .add(swf_color_material.clone()),
-                                                        transform: Transform::from_translation(
-                                                            Vec3::new(0.0, 0.0, *z_index),
-                                                        ),
+                                                        transform,
                                                         ..Default::default()
                                                     },
                                                     SWFShapeMesh,
@@ -298,8 +298,7 @@ pub fn handler_render_list(
                                         if let Some(gradient_material) =
                                             gradient_materials.get_mut(materials_handle.id())
                                         {
-                                            gradient_material.transform =
-                                                swf_transform.clone().into();
+                                            gradient_material.transform = color_transform.clone();
                                         }
                                         commands.entity(parent_entity).with_children(|parent| {
                                             let entity = parent
@@ -307,9 +306,7 @@ pub fn handler_render_list(
                                                     MaterialMesh2dBundle {
                                                         mesh: shape.mesh.clone().into(),
                                                         material: materials_handle.clone(),
-                                                        transform: Transform::from_translation(
-                                                            Vec3::new(0.0, 0.0, *z_index),
-                                                        ),
+                                                        transform,
                                                         ..Default::default()
                                                     },
                                                     SWFShapeMesh,
@@ -321,7 +318,7 @@ pub fn handler_render_list(
                                     }
                                     ShapeDrawType::Bitmap(bitmap_material) => {
                                         let mut bitmap_material = bitmap_material.clone();
-                                        bitmap_material.transform = swf_transform.clone().into();
+                                        bitmap_material.transform = color_transform.clone();
                                         commands.entity(parent_entity).with_children(|parent| {
                                             let entity = parent
                                                 .spawn((
@@ -329,9 +326,7 @@ pub fn handler_render_list(
                                                         mesh: shape.mesh.clone().into(),
                                                         material: bitmap_materials
                                                             .add(bitmap_material),
-                                                        transform: Transform::from_translation(
-                                                            Vec3::new(0.0, 0.0, *z_index),
-                                                        ),
+                                                        transform,
                                                         ..Default::default()
                                                     },
                                                     SWFShapeMesh,
