@@ -4,7 +4,7 @@
 
 ## Example
 
-[See online demo](https://aojiaoxiaolinlin.github.io/bevy_flash_example/)
+[See online demo](https://aojiaoxiaolinlin.github.io/bevy_flash_demo/)
 
 > 部分技术参考[ruffle](https://github.com/ruffle-rs/ruffle/)项目
 
