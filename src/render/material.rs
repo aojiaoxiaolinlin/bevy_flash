@@ -1,12 +1,14 @@
 use bevy::{
     asset::{Asset, Handle},
-    prelude::Image,
+    prelude::{Image, Transform},
     reflect::TypePath,
     render::render_resource::{AsBindGroup, ShaderType},
     sprite::Material2d,
 };
 use glam::{Mat4, Vec4};
-use ruffle_render::{shape_utils::GradientType, tessellator::Gradient, transform::Transform};
+use ruffle_render::{
+    shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
+};
 use swf::GradientSpread;
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
@@ -19,15 +21,15 @@ pub struct GradientMaterial {
     #[uniform(3)]
     pub texture_transform: Mat4,
     #[uniform(4)]
-    pub transform: SWFTransform,
+    pub transform: SWFColorTransform,
 }
 
 impl Material2d for GradientMaterial {
     fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        "shaders/gradient.wgsl".into()
+        GRADIENT_MATERIAL_SHADER_HANDLE.into()
     }
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        "shaders/gradient.wgsl".into()
+        GRADIENT_MATERIAL_SHADER_HANDLE.into()
     }
 }
 
@@ -60,15 +62,15 @@ impl From<Gradient> for GradientUniforms {
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 pub struct SWFColorMaterial {
     #[uniform(0)]
-    pub transform: SWFTransform,
+    pub transform: SWFColorTransform,
 }
 
 impl Material2d for SWFColorMaterial {
     fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        "shaders/color.wgsl".into()
+        SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
     }
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        "shaders/color.wgsl".into()
+        SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
     }
 }
 
@@ -80,31 +82,32 @@ pub struct BitmapMaterial {
     #[uniform(2)]
     pub texture_transform: Mat4,
     #[uniform(3)]
-    pub transform: SWFTransform,
+    pub transform: SWFColorTransform,
 }
 
 impl Material2d for BitmapMaterial {
     fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        "shaders/bitmap.wgsl".into()
+        BITMAP_MATERIAL_SHADER_HANDLE.into()
     }
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        "shaders/bitmap.wgsl".into()
+        BITMAP_MATERIAL_SHADER_HANDLE.into()
     }
 }
 
 #[derive(Debug, Clone, Default, ShaderType)]
-pub struct SWFTransform {
-    world_transform: Mat4,
+pub struct SWFColorTransform {
     mult_color: Vec4,
     add_color: Vec4,
 }
 
-impl From<Transform> for SWFTransform {
-    fn from(transform: Transform) -> Self {
+pub struct SWFTransform(pub Transform, pub SWFColorTransform);
+
+impl From<RuffleTransform> for SWFTransform {
+    fn from(transform: RuffleTransform) -> Self {
         let matrix = transform.matrix;
         let color_transform = transform.color_transform;
-        SWFTransform {
-            world_transform: Mat4::from_cols_array_2d(&[
+        Self(
+            Transform::from_matrix(Mat4::from_cols_array_2d(&[
                 [matrix.a, matrix.b, 0.0, 0.0],
                 [matrix.c, matrix.d, 0.0, 0.0],
                 [0.0, 0.0, 1.0, 0.0],
@@ -114,9 +117,11 @@ impl From<Transform> for SWFTransform {
                     0.0,
                     1.0,
                 ],
-            ]),
-            mult_color: Vec4::from_array(color_transform.mult_rgba_normalized()),
-            add_color: Vec4::from_array(color_transform.add_rgba_normalized()),
-        }
+            ])),
+            SWFColorTransform {
+                mult_color: Vec4::from_array(color_transform.mult_rgba_normalized()),
+                add_color: Vec4::from_array(color_transform.add_rgba_normalized()),
+            },
+        )
     }
 }

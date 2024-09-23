@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use bevy::{asset::Handle, prelude::Mesh};
+use bevy::log::error;
 use swf::{CharacterId, Rectangle, Shape, Twips};
 
 use crate::{
-    render::material::{BitmapMaterial, GradientMaterial},
+    plugin::ShapeMesh,
     swf::{library::MovieLibrary, tag_utils::SwfMovie},
 };
 
@@ -17,9 +17,7 @@ pub struct Graphic {
     pub bounds: Rectangle<Twips>,
     base: DisplayObjectBase,
     swf_movie: Arc<SwfMovie>,
-    gradient_mesh: Vec<(Handle<Mesh>, Handle<GradientMaterial>)>,
-    mesh: Option<Handle<Mesh>>,
-    bitmap_mesh: Vec<(Handle<Mesh>, Handle<BitmapMaterial>)>,
+    shape_mesh: Vec<ShapeMesh>,
 }
 
 impl Graphic {
@@ -30,37 +28,16 @@ impl Graphic {
             shape,
             base: DisplayObjectBase::default(),
             swf_movie,
-            gradient_mesh: Vec::new(),
-            mesh: None,
-            bitmap_mesh: Vec::new(),
+            shape_mesh: Vec::new(),
         }
     }
-    pub fn add_gradient_mesh(
-        &mut self,
-        mesh: Handle<Mesh>,
-        gradient_material: Handle<GradientMaterial>,
-    ) {
-        self.gradient_mesh.push((mesh, gradient_material));
+
+    pub fn add_shape_mesh(&mut self, shape_mesh: ShapeMesh) {
+        self.shape_mesh.push(shape_mesh);
     }
 
-    pub fn add_bitmap_mesh(&mut self, bitmap_mesh: (Handle<Mesh>, Handle<BitmapMaterial>)) {
-        self.bitmap_mesh.push(bitmap_mesh);
-    }
-
-    pub fn set_mesh(&mut self, mesh: Handle<Mesh>) {
-        self.mesh = Some(mesh);
-    }
-
-    pub fn mesh(&self) -> Option<Handle<Mesh>> {
-        self.mesh.clone()
-    }
-
-    pub fn gradient_mesh(&self) -> &Vec<(Handle<Mesh>, Handle<GradientMaterial>)> {
-        &self.gradient_mesh
-    }
-
-    pub fn bitmap_mesh(&self) -> &Vec<(Handle<Mesh>, Handle<BitmapMaterial>)> {
-        &self.bitmap_mesh
+    pub fn shape_mesh(&mut self) -> &mut Vec<ShapeMesh> {
+        &mut self.shape_mesh
     }
 }
 
@@ -86,11 +63,9 @@ impl TDisplayObject for Graphic {
             self.id = new_graphic.id;
             self.shape = new_graphic.shape;
             self.bounds = new_graphic.bounds;
-            self.mesh = new_graphic.mesh;
-            self.gradient_mesh = new_graphic.gradient_mesh;
-            self.bitmap_mesh = new_graphic.bitmap_mesh;
+            self.shape_mesh = new_graphic.shape_mesh;
         } else {
-            dbg!("PlaceObject: expected Graphic at character ID {}", id);
+            error!("PlaceObject: expected Graphic at character ID {}", id);
         }
     }
 }

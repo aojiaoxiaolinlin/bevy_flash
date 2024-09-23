@@ -1,29 +1,102 @@
 use bevy::{
     asset::Handle,
-    prelude::{Bundle, Component, SpatialBundle},
+    prelude::{Bundle, Component, Entity, SpatialBundle},
+    utils::hashbrown::HashMap,
 };
+use swf::{CharacterId, Depth};
 
-use crate::{assets::SwfMovie, swf::display_object::movie_clip::MovieClip};
+use crate::{
+    assets::SwfMovie,
+    swf::display_object::{movie_clip::MovieClip, TDisplayObject},
+};
 
 #[derive(Bundle, Default)]
 pub struct SwfBundle {
     /// 要渲染的swf资源的引用计数句柄。
     pub swf_handle: Handle<SwfMovie>,
-    // /// 实体的local变换属性。
-    // pub transform: Transform,
-    // /// 实体的global变换属性。
-    // pub global_transform: GlobalTransform,
-    // /// 用户指明的实体是否可见。
-    // pub visibility: Visibility,
-    // /// 实体在层次结构中是否可见。
-    // pub inherited_visibility: InheritedVisibility,
-    // /// 通过算法计算得出的实体是否可见并应被提取用于渲染的指示。 每帧的`PostUpdate`阶段都会被设置为false。
-    // pub view_visibility: ViewVisibility,
+    /// 根movie_clip对象
+    pub swf: Swf,
     /// 包含实体的空间属性。
     pub spatial: SpatialBundle,
+    /// shape对应实体
+    pub shape_mark_entities: ShapeMarkEntities,
 }
 
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ShapeMark {
+    pub depth: Depth,
+    pub id: CharacterId,
+    pub graphic_index: usize,
+}
 #[derive(Component, Default)]
+pub struct ShapeMarkEntities {
+    pub graphic_entities: HashMap<ShapeMark, Entity>,
+    current_frame_entities: Vec<ShapeMark>,
+}
+
+impl ShapeMarkEntities {
+    pub fn entity(&self, shape_mark: &ShapeMark) -> Option<&Entity> {
+        self.graphic_entities.get(shape_mark)
+    }
+
+    pub fn add_entities_pool(&mut self, shape_mark: ShapeMark, entity: Entity) {
+        self.graphic_entities.insert(shape_mark, entity);
+    }
+
+    pub fn record_current_frame_entity(&mut self, shape_mark: ShapeMark) {
+        self.current_frame_entities.push(shape_mark);
+    }
+
+    pub fn clear_current_frame_entity(&mut self) {
+        self.current_frame_entities.clear();
+    }
+
+    pub fn non_current_frame_entity(&mut self) -> Vec<&mut Entity> {
+        self.graphic_entities
+            .iter_mut()
+            .filter(|(key, _)| !self.current_frame_entities.contains(&key))
+            .map(|(_, value)| value)
+            .collect::<Vec<&mut Entity>>()
+    }
+
+    pub fn current_frame_entities(&self) -> &Vec<ShapeMark> {
+        &self.current_frame_entities
+    }
+}
+
+#[derive(Component)]
 pub struct Swf {
     pub root_movie_clip: MovieClip,
+    /// 要渲染和控制的movie_clip，子影片默认为根影片
+    pub name: Option<String>,
+    /// 加载处理状态
+    pub status: SwfState,
+}
+impl Swf {
+    /// 判断根影片是否为目标影片
+    pub fn is_target_movie_clip(&self) -> bool {
+        if self.root_movie_clip.name().unwrap_or("root")
+            == self.name.clone().unwrap_or(String::from("root"))
+        {
+            true
+        } else {
+            false
+        }
+    }
+}
+impl Default for Swf {
+    fn default() -> Self {
+        Self {
+            root_movie_clip: Default::default(),
+            name: Some(String::from("root")),
+            status: Default::default(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub enum SwfState {
+    #[default]
+    Loading,
+    Ready,
 }

@@ -4,7 +4,6 @@ use anyhow::anyhow;
 use bevy::log::{error, info};
 use bitflags::bitflags;
 
-use ruffle_render::bitmap;
 use smallvec::SmallVec;
 use swf::{
     extensions::ReadSwfExt, read::Reader, CharacterId, Color, Depth, PlaceObjectAction, SwfStr,
@@ -346,7 +345,11 @@ impl MovieClip {
         }?;
         match place_object.action {
             PlaceObjectAction::Place(id) => {
-                self.instantiate_child(id, place_object.depth, &place_object, library);
+                if let Some(child) =
+                    self.instantiate_child(id, place_object.depth, &place_object, library)
+                {
+                    self.replace_at_depth(place_object.depth, child);
+                }
             }
             PlaceObjectAction::Replace(id) => {
                 let swf = self.swf.clone();
@@ -440,7 +443,7 @@ impl MovieClip {
         let child = self.instantiate_by_id(id, library);
         match child {
             Ok(mut child) => {
-                child.set_depth(place_object.depth);
+                child.set_depth(depth);
                 child.set_place_frame(self.current_frame);
                 child.apply_place_object(&place_object, self.swf.version());
                 if let Some(name) = &place_object.name {
@@ -454,17 +457,8 @@ impl MovieClip {
                     child.set_clip_depth(clip_depth);
                 }
                 child.post_instantiation(library);
-                if let Some(name) = child.name() {
-                    if name == "_mc" {
-                        *self = match child {
-                            DisplayObject::MovieClip(movie_clip) => movie_clip,
-                            _ => unreachable!(),
-                        };
-                        return None;
-                    }
-                }
+                // TODO: 此处跳帧有BUG, 待排查
                 child.enter_frame(library);
-                self.replace_at_depth(depth, child.clone());
                 Some(child)
             }
             Err(_e) => None,
@@ -608,13 +602,13 @@ impl MovieClip {
                     if let Some(mut child) =
                         clip.instantiate_child(id, params.depth(), &params.place_object, library)
                     {
-                        dbg!(child.character_id());
                         // Set the place frame to the frame where the object *would* have been placed.
                         child.set_place_frame(params.frame);
+                        clip.replace_at_depth(params.depth(), child);
                     }
                 }
                 _ => {
-                    dbg!("Unhandled goto command: {:?}", &params.place_object);
+                    error!("Unhandled goto command: {:?}", &params.place_object);
                 }
             }
         };
@@ -625,7 +619,6 @@ impl MovieClip {
             .iter()
             .filter(|params| params.frame < frame)
             .for_each(|goto| run_goto_command(self, goto, library));
-        // TODO: 会导致跳过第一帧，待修复，暂时不用
         if hit_target_frame {
             self.current_frame -= 1;
             self.tag_stream_pos = frame_pos;
@@ -690,7 +683,7 @@ impl MovieClip {
         if let Some(i) = goto_commands.iter().position(|o| o.depth() == depth) {
             goto_commands.swap_remove(i);
         }
-        if is_rewind {
+        if !is_rewind {
             let to_frame = self.current_frame;
             self.current_frame = from_frame;
 
@@ -785,6 +778,26 @@ impl MovieClip {
         } else {
             NextFrame::Same
         }
+    }
+
+    pub fn query_movie_clip(&mut self, arg: &str) -> Option<&mut Self> {
+        if self.name() == Some(arg) {
+            return Some(self);
+        } else {
+            for (_, child) in self.raw_container_mut().display_objects_mut() {
+                match child {
+                    DisplayObject::MovieClip(movie_clip) => {
+                        if movie_clip.name() == Some(arg) {
+                            return Some(movie_clip);
+                        } else {
+                            return movie_clip.query_movie_clip(arg);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
     }
 }
 
