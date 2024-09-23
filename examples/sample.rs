@@ -4,6 +4,7 @@ use bevy::{
     color::palettes::css::GOLD,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     input::ButtonInput,
+    math::Vec3,
     prelude::{
         Camera2dBundle, Commands, Component, KeyCode, Msaa, Query, Res, ResMut, SpatialBundle,
         TextBundle, Transform, With,
@@ -17,7 +18,6 @@ use bevy_flash::{
     bundle::{Swf, SwfBundle},
     plugin::FlashPlugin,
 };
-use glam::Vec3;
 
 #[derive(Component)]
 struct FpsText;
@@ -62,7 +62,7 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         },
         spatial: SpatialBundle {
             transform: Transform::from_translation(Vec3::new(-3000.0, 900.0, 0.0))
-                .with_scale(Vec3::new(4.0, -4.0, 1.0)),
+                .with_scale(Vec3::new(4.0, -4.0, 4.0)),
             ..Default::default()
         },
         ..Default::default()

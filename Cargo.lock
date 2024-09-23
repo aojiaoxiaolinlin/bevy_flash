@@ -570,7 +570,6 @@ dependencies = [
  "bevy",
  "bitflags 2.6.0",
  "copyless",
- "glam",
  "indexmap",
  "lyon_tessellation",
  "ruffle_macros",

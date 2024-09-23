@@ -1,11 +1,11 @@
 use bevy::{
     asset::{Asset, Handle},
+    math::{Mat4, Vec4},
     prelude::{Image, Transform},
     reflect::TypePath,
     render::render_resource::{AsBindGroup, ShaderType},
     sprite::Material2d,
 };
-use glam::{Mat4, Vec4};
 use ruffle_render::{
     shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
 };

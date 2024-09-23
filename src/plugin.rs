@@ -13,6 +13,7 @@ use bevy::app::App;
 use bevy::asset::{AssetEvent, Handle};
 use bevy::color::{Color, ColorToComponents};
 use bevy::log::error;
+use bevy::math::{Mat3, Mat4};
 use bevy::prelude::{
     Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query, Resource, With,
 };
@@ -25,7 +26,6 @@ use bevy::{
     prelude::{Res, ResMut},
 };
 use copyless::VecHelper;
-use glam::{Mat3, Mat4};
 use ruffle_render::tessellator::DrawType;
 use swf::GradientInterpolation;
 use wgpu::{Extent3d, PrimitiveTopology};
