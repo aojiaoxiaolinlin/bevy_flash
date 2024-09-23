@@ -260,7 +260,7 @@ fn pre_parse(
                                                 mesh: meshes.add(mesh),
                                                 draw_type: ShapeDrawType::Gradient(
                                                     gradient_materials.add(GradientMaterial {
-                                                        gradient: Gradient {
+                                                        gradient: GradientUniforms {
                                                             focal_point: texture.1.focal_point,
                                                             interpolation: texture.1.interpolation,
                                                             shape: texture.1.shape,

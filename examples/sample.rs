@@ -60,8 +60,6 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
             name: Some(String::from("_mc")),
             ..Default::default()
         },
-        // TODO: X、Y坐标变换会引起渲染显示异常，不显示或渐变纹理没有填充，该异常还与窗口大小有关系
-        // 问题可能是这个发生平移变换后，检测已经不再可渲染窗口内部了，之所以能看到图形，是因为shader对顶点进行了变换
         spatial: SpatialBundle {
             transform: Transform::from_translation(Vec3::new(-3000.0, 900.0, 0.0))
                 .with_scale(Vec3::new(4.0, -4.0, 1.0)),

@@ -11,6 +11,11 @@ use ruffle_render::{
 };
 use swf::GradientSpread;
 
+use super::{
+    BITMAP_MATERIAL_SHADER_HANDLE, GRADIENT_MATERIAL_SHADER_HANDLE,
+    SWF_COLOR_MATERIAL_SHADER_HANDLE,
+};
+
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 pub struct GradientMaterial {
     #[uniform(0)]

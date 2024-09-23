@@ -2,10 +2,10 @@
 name = "bevy_flash"
 version = "0.1.0"
 edition = "2021"
+authors = ["傲娇小霖霖"]
 
 [dependencies]
 swf = { path = "../ruffle/swf" }
-
 ruffle_render = { path = "../ruffle/render" }
 ruffle_render_wgpu = { path = "../ruffle/render/wgpu" }
 ruffle_macros = { path = "../ruffle/core/macros" }
@@ -19,7 +19,6 @@ bevy = { version = "0.14", default-features = false, features = [
 
 thiserror = "1.0"
 anyhow = "1.0"
-fnv = "1.0"
 bitflags = "2.5"
 lyon_tessellation = "1.0"
 indexmap = "2.2.6"
