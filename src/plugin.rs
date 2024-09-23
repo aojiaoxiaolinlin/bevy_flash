@@ -100,7 +100,6 @@ fn pre_parse(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
-    mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
 ) {
     for event in swf_events.read() {
         match event {

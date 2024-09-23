@@ -3,14 +3,12 @@ use std::{collections::BTreeMap, sync::Arc};
 use bevy::{
     app::{App, Plugin, PostUpdate},
     asset::{load_internal_asset, Assets, Handle},
-    color::Color,
     prelude::{
-        BuildChildren, Commands, Component, Entity, EventReader, Gizmos, Mut, Query, ResMut,
-        Shader, Transform, Visibility, With,
+        BuildChildren, Commands, Component, Entity, EventReader, Mut, Query, ResMut, Shader,
+        Transform, Visibility, With,
     },
     sprite::{Material2dPlugin, MaterialMesh2dBundle},
 };
-use glam::{Mat4, Vec2, Vec3, Vec4};
 use material::{BitmapMaterial, GradientMaterial, SWFColorMaterial, SWFTransform};
 use ruffle_render::transform::Transform as RuffleTransform;
 
@@ -68,7 +66,6 @@ pub fn render_swf(
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
     mut query: Query<(&mut Swf, Entity, &mut ShapeMarkEntities)>,
-    mut gizmos: Gizmos,
     mut entities_material_query: Query<
         (
             Entity,
@@ -81,57 +78,55 @@ pub fn render_swf(
     >,
     mut swf_render_events: EventReader<SWFRenderEvent>,
 ) {
-    gizmos.line_2d(Vec2::new(0.0, 0.0), Vec2::new(-100.0, -100.0), Color::WHITE);
-    // for _swf_render_event in swf_render_events.read() {
-    for (mut swf, entity, mut shape_mark_entities) in query.iter_mut() {
-        match swf.status {
-            SwfState::Loading => {
-                continue;
-            }
-            SwfState::Ready => {
-                let render_list = swf.root_movie_clip.raw_container().render_list();
-                let parent_clip_transform = swf.root_movie_clip.base().transform().clone();
-                let display_objects = swf
-                    .root_movie_clip
-                    .raw_container_mut()
-                    .display_objects_mut();
+    for _swf_render_event in swf_render_events.read() {
+        for (mut swf, entity, mut shape_mark_entities) in query.iter_mut() {
+            match swf.status {
+                SwfState::Loading => {
+                    continue;
+                }
+                SwfState::Ready => {
+                    let render_list = swf.root_movie_clip.raw_container().render_list();
+                    let parent_clip_transform = swf.root_movie_clip.base().transform().clone();
+                    let display_objects = swf
+                        .root_movie_clip
+                        .raw_container_mut()
+                        .display_objects_mut();
 
-                let mut z_index = 0.000;
+                    let mut z_index = 0.000;
 
-                shape_mark_entities.clear_current_frame_entity();
+                    shape_mark_entities.clear_current_frame_entity();
 
-                handler_render_list(
-                    entity,
-                    &mut commands,
-                    &mut color_materials,
-                    &mut gradient_materials,
-                    &mut bitmap_materials,
-                    &mut entities_material_query,
-                    &mut shape_mark_entities,
-                    render_list,
-                    display_objects,
-                    &mut gizmos,
-                    &parent_clip_transform,
-                    &mut z_index,
-                );
+                    handler_render_list(
+                        entity,
+                        &mut commands,
+                        &mut color_materials,
+                        &mut gradient_materials,
+                        &mut bitmap_materials,
+                        &mut entities_material_query,
+                        &mut shape_mark_entities,
+                        render_list,
+                        display_objects,
+                        &parent_clip_transform,
+                        &mut z_index,
+                    );
 
-                shape_mark_entities
-                    .non_current_frame_entity()
-                    .iter_mut()
-                    .for_each(|entity| {
-                        commands.entity(**entity).insert(Visibility::Hidden);
-                    });
-                shape_mark_entities
-                    .current_frame_entities()
-                    .iter()
-                    .for_each(|shape_mark| {
-                        let entity = shape_mark_entities.entity(shape_mark).unwrap();
-                        commands.entity(*entity).insert(Visibility::Inherited);
-                    });
+                    shape_mark_entities
+                        .non_current_frame_entity()
+                        .iter_mut()
+                        .for_each(|entity| {
+                            commands.entity(**entity).insert(Visibility::Hidden);
+                        });
+                    shape_mark_entities
+                        .current_frame_entities()
+                        .iter()
+                        .for_each(|shape_mark| {
+                            let entity = shape_mark_entities.entity(shape_mark).unwrap();
+                            commands.entity(*entity).insert(Visibility::Inherited);
+                        });
+                }
             }
         }
     }
-    // }
 }
 
 pub fn handler_render_list(
@@ -155,7 +150,6 @@ pub fn handler_render_list(
     shape_mark_entities: &mut Mut<'_, ShapeMarkEntities>,
     render_list: Arc<Vec<u128>>,
     display_objects: &mut BTreeMap<u128, DisplayObject>,
-    gizmos: &mut Gizmos,
     parent_clip_transform: &RuffleTransform,
     z_index: &mut f32,
 ) {
@@ -359,7 +353,6 @@ pub fn handler_render_list(
                         shape_mark_entities,
                         movie_clip.raw_container().render_list(),
                         movie_clip.raw_container_mut().display_objects_mut(),
-                        gizmos,
                         &current_transform,
                         z_index,
                     );
