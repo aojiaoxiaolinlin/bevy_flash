@@ -22,8 +22,10 @@ pub struct SwfBundle {
     pub shape_mark_entities: ShapeMarkEntities,
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct ShapeMark {
+    // 用来记录父id和深度
+    pub parent_layer: (String, String),
     pub depth: Depth,
     pub id: CharacterId,
     pub graphic_index: usize,

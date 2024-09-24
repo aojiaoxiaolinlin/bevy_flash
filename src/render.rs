@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use bevy::{
-    app::{App, Plugin, PostUpdate},
+    app::{App, Plugin, Update},
     asset::{load_internal_asset, Assets, Handle},
     prelude::{
         BuildChildren, Commands, Component, Entity, EventReader, Mut, Query, ResMut, Shader,
@@ -53,7 +53,7 @@ impl Plugin for FlashRenderPlugin {
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
             .add_plugins(Material2dPlugin::<SWFColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
-            .add_systems(PostUpdate, render_swf);
+            .add_systems(Update, render_swf);
     }
 }
 
@@ -85,6 +85,7 @@ pub fn render_swf(
                     continue;
                 }
                 SwfState::Ready => {
+                    shape_mark_entities.clear_current_frame_entity();
                     let render_list = swf.root_movie_clip.raw_container().render_list();
                     let parent_clip_transform = swf.root_movie_clip.base().transform().clone();
                     let display_objects = swf
@@ -93,8 +94,7 @@ pub fn render_swf(
                         .display_objects_mut();
 
                     let mut z_index = 0.000;
-
-                    shape_mark_entities.clear_current_frame_entity();
+                    let mut depth_layer = (String::from(""), String::from(""));
 
                     handler_render_list(
                         entity,
@@ -108,6 +108,7 @@ pub fn render_swf(
                         display_objects,
                         &parent_clip_transform,
                         &mut z_index,
+                        &mut depth_layer,
                     );
 
                     shape_mark_entities
@@ -152,6 +153,7 @@ pub fn handler_render_list(
     display_objects: &mut BTreeMap<u128, DisplayObject>,
     parent_clip_transform: &RuffleTransform,
     z_index: &mut f32,
+    depth_layer: &mut (String, String),
 ) {
     for display_object in render_list.iter() {
         if let Some(display_object) = display_objects.get_mut(display_object) {
@@ -167,20 +169,24 @@ pub fn handler_render_list(
                     let color_transform = swf_transform.1;
 
                     let mut shape_mark = ShapeMark {
+                        parent_layer: depth_layer.clone(),
                         depth: graphic.depth(),
                         id: graphic.character_id(),
                         graphic_index: 0,
                     };
+                    *z_index += graphic.depth() as f32 / 100.0;
+                    // debug
+                    let id = graphic.character_id();
+                    //
                     graphic
                         .shape_mesh()
                         .iter_mut()
                         .enumerate()
                         .for_each(|(index, shape)| {
                             let mut transform = swf_transform.0;
-
                             // 记录当前帧生成的mesh实体
                             shape_mark.graphic_index = index;
-                            shape_mark_entities.record_current_frame_entity(shape_mark);
+                            shape_mark_entities.record_current_frame_entity(shape_mark.clone());
 
                             if let Some(&existing_entity) = shape_mark_entities.entity(&shape_mark)
                             {
@@ -206,6 +212,7 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
+                                            dbg!("没有找个颜色填充缓存", id, &shape_mark, *z_index);
                                             transform.translation.z = *z_index;
                                             // 由于本系统执行期间无法查询本系统生成的实体所以此时无法复用，新建
                                             swf_color_material.transform = color_transform.clone();
@@ -232,6 +239,7 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
+                                            dbg!("没有找个渐变色填充缓存", id);
                                             transform.translation.z = *z_index;
                                             if let Some(swf_gradient_material) =
                                                 gradient_materials.get_mut(&handle)
@@ -257,6 +265,7 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
+                                            dbg!("没有找个位图填充缓存", id);
                                             bitmap_material.transform = color_transform.clone();
                                             commands.entity(existing_entity).insert((
                                                 bitmap_materials.add(bitmap_material.clone()),
@@ -266,7 +275,7 @@ pub fn handler_render_list(
                                     }
                                 }
                             } else {
-                                transform.translation.z = transform.translation.z + *z_index;
+                                transform.translation.z = *z_index;
                                 match &mut shape.draw_type {
                                     ShapeDrawType::Color(swf_color_material) => {
                                         swf_color_material.transform = color_transform.clone();
@@ -285,7 +294,7 @@ pub fn handler_render_list(
                                                 ))
                                                 .id();
                                             shape_mark_entities
-                                                .add_entities_pool(shape_mark, entity);
+                                                .add_entities_pool(shape_mark.clone(), entity);
                                         });
                                     }
                                     ShapeDrawType::Gradient(materials_handle) => {
@@ -307,7 +316,7 @@ pub fn handler_render_list(
                                                 ))
                                                 .id();
                                             shape_mark_entities
-                                                .add_entities_pool(shape_mark, entity);
+                                                .add_entities_pool(shape_mark.clone(), entity);
                                         });
                                     }
                                     ShapeDrawType::Bitmap(bitmap_material) => {
@@ -327,12 +336,11 @@ pub fn handler_render_list(
                                                 ))
                                                 .id();
                                             shape_mark_entities
-                                                .add_entities_pool(shape_mark, entity);
+                                                .add_entities_pool(shape_mark.clone(), entity);
                                         });
                                     }
                                 }
                             }
-                            *z_index += 0.001;
                         });
                 }
                 DisplayObject::MovieClip(movie_clip) => {
@@ -341,6 +349,11 @@ pub fn handler_render_list(
                         color_transform: parent_clip_transform.color_transform
                             * movie_clip.base().transform().color_transform,
                     };
+                    depth_layer
+                        .0
+                        .push_str(&movie_clip.character_id().to_string());
+                    depth_layer.0.push_str(&movie_clip.depth().to_string());
+                    *z_index += movie_clip.depth() as f32 / 100.0;
                     // dbg!(movie_clip.character_id(), movie_clip.depth());
                     // dbg!(movie_clip.blend_mode());
                     handler_render_list(
@@ -355,6 +368,7 @@ pub fn handler_render_list(
                         movie_clip.raw_container_mut().display_objects_mut(),
                         &current_transform,
                         z_index,
+                        depth_layer,
                     );
                 }
             }

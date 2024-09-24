@@ -34,35 +34,20 @@ fn main() {
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
-        // swf_handle: assert_server.load("sprite.swf"),
-        // swf_handle: assert_server.load("scale.swf"),
-        // swf_handle: assert_server.load("rotate.swf"),
-        // swf_handle: assert_server.load("head_scale2.swf"),
-        // swf_handle: assert_server.load("head-animation.swf"),
-        // swf_handle: assert_server.load("head.swf"),
         // swf_handle: assert_server.load("spirit2159src.swf"),
         swf_handle: assert_server.load("spirit2724src.swf"),
         // swf_handle: assert_server.load("spirit2256src.swf"),
-        // swf_handle: assert_server.load("double_ref2.swf"),
         // swf_handle: assert_server.load("effect1209.swf"),
-        // swf_handle: assert_server.load("frames.swf"),
-        // swf_handle: assert_server.load("bitmap_test.swf"),
         // swf_handle: assert_server.load("miaomiao.swf"),
-        // swf_handle: assert_server.load("tou.swf"),
         // swf_handle: assert_server.load("123680-idle.swf"),
-        // swf_handle: assert_server.load("frame_animation.swf"),
-        // swf_handle: assert_server.load("gradient.swf"),
-        // swf_handle: assert_server.load("weiba.swf"),
-        // swf_handle: assert_server.load("spirit1src.swf"),
-        // swf_handle: assert_server.load("32.swf"),
-        // swf_handle: assert_server.load("30.swf"),
+        // swf_handle: assert_server.load("layer.swf"),
         swf: Swf {
             name: Some(String::from("_mc")),
             ..Default::default()
         },
         spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(-3000.0, 900.0, 0.0))
-                .with_scale(Vec3::new(4.0, -4.0, 4.0)),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0))
+                .with_scale(Vec3::new(1.0, -1.0, 1.0)),
             ..Default::default()
         },
         ..Default::default()
