@@ -15,7 +15,7 @@ use bevy::color::{Color, ColorToComponents};
 use bevy::log::error;
 use bevy::math::{Mat3, Mat4};
 use bevy::prelude::{
-    Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query, Resource, With,
+    Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query, Resource,
 };
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
@@ -36,15 +36,11 @@ const GRADIENT_SIZE: usize = 256;
 #[derive(Resource)]
 struct PlayerTimer(Timer);
 
-#[derive(Event)]
-pub struct SWFRenderEvent;
-
 pub struct FlashPlugin;
 
 impl Plugin for FlashPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<SWFRenderEvent>()
-            .add_plugins(FlashRenderPlugin)
+        app.add_plugins(FlashRenderPlugin)
             .init_asset::<SwfMovie>()
             .init_asset_loader::<SwfLoader>()
             .insert_resource(PlayerTimer(Timer::from_seconds(
@@ -61,7 +57,6 @@ fn enter_frame(
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     time: Res<Time>,
     mut timer: ResMut<PlayerTimer>,
-    mut swf_events: EventWriter<SWFRenderEvent>,
 ) {
     query.iter_mut().for_each(|(mut swf, _)| {
         let target = swf.name.clone().unwrap_or("root".to_string());
@@ -76,7 +71,6 @@ fn enter_frame(
             if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
                 swf.root_movie_clip
                     .enter_frame(&mut swf_movie.movie_library);
-                swf_events.send(SWFRenderEvent);
             }
         }
     }
@@ -95,7 +89,7 @@ pub struct ShapeMesh {
 }
 
 fn pre_parse(
-    mut query: Query<&mut Swf, With<Handle<SwfMovie>>>,
+    mut query: Query<(&mut Swf, &Handle<SwfMovie>)>,
     mut swf_events: EventReader<AssetEvent<SwfMovie>>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -342,10 +336,12 @@ fn pre_parse(
                         },
                     );
                     swf_movie.movie_library = library;
-                    query.iter_mut().for_each(|mut swf| {
+                    if let Some((mut swf, _)) =
+                        query.iter_mut().find(|(_, handle)| handle.id() == *id)
+                    {
                         swf.root_movie_clip = root_movie_clip.clone();
                         swf.status = SwfState::Ready;
-                    });
+                    }
                 }
             }
             _ => {}

@@ -4,8 +4,8 @@ use bevy::{
     app::{App, Plugin, Update},
     asset::{load_internal_asset, Assets, Handle},
     prelude::{
-        BuildChildren, Commands, Component, Entity, EventReader, Mut, Query, ResMut, Shader,
-        Transform, Visibility, With,
+        BuildChildren, Commands, Component, Entity, Query, ResMut, Shader, Transform, Visibility,
+        With,
     },
     sprite::{Material2dPlugin, MaterialMesh2dBundle},
 };
@@ -14,7 +14,7 @@ use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::{
     bundle::{ShapeMark, ShapeMarkEntities, Swf, SwfState},
-    plugin::{SWFRenderEvent, ShapeDrawType},
+    plugin::ShapeDrawType,
     swf::display_object::{DisplayObject, TDisplayObject},
 };
 
@@ -76,55 +76,51 @@ pub fn render_swf(
         ),
         With<SWFShapeMesh>,
     >,
-    mut swf_render_events: EventReader<SWFRenderEvent>,
 ) {
-    for _swf_render_event in swf_render_events.read() {
-        for (mut swf, entity, mut shape_mark_entities) in query.iter_mut() {
-            match swf.status {
-                SwfState::Loading => {
-                    continue;
-                }
-                SwfState::Ready => {
-                    shape_mark_entities.clear_current_frame_entity();
-                    let render_list = swf.root_movie_clip.raw_container().render_list();
-                    let parent_clip_transform = swf.root_movie_clip.base().transform().clone();
-                    let display_objects = swf
-                        .root_movie_clip
-                        .raw_container_mut()
-                        .display_objects_mut();
+    for (mut swf, entity, mut shape_mark_entities) in query.iter_mut() {
+        match swf.status {
+            SwfState::Loading => {
+                continue;
+            }
+            SwfState::Ready => {
+                shape_mark_entities.clear_current_frame_entity();
+                let render_list = swf.root_movie_clip.raw_container().render_list();
+                let parent_clip_transform = swf.root_movie_clip.base().transform().clone();
+                let display_objects = swf
+                    .root_movie_clip
+                    .raw_container_mut()
+                    .display_objects_mut();
 
-                    let mut z_index = 0.000;
-                    let mut depth_layer = (String::from(""), String::from(""));
+                let mut z_index = 0.000;
+                let mut depth_layer = (String::from(""), String::from(""));
 
-                    handler_render_list(
-                        entity,
-                        &mut commands,
-                        &mut color_materials,
-                        &mut gradient_materials,
-                        &mut bitmap_materials,
-                        &mut entities_material_query,
-                        &mut shape_mark_entities,
-                        render_list,
-                        display_objects,
-                        &parent_clip_transform,
-                        &mut z_index,
-                        &mut depth_layer,
-                    );
-
-                    shape_mark_entities
-                        .non_current_frame_entity()
-                        .iter_mut()
-                        .for_each(|entity| {
-                            commands.entity(**entity).insert(Visibility::Hidden);
-                        });
-                    shape_mark_entities
-                        .current_frame_entities()
-                        .iter()
-                        .for_each(|shape_mark| {
-                            let entity = shape_mark_entities.entity(shape_mark).unwrap();
-                            commands.entity(*entity).insert(Visibility::Inherited);
-                        });
-                }
+                handler_render_list(
+                    entity,
+                    &mut commands,
+                    &mut color_materials,
+                    &mut gradient_materials,
+                    &mut bitmap_materials,
+                    &mut entities_material_query,
+                    shape_mark_entities.as_mut(),
+                    render_list,
+                    display_objects,
+                    &parent_clip_transform,
+                    &mut z_index,
+                    &mut depth_layer,
+                );
+                shape_mark_entities
+                    .non_current_frame_entity()
+                    .iter_mut()
+                    .for_each(|entity| {
+                        commands.entity(**entity).insert(Visibility::Hidden);
+                    });
+                shape_mark_entities
+                    .current_frame_entities()
+                    .iter()
+                    .for_each(|shape_mark| {
+                        let entity = shape_mark_entities.entity(shape_mark).unwrap();
+                        commands.entity(*entity).insert(Visibility::Inherited);
+                    });
             }
         }
     }
@@ -148,7 +144,7 @@ pub fn handler_render_list(
         ),
         With<SWFShapeMesh>,
     >,
-    shape_mark_entities: &mut Mut<'_, ShapeMarkEntities>,
+    shape_mark_entities: &mut ShapeMarkEntities,
     render_list: Arc<Vec<u128>>,
     display_objects: &mut BTreeMap<u128, DisplayObject>,
     parent_clip_transform: &RuffleTransform,
@@ -212,8 +208,8 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
-                                            dbg!("没有找个颜色填充缓存", id, &shape_mark, *z_index);
-                                            transform.translation.z = *z_index;
+                                            transform.translation.z =
+                                                shape_mark.depth as f32 / 100.0;
                                             // 由于本系统执行期间无法查询本系统生成的实体所以此时无法复用，新建
                                             swf_color_material.transform = color_transform.clone();
                                             commands.entity(existing_entity).insert((
@@ -239,8 +235,8 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
-                                            dbg!("没有找个渐变色填充缓存", id);
-                                            transform.translation.z = *z_index;
+                                            transform.translation.z =
+                                                shape_mark.depth as f32 / 100.0;
                                             if let Some(swf_gradient_material) =
                                                 gradient_materials.get_mut(&handle)
                                             {
@@ -265,7 +261,8 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
-                                            dbg!("没有找个位图填充缓存", id);
+                                            transform.translation.z =
+                                                shape_mark.depth as f32 / 100.0;
                                             bitmap_material.transform = color_transform.clone();
                                             commands.entity(existing_entity).insert((
                                                 bitmap_materials.add(bitmap_material.clone()),
