@@ -39,33 +39,33 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         // swf_handle: assert_server.load("spirit2256src.swf"),
         // swf_handle: assert_server.load("effect1209.swf"),
         // swf_handle: assert_server.load("miaomiao.swf"),
-        swf_handle: assert_server.load("123680-idle.swf"),
+        swf_handle: assert_server.load("123620-idle.swf"),
         // swf_handle: assert_server.load("layer.swf"),
         swf: Swf {
             name: Some(String::from("root")),
             ..Default::default()
         },
         spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0))
-                .with_scale(Vec3::new(-4.0, -4.0, 4.0)),
+            transform: Transform::from_translation(Vec3::new(0.0, 400.0, 0.0))
+                .with_scale(Vec3::new(4.0, -4.0, 4.0)),
             ..Default::default()
         },
         ..Default::default()
     });
 
-    commands.spawn(SwfBundle {
-        swf_handle: assert_server.load("spirit2724src.swf"),
-        swf: Swf {
-            name: Some(String::from("_mc")),
-            ..Default::default()
-        },
-        spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(-1000.0, 300.0, 0.0))
-                .with_scale(Vec3::new(2.0, -2.0, 2.0)),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
+    // commands.spawn(SwfBundle {
+    //     swf_handle: assert_server.load("spirit2159src.swf"),
+    //     swf: Swf {
+    //         name: Some(String::from("_mc")),
+    //         ..Default::default()
+    //     },
+    //     spatial: SpatialBundle {
+    //         transform: Transform::from_translation(Vec3::new(-1000.0, 300.0, 0.0))
+    //             .with_scale(Vec3::new(2.0, -2.0, 2.0)),
+    //         ..Default::default()
+    //     },
+    //     ..Default::default()
+    // });
 
     commands.spawn((
         TextBundle::from_sections([
@@ -93,7 +93,7 @@ fn control(
     let mut control = |query: &mut Query<'_, '_, (&mut Swf, &Handle<SwfMovie>)>, frame: u16| {
         query.iter_mut().for_each(|(mut swf, handle_swf_movie)| {
             if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
-                if swf.is_target_movie_clip() {
+                if swf.is_target_movie_clip() && swf.root_movie_clip.name() == Some("_mc") {
                     swf.root_movie_clip
                         .goto_frame(&mut swf_movie.movie_library, frame, true);
                 }

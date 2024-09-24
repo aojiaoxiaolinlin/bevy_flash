@@ -164,7 +164,7 @@ pub fn handler_render_list(
                     };
                     let swf_transform: SWFTransform = swf_transform.clone().into();
                     let color_transform = swf_transform.1;
-
+                    // dbg!(swf_transform.0);
                     let mut shape_mark = ShapeMark {
                         parent_layer: depth_layer.clone(),
                         depth: graphic.depth(),
@@ -177,6 +177,7 @@ pub fn handler_render_list(
                         .iter_mut()
                         .enumerate()
                         .for_each(|(index, shape)| {
+                            *z_index += 0.001;
                             let mut transform = swf_transform.0;
                             // 记录当前帧生成的mesh实体
                             shape_mark.graphic_index = index;

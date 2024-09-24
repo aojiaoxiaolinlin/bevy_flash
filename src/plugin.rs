@@ -14,9 +14,7 @@ use bevy::asset::{AssetEvent, Handle};
 use bevy::color::{Color, ColorToComponents};
 use bevy::log::error;
 use bevy::math::{Mat3, Mat4};
-use bevy::prelude::{
-    Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query, Resource,
-};
+use bevy::prelude::{EventReader, Image, IntoSystemConfigs, Mesh, Query, Resource};
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::time::{Time, Timer, TimerMode};
