@@ -71,6 +71,7 @@ fn enter_frame(
             if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
                 swf.root_movie_clip
                     .enter_frame(&mut swf_movie.movie_library);
+                swf.status = SwfState::Ready;
             }
         }
     }

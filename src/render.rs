@@ -109,10 +109,10 @@ pub fn render_swf(
                     &mut depth_layer,
                 );
                 shape_mark_entities
-                    .non_current_frame_entity()
-                    .iter_mut()
-                    .for_each(|entity| {
-                        commands.entity(**entity).insert(Visibility::Hidden);
+                    .graphic_entities()
+                    .iter()
+                    .for_each(|(_, entity)| {
+                        commands.entity(*entity).insert(Visibility::Hidden);
                     });
                 shape_mark_entities
                     .current_frame_entities()
@@ -123,6 +123,7 @@ pub fn render_swf(
                     });
             }
         }
+        swf.status = SwfState::Loading;
     }
 }
 
@@ -171,9 +172,6 @@ pub fn handler_render_list(
                         graphic_index: 0,
                     };
                     *z_index += graphic.depth() as f32 / 100.0;
-                    // debug
-                    let id = graphic.character_id();
-                    //
                     graphic
                         .shape_mesh()
                         .iter_mut()
@@ -208,8 +206,8 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
-                                            transform.translation.z =
-                                                shape_mark.depth as f32 / 100.0;
+                                            dbg!("获取缓存材质失败");
+                                            transform.translation.z = *z_index;
                                             // 由于本系统执行期间无法查询本系统生成的实体所以此时无法复用，新建
                                             swf_color_material.transform = color_transform.clone();
                                             commands.entity(existing_entity).insert((
@@ -235,8 +233,7 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
-                                            transform.translation.z =
-                                                shape_mark.depth as f32 / 100.0;
+                                            transform.translation.z = *z_index;
                                             if let Some(swf_gradient_material) =
                                                 gradient_materials.get_mut(&handle)
                                             {
@@ -261,8 +258,7 @@ pub fn handler_render_list(
                                                 *exists_transform = transform;
                                             }
                                         } else {
-                                            transform.translation.z =
-                                                shape_mark.depth as f32 / 100.0;
+                                            transform.translation.z = *z_index;
                                             bitmap_material.transform = color_transform.clone();
                                             commands.entity(existing_entity).insert((
                                                 bitmap_materials.add(bitmap_material.clone()),

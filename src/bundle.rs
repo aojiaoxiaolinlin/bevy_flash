@@ -32,7 +32,7 @@ pub struct ShapeMark {
 }
 #[derive(Component, Default)]
 pub struct ShapeMarkEntities {
-    pub graphic_entities: HashMap<ShapeMark, Entity>,
+    graphic_entities: HashMap<ShapeMark, Entity>,
     current_frame_entities: Vec<ShapeMark>,
 }
 
@@ -53,12 +53,8 @@ impl ShapeMarkEntities {
         self.current_frame_entities.clear();
     }
 
-    pub fn non_current_frame_entity(&mut self) -> Vec<&mut Entity> {
-        self.graphic_entities
-            .iter_mut()
-            .filter(|(key, _)| !self.current_frame_entities.contains(&key))
-            .map(|(_, value)| value)
-            .collect::<Vec<&mut Entity>>()
+    pub fn graphic_entities(&self) -> &HashMap<ShapeMark, bevy::prelude::Entity> {
+        &self.graphic_entities
     }
 
     pub fn current_frame_entities(&self) -> &Vec<ShapeMark> {
