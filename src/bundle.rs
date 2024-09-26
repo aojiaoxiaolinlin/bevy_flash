@@ -32,7 +32,7 @@ pub struct ShapeMark {
 }
 #[derive(Component, Default)]
 pub struct ShapeMarkEntities {
-    pub graphic_entities: HashMap<ShapeMark, Entity>,
+    graphic_entities: HashMap<ShapeMark, Entity>,
     current_frame_entities: Vec<ShapeMark>,
 }
 

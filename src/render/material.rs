@@ -6,7 +6,9 @@ use bevy::{
     render::render_resource::{AsBindGroup, ShaderType},
     sprite::Material2d,
 };
-use ruffle_render::{shape_utils::GradientType, tessellator::Gradient, transform::Transform};
+use ruffle_render::{
+    shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
+};
 use swf::GradientSpread;
 
 use super::{
@@ -43,7 +45,6 @@ pub struct GradientUniforms {
     pub shape: i32,
     pub repeat: i32,
 }
-
 impl From<Gradient> for GradientUniforms {
     fn from(gradient: Gradient) -> Self {
         Self {
@@ -62,6 +63,7 @@ impl From<Gradient> for GradientUniforms {
         }
     }
 }
+
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 pub struct SWFColorMaterial {
     #[uniform(0)]
@@ -104,8 +106,8 @@ pub struct SWFTransform {
     add_color: Vec4,
 }
 
-impl From<Transform> for SWFTransform {
-    fn from(transform: Transform) -> Self {
+impl From<RuffleTransform> for SWFTransform {
+    fn from(transform: RuffleTransform) -> Self {
         let matrix = transform.matrix;
         let color_transform = transform.color_transform;
         SWFTransform {

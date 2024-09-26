@@ -2,6 +2,9 @@
 name = "bevy_flash"
 version = "0.1.0"
 edition = "2021"
+authors = ["傲娇小霖霖"]
+license = "MIT OR Apache-2.0"
+description = "A Bevy plugin for Flash Animation"
 
 [dependencies]
 swf = { git = "https://github.com/ruffle-rs/ruffle.git", tag = "nightly-2024-08-06" }

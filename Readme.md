@@ -6,24 +6,25 @@
 
 [See online demo](https://aojiaoxiaolinlin.github.io/bevy_flash_demo/)
 
-> 部分技术参考[ruffle](https://github.com/ruffle-rs/ruffle/)项目
+- run example
 
-## 目前实现的功能
+```bash
+cargo run --package bevy_flash --example sample
+```
 
-- [x] DefineShape Render
+![展示](./assets/docs/xiao_hai_shen_long.png)
+
+> Reference [Ruffle](https://github.com/ruffle-rs/ruffle/);
+> **Note:** 目前依赖的`ruffle-render`版本是nightly-2024-08-06。后续版本wgpu版本不兼容。
+
+## Support
+
+- [x] Shape Render
 - [x] MovieClip Animation
+- [x] Control Animation
 - [ ] Blend Render
 - [ ] Filter Render
-- [x] Control Animation
 
-<!-- 插入图片 -->
-## 初步实现渲染`Shape`
+## License
 
-- `Color`填充
-![展示](./assets/docs/shape.png)
-
-- `Gradient`填充
-![展示](./assets/docs/shape_gradient.png)
-
-- example
-![展示](./assets/docs/image.png)
+This code is licensed under dual MIT / Apache-2.0 but with no attribution necessary. All contributions must agree to this licensing.

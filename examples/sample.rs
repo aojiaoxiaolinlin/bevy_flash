@@ -35,7 +35,6 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
         swf_handle: assert_server.load("spirit2724src.swf"),
-        // swf_handle: assert_server.load("131381-idle.swf"),
         swf: Swf {
             name: Some(String::from("_mc")),
             ..Default::default()
@@ -84,7 +83,7 @@ fn control(
     let mut control = |query: &mut Query<'_, '_, (&mut Swf, &Handle<SwfMovie>)>, frame: u16| {
         query.iter_mut().for_each(|(mut swf, handle_swf_movie)| {
             if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
-                if swf.is_target_movie_clip() {
+                if swf.is_target_movie_clip() && swf.root_movie_clip.name() == Some("_mc") {
                     swf.root_movie_clip
                         .goto_frame(&mut swf_movie.movie_library, frame, true);
                 }
