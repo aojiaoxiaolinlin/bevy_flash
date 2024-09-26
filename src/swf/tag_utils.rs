@@ -26,6 +26,9 @@ pub enum Error {
     InvalidSwfUrl,
 }
 
+unsafe impl Send for Error {}
+unsafe impl Sync for Error {}
+
 /// Whether or not to end tag decoding.
 pub enum ControlFlow {
     /// Stop decoding after this tag.

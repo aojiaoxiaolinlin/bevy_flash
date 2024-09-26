@@ -81,6 +81,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 
 [[package]]
+name = "adler2"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
+
+[[package]]
 name = "ahash"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -564,8 +570,6 @@ dependencies = [
  "bevy",
  "bitflags 2.6.0",
  "copyless",
- "fnv",
- "glam",
  "indexmap",
  "lyon_tessellation",
  "ruffle_macros",
@@ -1245,9 +1249,9 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 
 [[package]]
 name = "bytemuck"
-version = "1.16.1"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b236fc92302c97ed75b38da1f4917b5cdda4984745740f153a5d3059e48d725e"
+checksum = "94bbb0ad554ad961ddc5da507a12a29b14e4ae5bda06b19f575a3e6079d2e2ae"
 dependencies = [
  "bytemuck_derive",
 ]
@@ -1819,12 +1823,12 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
 name = "flate2"
-version = "1.0.30"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f54427cfd1c7829e2a139fcefea601bf088ebca651d2bf53ebc600eac295dae"
+checksum = "324a1be68054ef05ad64b861cc9eaf1d623d2d8cb25b4bf2cb9cdd902b4bf253"
 dependencies = [
  "crc32fast",
- "miniz_oxide",
+ "miniz_oxide 0.8.0",
 ]
 
 [[package]]
@@ -2279,9 +2283,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.2.6"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "168fb715dda47215e360912c096649d23d58bf392ac62f73919e831745e40f26"
+checksum = "68b900aa2f7301e21c36462b170ee99994de34dff39a4a6a528e80e7376d07e5"
 dependencies = [
  "equivalent",
  "hashbrown",
@@ -2516,9 +2520,9 @@ checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
 name = "lru"
-version = "0.12.3"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
+checksum = "37ee39891760e7d94734f6f63fedc29a2e4a152f836120753a72503f09fcf904"
 dependencies = [
  "hashbrown",
 ]
@@ -2650,6 +2654,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "miniz_oxide"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2d80299ef12ff69b16a84bb182e3b9df68b5a91574d3d4fa6e41b65deec4df1"
+dependencies = [
+ "adler2",
+]
+
+[[package]]
 name = "naga"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2674,6 +2687,7 @@ dependencies = [
 [[package]]
 name = "naga-agal"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "bitflags 2.6.0",
  "naga",
@@ -2684,6 +2698,7 @@ dependencies = [
 [[package]]
 name = "naga-pixelbender"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "anyhow",
  "naga",
@@ -3263,7 +3278,7 @@ dependencies = [
  "crc32fast",
  "fdeflate",
  "flate2",
- "miniz_oxide",
+ "miniz_oxide 0.7.4",
 ]
 
 [[package]]
@@ -3468,6 +3483,7 @@ dependencies = [
 [[package]]
 name = "ruffle_macros"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "quote",
  "syn 2.0.72",
@@ -3476,6 +3492,7 @@ dependencies = [
 [[package]]
 name = "ruffle_render"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "byteorder",
  "downcast-rs",
@@ -3501,6 +3518,7 @@ dependencies = [
 [[package]]
 name = "ruffle_render_wgpu"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "bytemuck",
  "enum-map",
@@ -3522,6 +3540,7 @@ dependencies = [
 [[package]]
 name = "ruffle_wstr"
 version = "0.1.0"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 
 [[package]]
 name = "rustc-hash"
@@ -3709,6 +3728,7 @@ checksum = "20e16a0f46cf5fd675563ef54f26e83e20f2366bcf027bcb3cc3ed2b98aaf2ca"
 [[package]]
 name = "swf"
 version = "0.2.1"
+source = "git+https://github.com/ruffle-rs/ruffle.git?tag=nightly-2024-08-06#07c9901efe278ea228a5a80467efdbe40bf1c33f"
 dependencies = [
  "bitflags 2.6.0",
  "bitstream-io",

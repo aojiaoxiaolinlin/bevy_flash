@@ -1,15 +1,15 @@
 use bevy::log::error;
 use indexmap::IndexSet;
+use lyon_tessellation::math::Point;
 use lyon_tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, StrokeOptions, StrokeTessellator, VertexBuffers,
+    path::Path, BuffersBuilder, FillOptions, FillTessellator, StrokeOptions, StrokeTessellator,
+    VertexBuffers,
 };
-
+use lyon_tessellation::{FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor};
+use ruffle_render::matrix::Matrix;
 use ruffle_render::{
-    shape_utils::{DistilledShape, DrawPath, GradientType},
-    tessellator::{
-        ruffle_path_to_lyon_path, swf_bitmap_to_gl_matrix, swf_gradient_to_uniforms,
-        swf_to_gl_matrix, Bitmap, Draw, DrawType, Gradient, Mesh, RuffleVertexCtor, Vertex,
-    },
+    shape_utils::{DistilledShape, DrawCommand, DrawPath, GradientType},
+    tessellator::{Bitmap, Draw, DrawType, Gradient, Mesh, Vertex},
 };
 
 use crate::swf::library::MovieLibrary;
@@ -238,5 +238,145 @@ impl ShapeTessellator {
             indices: draw_mesh.indices,
         });
         self.mask_index_count = None;
+    }
+}
+
+fn ruffle_path_to_lyon_path(commands: &[DrawCommand], is_closed: bool) -> Path {
+    fn point(point: swf::Point<swf::Twips>) -> Point {
+        Point::new(point.x.to_pixels() as f32, point.y.to_pixels() as f32)
+    }
+
+    let mut builder = Path::builder();
+    let mut cursor = Some(swf::Point::ZERO);
+    for command in commands {
+        match command {
+            DrawCommand::MoveTo(move_to) => {
+                if cursor.is_none() {
+                    builder.end(false);
+                }
+                cursor = Some(*move_to);
+            }
+            DrawCommand::LineTo(line_to) => {
+                if let Some(cursor) = cursor.take() {
+                    builder.begin(point(cursor));
+                }
+                builder.line_to(point(*line_to));
+            }
+            DrawCommand::QuadraticCurveTo { control, anchor } => {
+                if let Some(cursor) = cursor.take() {
+                    builder.begin(point(cursor));
+                }
+                builder.quadratic_bezier_to(point(*control), point(*anchor));
+            }
+            DrawCommand::CubicCurveTo {
+                control_a,
+                control_b,
+                anchor,
+            } => {
+                if let Some(cursor) = cursor.take() {
+                    builder.begin(point(cursor));
+                }
+                builder.cubic_bezier_to(point(*control_a), point(*control_b), point(*anchor));
+            }
+        }
+    }
+
+    if cursor.is_none() {
+        if is_closed {
+            builder.close();
+        } else {
+            builder.end(false);
+        }
+    }
+
+    builder.build()
+}
+
+#[allow(clippy::many_single_char_names)]
+fn swf_to_gl_matrix(m: Matrix) -> [[f32; 3]; 3] {
+    let tx = m.tx.get() as f32;
+    let ty = m.ty.get() as f32;
+    let det = m.a * m.d - m.c * m.b;
+    let mut a = m.d / det;
+    let mut b = -m.c / det;
+    let mut c = -(tx * m.d - m.c * ty) / det;
+    let mut d = -m.b / det;
+    let mut e = m.a / det;
+    let mut f = (tx * m.b - m.a * ty) / det;
+
+    a *= 20.0 / 32768.0;
+    b *= 20.0 / 32768.0;
+    d *= 20.0 / 32768.0;
+    e *= 20.0 / 32768.0;
+
+    c /= 32768.0;
+    f /= 32768.0;
+    c += 0.5;
+    f += 0.5;
+    [[a, d, 0.0], [b, e, 0.0], [c, f, 1.0]]
+}
+
+#[allow(clippy::many_single_char_names)]
+fn swf_bitmap_to_gl_matrix(m: Matrix, bitmap_width: u32, bitmap_height: u32) -> [[f32; 3]; 3] {
+    let bitmap_width = bitmap_width as f32;
+    let bitmap_height = bitmap_height as f32;
+
+    let tx = m.tx.get() as f32;
+    let ty = m.ty.get() as f32;
+    let det = m.a * m.d - m.c * m.b;
+    let mut a = m.d / det;
+    let mut b = -m.c / det;
+    let mut c = -(tx * m.d - m.c * ty) / det;
+    let mut d = -m.b / det;
+    let mut e = m.a / det;
+    let mut f = (tx * m.b - m.a * ty) / det;
+
+    a *= 20.0 / bitmap_width;
+    b *= 20.0 / bitmap_width;
+    d *= 20.0 / bitmap_height;
+    e *= 20.0 / bitmap_height;
+
+    c /= bitmap_width;
+    f /= bitmap_height;
+
+    [[a, d, 0.0], [b, e, 0.0], [c, f, 1.0]]
+}
+
+/// Converts a gradient to the uniforms used by the shader.
+fn swf_gradient_to_uniforms(
+    gradient_type: GradientType,
+    gradient: &swf::Gradient,
+    focal_point: swf::Fixed8,
+) -> Gradient {
+    Gradient {
+        records: gradient.records.clone(),
+        gradient_type,
+        repeat_mode: gradient.spread,
+        focal_point,
+        interpolation: gradient.interpolation,
+    }
+}
+
+struct RuffleVertexCtor {
+    color: swf::Color,
+}
+
+impl FillVertexConstructor<Vertex> for RuffleVertexCtor {
+    fn new_vertex(&mut self, vertex: FillVertex) -> Vertex {
+        Vertex {
+            x: vertex.position().x,
+            y: vertex.position().y,
+            color: self.color,
+        }
+    }
+}
+
+impl StrokeVertexConstructor<Vertex> for RuffleVertexCtor {
+    fn new_vertex(&mut self, vertex: StrokeVertex) -> Vertex {
+        Vertex {
+            x: vertex.position().x,
+            y: vertex.position().y,
+            color: self.color,
+        }
     }
 }

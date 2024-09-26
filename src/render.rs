@@ -1,22 +1,22 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use bevy::{
-    app::{App, Plugin, PostUpdate},
+    app::{App, Plugin, PostUpdate, Update},
     asset::{load_internal_asset, Assets, Handle},
-    color::Color,
+    math::{Mat4, Vec3},
     prelude::{
-        BuildChildren, Commands, Component, Entity, EventReader, Gizmos, Mut, Query, ResMut,
-        Shader, Transform, Visibility, With,
+        BuildChildren, Commands, Component, Entity, IntoSystemConfigs, Mesh, Mut, Query, Res,
+        ResMut, Shader, Transform, Visibility, Without,
     },
-    sprite::{Material2dPlugin, MaterialMesh2dBundle},
+    render::view::{NoFrustumCulling, VisibilitySystems},
+    sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
 };
-use glam::{Mat4, Vec2, Vec3, Vec4};
 use material::{BitmapMaterial, GradientMaterial, SWFColorMaterial, SWFTransform};
 use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::{
     bundle::{ShapeMark, ShapeMarkEntities, Swf, SwfState},
-    plugin::{SWFRenderEvent, ShapeDrawType},
+    plugin::ShapeDrawType,
     swf::display_object::{DisplayObject, TDisplayObject},
 };
 
@@ -55,12 +55,18 @@ impl Plugin for FlashRenderPlugin {
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
             .add_plugins(Material2dPlugin::<SWFColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
-            .add_systems(PostUpdate, render_swf);
+            .add_systems(Update, render_swf)
+            .add_systems(
+                PostUpdate,
+                calculate_shape_bounds.in_set(VisibilitySystems::CalculateBounds),
+            );
     }
 }
 
-#[derive(Component)]
-pub struct SWFShapeMesh;
+#[derive(Component, Default)]
+pub struct SWFShapeMesh {
+    transform: Mat4,
+}
 
 pub fn render_swf(
     mut commands: Commands,
@@ -68,26 +74,21 @@ pub fn render_swf(
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
     mut query: Query<(&mut Swf, Entity, &mut ShapeMarkEntities)>,
-    mut gizmos: Gizmos,
-    entities_material_query: Query<
-        (
-            Entity,
-            Option<&Handle<SWFColorMaterial>>,
-            Option<&Handle<GradientMaterial>>,
-            Option<&Handle<BitmapMaterial>>,
-        ),
-        With<SWFShapeMesh>,
-    >,
-    mut swf_render_events: EventReader<SWFRenderEvent>,
+    mut entities_material_query: Query<(
+        Entity,
+        Option<&Handle<SWFColorMaterial>>,
+        Option<&Handle<GradientMaterial>>,
+        Option<&Handle<BitmapMaterial>>,
+        &mut SWFShapeMesh,
+    )>,
 ) {
-    gizmos.line_2d(Vec2::new(0.0, 0.0), Vec2::new(-100.0, -100.0), Color::WHITE);
-    // for _swf_render_event in swf_render_events.read() {
     for (mut swf, entity, mut shape_mark_entities) in query.iter_mut() {
         match swf.status {
             SwfState::Loading => {
                 continue;
             }
             SwfState::Ready => {
+                shape_mark_entities.clear_current_frame_entity();
                 let render_list = swf.root_movie_clip.raw_container().render_list();
                 let parent_clip_transform = swf.root_movie_clip.base().transform().clone();
                 let display_objects = swf
@@ -96,8 +97,7 @@ pub fn render_swf(
                     .display_objects_mut();
 
                 let mut z_index = 0.000;
-
-                shape_mark_entities.clear_current_frame_entity();
+                let mut depth_layer = (String::from(""), String::from(""));
 
                 handler_render_list(
                     entity,
@@ -105,20 +105,20 @@ pub fn render_swf(
                     &mut color_materials,
                     &mut gradient_materials,
                     &mut bitmap_materials,
-                    &entities_material_query,
+                    &mut entities_material_query,
                     &mut shape_mark_entities,
                     render_list,
                     display_objects,
-                    &mut gizmos,
                     &parent_clip_transform,
                     &mut z_index,
+                    &mut depth_layer,
                 );
 
                 shape_mark_entities
-                    .non_current_frame_entity()
-                    .iter_mut()
-                    .for_each(|entity| {
-                        commands.entity(**entity).insert(Visibility::Hidden);
+                    .graphic_entities()
+                    .iter()
+                    .for_each(|(_, entity)| {
+                        commands.entity(*entity).insert(Visibility::Hidden);
                     });
                 shape_mark_entities
                     .current_frame_entities()
@@ -127,10 +127,10 @@ pub fn render_swf(
                         let entity = shape_mark_entities.entity(shape_mark).unwrap();
                         commands.entity(*entity).insert(Visibility::Inherited);
                     });
+                swf.status = SwfState::Loading;
             }
         }
     }
-    // }
 }
 
 pub fn handler_render_list(
@@ -139,7 +139,7 @@ pub fn handler_render_list(
     color_materials: &mut ResMut<Assets<SWFColorMaterial>>,
     gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
     bitmap_materials: &mut ResMut<Assets<BitmapMaterial>>,
-    entities_material_query: &Query<
+    entities_material_query: &mut Query<
         '_,
         '_,
         (
@@ -147,53 +147,29 @@ pub fn handler_render_list(
             Option<&Handle<SWFColorMaterial>>,
             Option<&Handle<GradientMaterial>>,
             Option<&Handle<BitmapMaterial>>,
+            &mut SWFShapeMesh,
         ),
-        With<SWFShapeMesh>,
     >,
     shape_mark_entities: &mut Mut<'_, ShapeMarkEntities>,
     render_list: Arc<Vec<u128>>,
     display_objects: &mut BTreeMap<u128, DisplayObject>,
-    gizmos: &mut Gizmos,
     parent_clip_transform: &RuffleTransform,
     z_index: &mut f32,
+    depth_layer: &mut (String, String),
 ) {
     for display_object in render_list.iter() {
         if let Some(display_object) = display_objects.get_mut(display_object) {
             match display_object {
                 DisplayObject::Graphic(graphic) => {
                     let current_transform = graphic.base().transform();
-                    let swf_transform = RuffleTransform {
+                    let swf_transform: SWFTransform = RuffleTransform {
                         matrix: parent_clip_transform.matrix * current_transform.matrix,
                         color_transform: parent_clip_transform.color_transform
                             * current_transform.color_transform,
-                    };
-                    // debug
-                    let bundle = graphic.shape.shape_bounds.clone();
-                    let mut position = Vec4::new(
-                        (bundle.x_min + bundle.x_max).to_pixels() as f32 / 2.0,
-                        (bundle.y_min + bundle.y_max).to_pixels() as f32 / 2.0,
-                        0.0,
-                        1.0,
-                    );
-                    let view_matrix: SWFTransform = swf_transform.clone().into();
-                    let position = Mat4::from_cols_array_2d(&[
-                        [1.0, 0.0, 0.0, 0.0],
-                        [0.0, -1.0, 0.0, 0.0],
-                        [0.0, 0.0, 1.0, 0.0],
-                        [-1.0, 1.0, 0.0, 1.0],
-                    ]) * view_matrix.world_transform
-                        * position;
-                    // gizmos.rect_2d(
-                    //     Vec2::new(position.x - 500.0, position.y),
-                    //     0.0,
-                    //     Vec2::new(
-                    //         (bundle.x_max - bundle.x_min).to_pixels() as f32,
-                    //         (bundle.y_max - bundle.y_min).to_pixels() as f32,
-                    //     ),
-                    //     Color::WHITE,
-                    // );
-
+                    }
+                    .into();
                     let mut shape_mark = ShapeMark {
+                        parent_layer: depth_layer.clone(),
                         depth: graphic.depth(),
                         id: graphic.character_id(),
                         graphic_index: 0,
@@ -205,13 +181,13 @@ pub fn handler_render_list(
                         .for_each(|(index, shape)| {
                             // 记录当前帧生成的mesh实体
                             shape_mark.graphic_index = index;
-                            shape_mark_entities.record_current_frame_entity(shape_mark);
+                            shape_mark_entities.record_current_frame_entity(shape_mark.clone());
 
                             if let Some(&existing_entity) = shape_mark_entities.entity(&shape_mark)
                             {
                                 let exists_material = entities_material_query
-                                    .iter()
-                                    .find(|(entity, _, _, _)| *entity == existing_entity);
+                                    .iter_mut()
+                                    .find(|(entity, _, _, _, _)| *entity == existing_entity);
                                 match shape.draw_type.clone() {
                                     ShapeDrawType::Color(mut swf_color_material) => {
                                         // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质
@@ -222,14 +198,20 @@ pub fn handler_render_list(
                                                 color_materials.get_mut(color_material)
                                             {
                                                 swf_color_material.transform =
-                                                    swf_transform.clone().into();
+                                                    swf_transform.clone();
+                                                let mut swf_shape_mesh = exists_material.4;
+                                                swf_shape_mesh.transform =
+                                                    swf_transform.world_transform;
                                             }
                                         } else {
-                                            swf_color_material.transform =
-                                                swf_transform.clone().into();
-                                            commands
-                                                .entity(existing_entity)
-                                                .insert(color_materials.add(swf_color_material));
+                                            swf_color_material.transform = swf_transform.clone();
+                                            let swf_shape_mesh = SWFShapeMesh {
+                                                transform: swf_transform.world_transform,
+                                            };
+                                            commands.entity(existing_entity).insert((
+                                                color_materials.add(swf_color_material),
+                                                swf_shape_mesh,
+                                            ));
                                         }
                                     }
                                     ShapeDrawType::Gradient(handle) => {
@@ -241,14 +223,23 @@ pub fn handler_render_list(
                                                 gradient_materials.get_mut(gradient_material)
                                             {
                                                 swf_gradient_material.transform =
-                                                    swf_transform.clone().into();
+                                                    swf_transform.clone();
+                                                let mut swf_shape_mesh = exists_material.4;
+                                                swf_shape_mesh.transform =
+                                                    swf_transform.world_transform;
                                             }
                                         } else {
                                             if let Some(swf_gradient_material) =
                                                 gradient_materials.get_mut(&handle)
                                             {
                                                 swf_gradient_material.transform =
-                                                    swf_transform.clone().into()
+                                                    swf_transform.clone();
+                                                let swf_shape_mesh = SWFShapeMesh {
+                                                    transform: swf_transform.world_transform,
+                                                };
+                                                commands
+                                                    .entity(existing_entity)
+                                                    .insert(swf_shape_mesh);
                                             }
                                         }
                                     }
@@ -260,21 +251,31 @@ pub fn handler_render_list(
                                                 bitmap_materials.get_mut(bitmap_material)
                                             {
                                                 swf_bitmap_material.transform =
-                                                    swf_transform.clone().into();
+                                                    swf_transform.clone();
+                                                let mut swf_shape_mesh = exists_material.4;
+                                                swf_shape_mesh.transform =
+                                                    swf_transform.world_transform;
                                             }
                                         } else {
-                                            bitmap_material.transform =
-                                                swf_transform.clone().into();
-                                            commands
-                                                .entity(existing_entity)
-                                                .insert(bitmap_materials.add(bitmap_material));
+                                            bitmap_material.transform = swf_transform.clone();
+                                            let swf_shape_mesh = SWFShapeMesh {
+                                                transform: swf_transform.world_transform,
+                                            };
+                                            commands.entity(existing_entity).insert((
+                                                bitmap_materials.add(bitmap_material),
+                                                swf_shape_mesh,
+                                            ));
                                         }
                                     }
                                 }
                             } else {
+                                let transform =
+                                    Transform::from_translation(Vec3::new(0.0, 0.0, *z_index));
                                 match &mut shape.draw_type {
                                     ShapeDrawType::Color(swf_color_material) => {
                                         swf_color_material.transform = swf_transform.clone().into();
+                                        let aabb_transform =
+                                            swf_color_material.transform.world_transform;
                                         commands.entity(parent_entity).with_children(|parent| {
                                             let entity = parent
                                                 .spawn((
@@ -282,24 +283,27 @@ pub fn handler_render_list(
                                                         mesh: shape.mesh.clone().into(),
                                                         material: color_materials
                                                             .add(swf_color_material.clone()),
-                                                        transform: Transform::from_translation(
-                                                            Vec3::new(0.0, 0.0, *z_index),
-                                                        ),
+                                                        transform,
                                                         ..Default::default()
                                                     },
-                                                    SWFShapeMesh,
+                                                    SWFShapeMesh {
+                                                        transform: aabb_transform,
+                                                    },
                                                 ))
                                                 .id();
                                             shape_mark_entities
-                                                .add_entities_pool(shape_mark, entity);
+                                                .add_entities_pool(shape_mark.clone(), entity);
                                         });
                                     }
                                     ShapeDrawType::Gradient(materials_handle) => {
+                                        let mut aabb_transform = Mat4::default();
                                         if let Some(gradient_material) =
                                             gradient_materials.get_mut(materials_handle.id())
                                         {
                                             gradient_material.transform =
                                                 swf_transform.clone().into();
+                                            aabb_transform =
+                                                gradient_material.transform.world_transform;
                                         }
                                         commands.entity(parent_entity).with_children(|parent| {
                                             let entity = parent
@@ -307,21 +311,23 @@ pub fn handler_render_list(
                                                     MaterialMesh2dBundle {
                                                         mesh: shape.mesh.clone().into(),
                                                         material: materials_handle.clone(),
-                                                        transform: Transform::from_translation(
-                                                            Vec3::new(0.0, 0.0, *z_index),
-                                                        ),
+                                                        transform,
                                                         ..Default::default()
                                                     },
-                                                    SWFShapeMesh,
+                                                    SWFShapeMesh {
+                                                        transform: aabb_transform,
+                                                    },
                                                 ))
                                                 .id();
                                             shape_mark_entities
-                                                .add_entities_pool(shape_mark, entity);
+                                                .add_entities_pool(shape_mark.clone(), entity);
                                         });
                                     }
                                     ShapeDrawType::Bitmap(bitmap_material) => {
                                         let mut bitmap_material = bitmap_material.clone();
                                         bitmap_material.transform = swf_transform.clone().into();
+                                        let aabb_transform =
+                                            bitmap_material.transform.world_transform;
                                         commands.entity(parent_entity).with_children(|parent| {
                                             let entity = parent
                                                 .spawn((
@@ -329,16 +335,16 @@ pub fn handler_render_list(
                                                         mesh: shape.mesh.clone().into(),
                                                         material: bitmap_materials
                                                             .add(bitmap_material),
-                                                        transform: Transform::from_translation(
-                                                            Vec3::new(0.0, 0.0, *z_index),
-                                                        ),
+                                                        transform,
                                                         ..Default::default()
                                                     },
-                                                    SWFShapeMesh,
+                                                    SWFShapeMesh {
+                                                        transform: aabb_transform,
+                                                    },
                                                 ))
                                                 .id();
                                             shape_mark_entities
-                                                .add_entities_pool(shape_mark, entity);
+                                                .add_entities_pool(shape_mark.clone(), entity);
                                         });
                                     }
                                 }
@@ -352,6 +358,11 @@ pub fn handler_render_list(
                         color_transform: parent_clip_transform.color_transform
                             * movie_clip.base().transform().color_transform,
                     };
+                    depth_layer
+                        .0
+                        .push_str(&movie_clip.character_id().to_string());
+                    depth_layer.0.push_str(&movie_clip.depth().to_string());
+                    *z_index += movie_clip.depth() as f32 / 100.0;
                     // dbg!(movie_clip.character_id(), movie_clip.depth());
                     // dbg!(movie_clip.blend_mode());
                     handler_render_list(
@@ -364,12 +375,35 @@ pub fn handler_render_list(
                         shape_mark_entities,
                         movie_clip.raw_container().render_list(),
                         movie_clip.raw_container_mut().display_objects_mut(),
-                        gizmos,
                         &current_transform,
                         z_index,
+                        depth_layer,
                     );
                 }
             }
         }
     }
+}
+
+pub fn calculate_shape_bounds(
+    mut commands: Commands,
+    meshes: Res<Assets<Mesh>>,
+    meshes_without_aabb: Query<(Entity, &Mesh2dHandle, &SWFShapeMesh), Without<NoFrustumCulling>>,
+) {
+    meshes_without_aabb
+        .iter()
+        .for_each(|(entity, mesh_handle, swf_shape_mesh)| {
+            if let Some(mesh) = meshes.get(&mesh_handle.0) {
+                if let Some(mut aabb) = mesh.compute_aabb() {
+                    let swf_transform = Mat4::from_cols_array_2d(&[
+                        [1.0, 0.0, 0.0, 0.0],
+                        [0.0, -1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]) * swf_shape_mesh.transform;
+                    aabb.center = swf_transform.transform_point3a(aabb.center);
+                    commands.entity(entity).try_insert(aabb);
+                }
+            }
+        });
 }

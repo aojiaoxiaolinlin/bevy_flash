@@ -22,8 +22,10 @@ pub struct SwfBundle {
     pub shape_mark_entities: ShapeMarkEntities,
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct ShapeMark {
+    // 用来记录父id和深度
+    pub parent_layer: (String, String),
     pub depth: Depth,
     pub id: CharacterId,
     pub graphic_index: usize,
@@ -51,12 +53,8 @@ impl ShapeMarkEntities {
         self.current_frame_entities.clear();
     }
 
-    pub fn non_current_frame_entity(&mut self) -> Vec<&mut Entity> {
-        self.graphic_entities
-            .iter_mut()
-            .filter(|(key, _)| !self.current_frame_entities.contains(&key))
-            .map(|(_, value)| value)
-            .collect::<Vec<&mut Entity>>()
+    pub fn graphic_entities(&self) -> &HashMap<ShapeMark, bevy::prelude::Entity> {
+        &self.graphic_entities
     }
 
     pub fn current_frame_entities(&self) -> &Vec<ShapeMark> {

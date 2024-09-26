@@ -1,9 +1,11 @@
 {
   "cSpell.words": [
+    "Aabb",
     "bitflags",
     "bytemuck",
     "copyless",
     "despawn",
+    "hashbrown",
     "indexmap",
     "lerp",
     "lifetimeless",

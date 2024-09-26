@@ -1,14 +1,13 @@
 use bevy::{
     app::{App, Startup, Update},
     asset::{AssetServer, Assets, Handle},
-    color::{palettes::css::GOLD, Color},
+    color::palettes::css::GOLD,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    gizmos::gizmos,
     input::ButtonInput,
-    log::info,
+    math::Vec3,
     prelude::{
-        Camera2dBundle, Commands, Component, Gizmos, KeyCode, Msaa, Query, Res, ResMut,
-        SpatialBundle, TextBundle, Transform, With,
+        Camera2dBundle, Commands, Component, KeyCode, Msaa, Query, Res, ResMut, SpatialBundle,
+        TextBundle, Transform, With,
     },
     text::{Text, TextSection, TextStyle},
     DefaultPlugins,
@@ -19,7 +18,6 @@ use bevy_flash::{
     bundle::{Swf, SwfBundle},
     plugin::FlashPlugin,
 };
-use glam::{Vec2, Vec3};
 
 #[derive(Component)]
 struct FpsText;
@@ -29,42 +27,32 @@ fn main() {
         .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin, FlashPlugin))
         .insert_resource(Msaa::Sample8)
         .add_systems(Startup, setup)
-        .add_systems(Update, (control, text_update_system, draw_grid))
+        .add_systems(Update, (control, text_update_system))
         .run();
 }
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
-        // swf_handle: assert_server.load("sprite.swf"),
-        // swf_handle: assert_server.load("scale.swf"),
-        // swf_handle: assert_server.load("rotate.swf"),
-        // swf_handle: assert_server.load("head_scale2.swf"),
-        // swf_handle: assert_server.load("head-animation.swf"),
-        // swf_handle: assert_server.load("head.swf"),
-        // swf_handle: assert_server.load("spirit2159src.swf"),
         swf_handle: assert_server.load("spirit2724src.swf"),
-        // swf_handle: assert_server.load("double_ref2.swf"),
-        // swf_handle: assert_server.load("effect1209.swf"),
-        // swf_handle: assert_server.load("frames.swf"),
-        // swf_handle: assert_server.load("bitmap_test.swf"),
-        // swf_handle: assert_server.load("miaomiao.swf"),
-        // swf_handle: assert_server.load("tou.swf"),
-        // swf_handle: assert_server.load("123680-idle.swf"),
-        // swf_handle: assert_server.load("frame_animation.swf"),
-        // swf_handle: assert_server.load("gradient.swf"),
-        // swf_handle: assert_server.load("weiba.swf"),
-        // swf_handle: assert_server.load("spirit1src.swf"),
-        // swf_handle: assert_server.load("32.swf"),
-        // swf_handle: assert_server.load("30.swf"),
+        // swf_handle: assert_server.load("131381-idle.swf"),
         swf: Swf {
             name: Some(String::from("_mc")),
             ..Default::default()
         },
-        // TODO: Y坐标变换会引起渲染显示异常，不显示或渐变纹理没有填充，该异常还与窗口大小有关系
         spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(-600.0, 200.0, 0.0))
-                .with_scale(Vec3::splat(1.0)),
+            transform: Transform::from_translation(Vec3::new(-3000.0, 900.0, 0.0))
+                .with_scale(Vec3::splat(4.0)),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+
+    commands.spawn(SwfBundle {
+        swf_handle: assert_server.load("131381-idle.swf"),
+        spatial: SpatialBundle {
+            transform: Transform::from_translation(Vec3::new(-600.0, 0.0, 0.0))
+                .with_scale(Vec3::splat(4.0)),
             ..Default::default()
         },
         ..Default::default()
@@ -86,11 +74,6 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         ]),
         FpsText,
     ));
-}
-
-fn draw_grid(mut gizmos: Gizmos) {
-    gizmos.line_2d(Vec2::new(-500.0, 0.0), Vec2::new(500.0, 0.0), Color::WHITE);
-    gizmos.line_2d(Vec2::new(0.0, -500.0), Vec2::new(0.0, 500.0), Color::WHITE);
 }
 
 fn control(

@@ -1,6 +1,8 @@
 use crate::assets::{SwfLoader, SwfMovie};
 use crate::bundle::{Swf, SwfState};
-use crate::render::material::{BitmapMaterial, Gradient, GradientMaterial, SWFColorMaterial};
+use crate::render::material::{
+    BitmapMaterial, GradientMaterial, GradientUniforms, SWFColorMaterial,
+};
 use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
@@ -11,9 +13,8 @@ use bevy::app::App;
 use bevy::asset::{AssetEvent, Handle};
 use bevy::color::{Color, ColorToComponents};
 use bevy::log::error;
-use bevy::prelude::{
-    Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query, Resource, With,
-};
+use bevy::math::{Mat3, Mat4};
+use bevy::prelude::{EventReader, Image, IntoSystemConfigs, Mesh, Query, Resource};
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::time::{Time, Timer, TimerMode};
@@ -23,9 +24,7 @@ use bevy::{
     prelude::{Res, ResMut},
 };
 use copyless::VecHelper;
-use glam::{Mat3, Mat4};
 use ruffle_render::tessellator::DrawType;
-use ruffle_render_wgpu::GradientUniforms;
 use swf::GradientInterpolation;
 use wgpu::{Extent3d, PrimitiveTopology};
 
@@ -35,15 +34,11 @@ const GRADIENT_SIZE: usize = 256;
 #[derive(Resource)]
 struct PlayerTimer(Timer);
 
-#[derive(Event)]
-pub struct SWFRenderEvent;
-
 pub struct FlashPlugin;
 
 impl Plugin for FlashPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<SWFRenderEvent>()
-            .add_plugins(FlashRenderPlugin)
+        app.add_plugins(FlashRenderPlugin)
             .init_asset::<SwfMovie>()
             .init_asset_loader::<SwfLoader>()
             .insert_resource(PlayerTimer(Timer::from_seconds(
@@ -60,7 +55,6 @@ fn enter_frame(
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     time: Res<Time>,
     mut timer: ResMut<PlayerTimer>,
-    mut swf_events: EventWriter<SWFRenderEvent>,
 ) {
     query.iter_mut().for_each(|(mut swf, _)| {
         let target = swf.name.clone().unwrap_or("root".to_string());
@@ -75,7 +69,7 @@ fn enter_frame(
             if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
                 swf.root_movie_clip
                     .enter_frame(&mut swf_movie.movie_library);
-                swf_events.send(SWFRenderEvent);
+                swf.status = SwfState::Ready;
             }
         }
     }
@@ -94,13 +88,12 @@ pub struct ShapeMesh {
 }
 
 fn pre_parse(
-    mut query: Query<&mut Swf, With<Handle<SwfMovie>>>,
+    mut query: Query<(&mut Swf, &Handle<SwfMovie>)>,
     mut swf_events: EventReader<AssetEvent<SwfMovie>>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
-    mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
 ) {
     for event in swf_events.read() {
         match event {
@@ -260,7 +253,7 @@ fn pre_parse(
                                                 mesh: meshes.add(mesh),
                                                 draw_type: ShapeDrawType::Gradient(
                                                     gradient_materials.add(GradientMaterial {
-                                                        gradient: Gradient {
+                                                        gradient: GradientUniforms {
                                                             focal_point: texture.1.focal_point,
                                                             interpolation: texture.1.interpolation,
                                                             shape: texture.1.shape,
@@ -342,10 +335,12 @@ fn pre_parse(
                         },
                     );
                     swf_movie.movie_library = library;
-                    query.iter_mut().for_each(|mut swf| {
+                    if let Some((mut swf, _)) =
+                        query.iter_mut().find(|(_, handle)| handle.id() == *id)
+                    {
                         swf.root_movie_clip = root_movie_clip.clone();
                         swf.status = SwfState::Ready;
-                    });
+                    }
                 }
             }
             _ => {}
