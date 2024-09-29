@@ -174,11 +174,13 @@ pub fn handler_render_list(
                         id: graphic.character_id(),
                         graphic_index: 0,
                     };
+                    *z_index += graphic.depth() as f32 / 100.0;
                     graphic
                         .shape_mesh()
                         .iter_mut()
                         .enumerate()
                         .for_each(|(index, shape)| {
+                            *z_index += 0.001;
                             // 记录当前帧生成的mesh实体
                             shape_mark.graphic_index = index;
                             shape_mark_entities.record_current_frame_entity(shape_mark.clone());
@@ -349,7 +351,6 @@ pub fn handler_render_list(
                                     }
                                 }
                             }
-                            *z_index += 0.001;
                         });
                 }
                 DisplayObject::MovieClip(movie_clip) => {
@@ -362,7 +363,7 @@ pub fn handler_render_list(
                         .0
                         .push_str(&movie_clip.character_id().to_string());
                     depth_layer.0.push_str(&movie_clip.depth().to_string());
-                    *z_index += movie_clip.depth() as f32 / 100.0;
+                    *z_index += 0.001;
                     // dbg!(movie_clip.character_id(), movie_clip.depth());
                     // dbg!(movie_clip.blend_mode());
                     handler_render_list(
