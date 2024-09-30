@@ -91,8 +91,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let out = saturate(color * swf_transform.mult_color + swf_transform.add_color);
     let alpha = saturate(out.a);
     return vec4<f32>(out.rgb * alpha, alpha);
-    // // return vec4<f32>(t, 0.0, 0.0, 1.0);
-    // return color;
 }
 
 /// Converts a color from linear to sRGB color space.

@@ -450,14 +450,12 @@ impl MovieClip {
                     let name = name
                         .to_str_lossy(SwfStr::encoding_for_version(self.swf.version()))
                         .into_owned();
-                    info!("影片剪辑实例名: {:?}", name);
                     child.set_name(Some(name));
                 }
                 if let Some(clip_depth) = place_object.clip_depth {
                     child.set_clip_depth(clip_depth);
                 }
                 child.post_instantiation(library);
-                // TODO: 此处跳帧有BUG, 待排查
                 child.enter_frame(library);
                 Some(child)
             }

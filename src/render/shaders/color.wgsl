@@ -32,12 +32,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         position
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
-    out.color = vertex.color;
+    let color = saturate(vertex.color * swf_transform.mult_color + swf_transform.add_color);
+    out.color = vec4<f32>(color.rgb * color.a, color.a);
     return out;
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    var output_color: vec4<f32> = in.color;
-    return output_color;
+    return in.color;
 }

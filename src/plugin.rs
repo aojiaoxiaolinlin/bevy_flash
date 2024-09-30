@@ -78,7 +78,7 @@ fn enter_frame(
 #[derive(Clone)]
 pub enum ShapeDrawType {
     Color(SWFColorMaterial),
-    Gradient(Handle<GradientMaterial>),
+    Gradient(GradientMaterial),
     Bitmap(BitmapMaterial),
 }
 #[derive(Clone)]
@@ -93,7 +93,6 @@ fn pre_parse(
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
-    mut gradient_materials: ResMut<Assets<GradientMaterial>>,
 ) {
     for event in swf_events.read() {
         match event {
@@ -252,7 +251,7 @@ fn pre_parse(
                                             graphic.add_shape_mesh(ShapeMesh {
                                                 mesh: meshes.add(mesh),
                                                 draw_type: ShapeDrawType::Gradient(
-                                                    gradient_materials.add(GradientMaterial {
+                                                    GradientMaterial {
                                                         gradient: GradientUniforms {
                                                             focal_point: texture.1.focal_point,
                                                             interpolation: texture.1.interpolation,
@@ -264,7 +263,7 @@ fn pre_parse(
                                                         ),
                                                         texture: Some(images.add(texture.0)),
                                                         ..Default::default()
-                                                    }),
+                                                    },
                                                 ),
                                             });
                                         }

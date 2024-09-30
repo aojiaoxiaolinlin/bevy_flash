@@ -97,7 +97,7 @@ pub fn render_swf(
                     .display_objects_mut();
 
                 let mut z_index = 0.000;
-                let mut depth_layer = (String::from(""), String::from(""));
+                let depth_layer = (String::from(""), String::from(""));
 
                 handler_render_list(
                     entity,
@@ -111,7 +111,7 @@ pub fn render_swf(
                     display_objects,
                     &parent_clip_transform,
                     &mut z_index,
-                    &mut depth_layer,
+                    depth_layer,
                 );
 
                 shape_mark_entities
@@ -155,7 +155,7 @@ pub fn handler_render_list(
     display_objects: &mut BTreeMap<u128, DisplayObject>,
     parent_clip_transform: &RuffleTransform,
     z_index: &mut f32,
-    depth_layer: &mut (String, String),
+    mut depth_layer: (String, String),
 ) {
     for display_object in render_list.iter() {
         if let Some(display_object) = display_objects.get_mut(display_object) {
@@ -216,7 +216,7 @@ pub fn handler_render_list(
                                             ));
                                         }
                                     }
-                                    ShapeDrawType::Gradient(handle) => {
+                                    ShapeDrawType::Gradient(mut swf_gradient_material) => {
                                         // 此处是否应该从handle直接获取，而不应该使用exists_material
                                         if let Some(exists_material) = exists_material {
                                             let gradient_material =
@@ -231,18 +231,11 @@ pub fn handler_render_list(
                                                     swf_transform.world_transform;
                                             }
                                         } else {
-                                            if let Some(swf_gradient_material) =
-                                                gradient_materials.get_mut(&handle)
-                                            {
-                                                swf_gradient_material.transform =
-                                                    swf_transform.clone();
-                                                let swf_shape_mesh = SWFShapeMesh {
-                                                    transform: swf_transform.world_transform,
-                                                };
-                                                commands
-                                                    .entity(existing_entity)
-                                                    .insert(swf_shape_mesh);
-                                            }
+                                            swf_gradient_material.transform = swf_transform.clone();
+                                            let swf_shape_mesh = SWFShapeMesh {
+                                                transform: swf_transform.world_transform,
+                                            };
+                                            commands.entity(existing_entity).insert(swf_shape_mesh);
                                         }
                                     }
                                     ShapeDrawType::Bitmap(mut bitmap_material) => {
@@ -297,22 +290,18 @@ pub fn handler_render_list(
                                                 .add_entities_pool(shape_mark.clone(), entity);
                                         });
                                     }
-                                    ShapeDrawType::Gradient(materials_handle) => {
-                                        let mut aabb_transform = Mat4::default();
-                                        if let Some(gradient_material) =
-                                            gradient_materials.get_mut(materials_handle.id())
-                                        {
-                                            gradient_material.transform =
-                                                swf_transform.clone().into();
-                                            aabb_transform =
-                                                gradient_material.transform.world_transform;
-                                        }
+                                    ShapeDrawType::Gradient(gradient_material) => {
+                                        gradient_material.transform = swf_transform.clone().into();
+                                        let aabb_transform =
+                                            gradient_material.transform.world_transform;
+
                                         commands.entity(parent_entity).with_children(|parent| {
                                             let entity = parent
                                                 .spawn((
                                                     MaterialMesh2dBundle {
                                                         mesh: shape.mesh.clone().into(),
-                                                        material: materials_handle.clone(),
+                                                        material: gradient_materials
+                                                            .add(gradient_material.clone()),
                                                         transform,
                                                         ..Default::default()
                                                     },
@@ -362,7 +351,7 @@ pub fn handler_render_list(
                     depth_layer
                         .0
                         .push_str(&movie_clip.character_id().to_string());
-                    depth_layer.0.push_str(&movie_clip.depth().to_string());
+                    depth_layer.1.push_str(&movie_clip.depth().to_string());
                     *z_index += 0.001;
                     // dbg!(movie_clip.character_id(), movie_clip.depth());
                     // dbg!(movie_clip.blend_mode());
@@ -378,7 +367,7 @@ pub fn handler_render_list(
                         movie_clip.raw_container_mut().display_objects_mut(),
                         &current_transform,
                         z_index,
-                        depth_layer,
+                        depth_layer.clone(),
                     );
                 }
             }

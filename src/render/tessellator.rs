@@ -160,7 +160,6 @@ impl ShapeTessellator {
                     &mut buffers_builder,
                 ),
                 DrawPath::Stroke { style, .. } => {
-                    // TODO(Herschel): 0 width indicates "hairline".
                     let width = (style.width().to_pixels() as f32).max(1.0);
                     let mut stroke_options = StrokeOptions::default()
                         .with_line_width(width)
