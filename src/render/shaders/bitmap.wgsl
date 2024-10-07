@@ -1,7 +1,7 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
 
 
-struct SWFTransform {
+struct SwfTransform {
     world_matrix: mat4x4<f32>,
     mult_color: vec4<f32>,
     add_color: vec4<f32>,
@@ -9,7 +9,7 @@ struct SWFTransform {
 @group(2) @binding(0) var texture: texture_2d<f32>;
 @group(2) @binding(1) var texture_sampler: sampler;
 @group(2) @binding(2) var<uniform> texture_transform: mat4x4<f32>;
-@group(2) @binding(3) var<uniform> swf_transform: SWFTransform;
+@group(2) @binding(3) var<uniform> swf_transform: SwfTransform;
 override late_saturate: bool = false;
 
 /// 暂时定为固定值

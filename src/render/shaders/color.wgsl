@@ -8,13 +8,13 @@ const view_matrix: mat4x4<f32> = mat4x4<f32>(
     vec4<f32>(0.0, 0.0, 0.0, 1.0)
 );
 
-struct SWFTransform {
+struct SwfTransform {
     world_matrix: mat4x4<f32>,
     mult_color: vec4<f32>,
     add_color: vec4<f32>,
 }
 
-@group(2) @binding(0) var<uniform> swf_transform: SWFTransform;
+@group(2) @binding(0) var<uniform> swf_transform: SwfTransform;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,

@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use bevy::{
     app::{App, Plugin, PostUpdate, Update},
     asset::{load_internal_asset, Assets, Handle},
+    log::warn,
     math::{Mat4, Vec3},
     prelude::{
         BuildChildren, Commands, Component, Entity, IntoSystemConfigs, Mesh, Query, Res, ResMut,
@@ -11,12 +12,12 @@ use bevy::{
     render::view::{NoFrustumCulling, VisibilitySystems},
     sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
 };
-use material::{BitmapMaterial, GradientMaterial, SWFColorMaterial, SWFTransform};
+use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
 use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::{
     bundle::{ShapeMark, ShapeMarkEntities, Swf, SwfState},
-    plugin::ShapeDrawType,
+    plugin::{ShapeDrawType, ShapeMesh},
     swf::display_object::{DisplayObject, TDisplayObject},
 };
 
@@ -53,7 +54,7 @@ impl Plugin for FlashRenderPlugin {
         );
 
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
-            .add_plugins(Material2dPlugin::<SWFColorMaterial>::default())
+            .add_plugins(Material2dPlugin::<SwfColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
             .add_systems(Update, render_swf)
             .add_systems(
@@ -64,22 +65,22 @@ impl Plugin for FlashRenderPlugin {
 }
 
 #[derive(Component, Default)]
-pub struct SWFShapeMesh {
+pub struct SwfShapeMesh {
     transform: Mat4,
 }
 
 pub fn render_swf(
     mut commands: Commands,
-    mut color_materials: ResMut<Assets<SWFColorMaterial>>,
+    mut color_materials: ResMut<Assets<SwfColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
     mut query: Query<(&mut Swf, Entity, &mut ShapeMarkEntities)>,
     mut entities_material_query: Query<(
         Entity,
-        Option<&Handle<SWFColorMaterial>>,
+        Option<&Handle<SwfColorMaterial>>,
         Option<&Handle<GradientMaterial>>,
         Option<&Handle<BitmapMaterial>>,
-        &mut SWFShapeMesh,
+        &mut SwfShapeMesh,
     )>,
 ) {
     for (mut swf, entity, mut shape_mark_entities) in query.iter_mut() {
@@ -136,7 +137,7 @@ pub fn render_swf(
 pub fn handler_render_list(
     parent_entity: Entity,
     commands: &mut Commands,
-    color_materials: &mut ResMut<Assets<SWFColorMaterial>>,
+    color_materials: &mut ResMut<Assets<SwfColorMaterial>>,
     gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
     bitmap_materials: &mut ResMut<Assets<BitmapMaterial>>,
     entities_material_query: &mut Query<
@@ -144,10 +145,10 @@ pub fn handler_render_list(
         '_,
         (
             Entity,
-            Option<&Handle<SWFColorMaterial>>,
+            Option<&Handle<SwfColorMaterial>>,
             Option<&Handle<GradientMaterial>>,
             Option<&Handle<BitmapMaterial>>,
-            &mut SWFShapeMesh,
+            &mut SwfShapeMesh,
         ),
     >,
     shape_mark_entities: &mut ShapeMarkEntities,
@@ -162,7 +163,7 @@ pub fn handler_render_list(
             match display_object {
                 DisplayObject::Graphic(graphic) => {
                     let current_transform = graphic.base().transform();
-                    let swf_transform: SWFTransform = RuffleTransform {
+                    let swf_transform: SwfTransform = RuffleTransform {
                         matrix: parent_clip_transform.matrix * current_transform.matrix,
                         color_transform: parent_clip_transform.color_transform
                             * current_transform.color_transform,
@@ -191,152 +192,91 @@ pub fn handler_render_list(
                                     .iter_mut()
                                     .find(|(entity, _, _, _, _)| *entity == existing_entity);
                                 match shape.draw_type.clone() {
-                                    ShapeDrawType::Color(mut swf_color_material) => {
-                                        // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质
-                                        if let Some(exists_material) = exists_material {
-                                            let color_material =
-                                                exists_material.1.expect("未找到颜色填充材质");
-                                            if let Some(swf_color_material) =
-                                                color_materials.get_mut(color_material)
-                                            {
-                                                swf_color_material.transform =
-                                                    swf_transform.clone();
-                                                let mut swf_shape_mesh = exists_material.4;
-                                                swf_shape_mesh.transform =
-                                                    swf_transform.world_transform;
-                                            }
-                                        } else {
-                                            swf_color_material.transform = swf_transform.clone();
-                                            let swf_shape_mesh = SWFShapeMesh {
-                                                transform: swf_transform.world_transform,
-                                            };
-                                            commands.entity(existing_entity).insert((
-                                                color_materials.add(swf_color_material),
-                                                swf_shape_mesh,
-                                            ));
-                                        }
+                                    ShapeDrawType::Color(swf_color_material) => {
+                                        let (handle, swf_shape_mesh) = match exists_material {
+                                            Some(exists) => (exists.1, Some(exists.4)),
+                                            None => (None, None),
+                                        };
+                                        update_swf_material(
+                                            commands,
+                                            existing_entity,
+                                            (handle, swf_shape_mesh),
+                                            swf_color_material,
+                                            color_materials,
+                                            swf_transform.clone(),
+                                        );
                                     }
-                                    ShapeDrawType::Gradient(mut swf_gradient_material) => {
-                                        // 此处是否应该从handle直接获取，而不应该使用exists_material
-                                        if let Some(exists_material) = exists_material {
-                                            let gradient_material =
-                                                exists_material.2.expect("未找到渐变色填充材质");
-                                            if let Some(swf_gradient_material) =
-                                                gradient_materials.get_mut(gradient_material)
-                                            {
-                                                swf_gradient_material.transform =
-                                                    swf_transform.clone();
-                                                let mut swf_shape_mesh = exists_material.4;
-                                                swf_shape_mesh.transform =
-                                                    swf_transform.world_transform;
-                                            }
-                                        } else {
-                                            swf_gradient_material.transform = swf_transform.clone();
-                                            let swf_shape_mesh = SWFShapeMesh {
-                                                transform: swf_transform.world_transform,
-                                            };
-                                            commands.entity(existing_entity).insert(swf_shape_mesh);
-                                        }
+                                    ShapeDrawType::Gradient(swf_gradient_material) => {
+                                        let (handle, swf_shape_mesh) = match exists_material {
+                                            Some(exists) => (exists.2, Some(exists.4)),
+                                            None => (None, None),
+                                        };
+                                        update_swf_material(
+                                            commands,
+                                            existing_entity,
+                                            (handle, swf_shape_mesh),
+                                            swf_gradient_material,
+                                            gradient_materials,
+                                            swf_transform.clone(),
+                                        );
                                     }
-                                    ShapeDrawType::Bitmap(mut bitmap_material) => {
-                                        if let Some(exists_material) = exists_material {
-                                            let bitmap_material =
-                                                exists_material.3.expect("未找到渐变色填充材质");
-                                            if let Some(swf_bitmap_material) =
-                                                bitmap_materials.get_mut(bitmap_material)
-                                            {
-                                                swf_bitmap_material.transform =
-                                                    swf_transform.clone();
-                                                let mut swf_shape_mesh = exists_material.4;
-                                                swf_shape_mesh.transform =
-                                                    swf_transform.world_transform;
-                                            }
-                                        } else {
-                                            bitmap_material.transform = swf_transform.clone();
-                                            let swf_shape_mesh = SWFShapeMesh {
-                                                transform: swf_transform.world_transform,
-                                            };
-                                            commands.entity(existing_entity).insert((
-                                                bitmap_materials.add(bitmap_material),
-                                                swf_shape_mesh,
-                                            ));
-                                        }
+                                    ShapeDrawType::Bitmap(swf_bitmap_material) => {
+                                        let (handle, swf_shape_mesh) = match exists_material {
+                                            Some(exists) => (exists.3, Some(exists.4)),
+                                            None => (None, None),
+                                        };
+                                        update_swf_material(
+                                            commands,
+                                            existing_entity,
+                                            (handle, swf_shape_mesh),
+                                            swf_bitmap_material,
+                                            bitmap_materials,
+                                            swf_transform.clone(),
+                                        );
                                     }
                                 }
                             } else {
                                 let transform =
                                     Transform::from_translation(Vec3::new(0.0, 0.0, *z_index));
-                                match &mut shape.draw_type {
+                                match &shape.draw_type {
                                     ShapeDrawType::Color(swf_color_material) => {
-                                        swf_color_material.transform = swf_transform.clone().into();
-                                        let aabb_transform =
-                                            swf_color_material.transform.world_transform;
-                                        commands.entity(parent_entity).with_children(|parent| {
-                                            let entity = parent
-                                                .spawn((
-                                                    MaterialMesh2dBundle {
-                                                        mesh: shape.mesh.clone().into(),
-                                                        material: color_materials
-                                                            .add(swf_color_material.clone()),
-                                                        transform,
-                                                        ..Default::default()
-                                                    },
-                                                    SWFShapeMesh {
-                                                        transform: aabb_transform,
-                                                    },
-                                                ))
-                                                .id();
-                                            shape_mark_entities
-                                                .add_entities_pool(shape_mark.clone(), entity);
-                                        });
+                                        spawn_mesh(
+                                            commands,
+                                            swf_color_material.clone(),
+                                            color_materials,
+                                            shape_mark_entities,
+                                            swf_transform.clone(),
+                                            parent_entity,
+                                            transform,
+                                            shape,
+                                            shape_mark.clone(),
+                                        );
                                     }
                                     ShapeDrawType::Gradient(gradient_material) => {
-                                        gradient_material.transform = swf_transform.clone().into();
-                                        let aabb_transform =
-                                            gradient_material.transform.world_transform;
-
-                                        commands.entity(parent_entity).with_children(|parent| {
-                                            let entity = parent
-                                                .spawn((
-                                                    MaterialMesh2dBundle {
-                                                        mesh: shape.mesh.clone().into(),
-                                                        material: gradient_materials
-                                                            .add(gradient_material.clone()),
-                                                        transform,
-                                                        ..Default::default()
-                                                    },
-                                                    SWFShapeMesh {
-                                                        transform: aabb_transform,
-                                                    },
-                                                ))
-                                                .id();
-                                            shape_mark_entities
-                                                .add_entities_pool(shape_mark.clone(), entity);
-                                        });
+                                        spawn_mesh(
+                                            commands,
+                                            gradient_material.clone(),
+                                            gradient_materials,
+                                            shape_mark_entities,
+                                            swf_transform.clone(),
+                                            parent_entity,
+                                            transform,
+                                            shape,
+                                            shape_mark.clone(),
+                                        );
                                     }
                                     ShapeDrawType::Bitmap(bitmap_material) => {
-                                        let mut bitmap_material = bitmap_material.clone();
-                                        bitmap_material.transform = swf_transform.clone().into();
-                                        let aabb_transform =
-                                            bitmap_material.transform.world_transform;
-                                        commands.entity(parent_entity).with_children(|parent| {
-                                            let entity = parent
-                                                .spawn((
-                                                    MaterialMesh2dBundle {
-                                                        mesh: shape.mesh.clone().into(),
-                                                        material: bitmap_materials
-                                                            .add(bitmap_material),
-                                                        transform,
-                                                        ..Default::default()
-                                                    },
-                                                    SWFShapeMesh {
-                                                        transform: aabb_transform,
-                                                    },
-                                                ))
-                                                .id();
-                                            shape_mark_entities
-                                                .add_entities_pool(shape_mark.clone(), entity);
-                                        });
+                                        spawn_mesh(
+                                            commands,
+                                            bitmap_material.clone(),
+                                            bitmap_materials,
+                                            shape_mark_entities,
+                                            swf_transform.clone(),
+                                            parent_entity,
+                                            transform,
+                                            shape,
+                                            shape_mark.clone(),
+                                        );
                                     }
                                 }
                             }
@@ -375,10 +315,73 @@ pub fn handler_render_list(
     }
 }
 
+#[inline]
+fn update_swf_material<T: SwfMaterial>(
+    commands: &mut Commands,
+    existing_entity: Entity,
+    exists_material: (
+        Option<&Handle<T>>,
+        Option<bevy::prelude::Mut<'_, SwfShapeMesh>>,
+    ),
+    mut swf_material: T,
+    swf_materials: &mut ResMut<Assets<T>>,
+    swf_transform: SwfTransform,
+) {
+    // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质。
+    if let Some(handle) = exists_material.0 {
+        if let Some(swf_material) = swf_materials.get_mut(handle) {
+            let mut swf_shape_mesh = exists_material.1.unwrap();
+            swf_shape_mesh.transform = swf_transform.world_transform;
+            swf_material.update_swf_material(swf_transform);
+        }
+    } else {
+        warn!("复用失败");
+        let swf_shape_mesh = SwfShapeMesh {
+            transform: swf_transform.world_transform,
+        };
+        swf_material.update_swf_material(swf_transform);
+        commands
+            .entity(existing_entity)
+            .insert((swf_materials.add(swf_material), swf_shape_mesh));
+    }
+}
+
+#[inline]
+fn spawn_mesh<T: SwfMaterial>(
+    commands: &mut Commands,
+    mut swf_material: T,
+    swf_materials: &mut ResMut<Assets<T>>,
+    shape_mark_entities: &mut ShapeMarkEntities,
+    swf_transform: SwfTransform,
+    parent_entity: Entity,
+    transform: Transform,
+    shape: &ShapeMesh,
+    shape_mark: ShapeMark,
+) {
+    swf_material.update_swf_material(swf_transform);
+    let aabb_transform = swf_material.world_transform();
+    commands.entity(parent_entity).with_children(|parent| {
+        let entity = parent
+            .spawn((
+                MaterialMesh2dBundle {
+                    mesh: shape.mesh.clone().into(),
+                    material: swf_materials.add(swf_material),
+                    transform,
+                    ..Default::default()
+                },
+                SwfShapeMesh {
+                    transform: aabb_transform,
+                },
+            ))
+            .id();
+        shape_mark_entities.add_entities_pool(shape_mark, entity);
+    });
+}
+
 pub fn calculate_shape_bounds(
     mut commands: Commands,
     meshes: Res<Assets<Mesh>>,
-    meshes_without_aabb: Query<(Entity, &Mesh2dHandle, &SWFShapeMesh), Without<NoFrustumCulling>>,
+    meshes_without_aabb: Query<(Entity, &Mesh2dHandle, &SwfShapeMesh), Without<NoFrustumCulling>>,
 ) {
     meshes_without_aabb
         .iter()

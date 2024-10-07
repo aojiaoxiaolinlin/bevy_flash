@@ -34,7 +34,7 @@ fn main() {
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
-        swf_handle: assert_server.load("spirit2724src.swf"),
+        swf_handle: assert_server.load("spirit2590src.swf"),
         swf: Swf {
             name: Some(String::from("_mc")),
             ..Default::default()

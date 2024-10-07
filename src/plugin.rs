@@ -1,7 +1,7 @@
 use crate::assets::{SwfLoader, SwfMovie};
 use crate::bundle::{Swf, SwfState};
 use crate::render::material::{
-    BitmapMaterial, GradientMaterial, GradientUniforms, SWFColorMaterial,
+    BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial,
 };
 use crate::render::tessellator::ShapeTessellator;
 use crate::render::FlashRenderPlugin;
@@ -77,7 +77,7 @@ fn enter_frame(
 
 #[derive(Clone)]
 pub enum ShapeDrawType {
-    Color(SWFColorMaterial),
+    Color(SwfColorMaterial),
     Gradient(GradientMaterial),
     Bitmap(BitmapMaterial),
 }
@@ -226,7 +226,7 @@ fn pre_parse(
 
                                             graphic.add_shape_mesh(ShapeMesh {
                                                 mesh: meshes.add(mesh),
-                                                draw_type: ShapeDrawType::Color(SWFColorMaterial {
+                                                draw_type: ShapeDrawType::Color(SwfColorMaterial {
                                                     ..Default::default()
                                                 }),
                                             });

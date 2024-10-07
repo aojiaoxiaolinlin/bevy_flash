@@ -6,7 +6,7 @@ struct Gradient {
     shape: i32,
     repeat: i32,
 }
-struct SWFTransform {
+struct SwfTransform {
     world_matrix: mat4x4<f32>,
     mult_color: vec4<f32>,
     add_color: vec4<f32>,
@@ -17,7 +17,7 @@ struct SWFTransform {
 @group(2) @binding(1) var texture: texture_2d<f32>;
 @group(2) @binding(2) var texture_sampler: sampler;
 @group(2) @binding(3) var<uniform> texture_transform: mat4x4<f32>;
-@group(2) @binding(4) var<uniform> swf_transform: SWFTransform;
+@group(2) @binding(4) var<uniform> swf_transform: SwfTransform;
 /// 暂时定为固定值
 const view_matrix: mat4x4<f32> = mat4x4<f32>(
     vec4<f32>(1.0, 0.0, 0.0, 0.0),

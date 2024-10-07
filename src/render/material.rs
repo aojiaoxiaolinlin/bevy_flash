@@ -16,6 +16,11 @@ use super::{
     SWF_COLOR_MATERIAL_SHADER_HANDLE,
 };
 
+pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {
+    fn update_swf_material(&mut self, swf_transform: SwfTransform);
+    fn world_transform(&self) -> Mat4;
+}
+
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 pub struct GradientMaterial {
     #[uniform(0)]
@@ -26,7 +31,7 @@ pub struct GradientMaterial {
     #[uniform(3)]
     pub texture_transform: Mat4,
     #[uniform(4)]
-    pub transform: SWFTransform,
+    pub transform: SwfTransform,
 }
 
 impl Material2d for GradientMaterial {
@@ -38,6 +43,14 @@ impl Material2d for GradientMaterial {
     }
 }
 
+impl SwfMaterial for GradientMaterial {
+    fn update_swf_material(&mut self, swf_transform: SwfTransform) {
+        self.transform = swf_transform
+    }
+    fn world_transform(&self) -> Mat4 {
+        self.transform.world_transform
+    }
+}
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct GradientUniforms {
     pub focal_point: f32,
@@ -65,17 +78,25 @@ impl From<Gradient> for GradientUniforms {
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
-pub struct SWFColorMaterial {
+pub struct SwfColorMaterial {
     #[uniform(0)]
-    pub transform: SWFTransform,
+    pub transform: SwfTransform,
 }
 
-impl Material2d for SWFColorMaterial {
+impl Material2d for SwfColorMaterial {
     fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
         SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
     }
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
         SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
+    }
+}
+impl SwfMaterial for SwfColorMaterial {
+    fn update_swf_material(&mut self, swf_transform: SwfTransform) {
+        self.transform = swf_transform
+    }
+    fn world_transform(&self) -> Mat4 {
+        self.transform.world_transform
     }
 }
 
@@ -87,7 +108,7 @@ pub struct BitmapMaterial {
     #[uniform(2)]
     pub texture_transform: Mat4,
     #[uniform(3)]
-    pub transform: SWFTransform,
+    pub transform: SwfTransform,
 }
 
 impl Material2d for BitmapMaterial {
@@ -99,18 +120,27 @@ impl Material2d for BitmapMaterial {
     }
 }
 
+impl SwfMaterial for BitmapMaterial {
+    fn update_swf_material(&mut self, swf_transform: SwfTransform) {
+        self.transform = swf_transform
+    }
+    fn world_transform(&self) -> Mat4 {
+        self.transform.world_transform
+    }
+}
+
 #[derive(Debug, Clone, Default, ShaderType)]
-pub struct SWFTransform {
+pub struct SwfTransform {
     pub world_transform: Mat4,
     mult_color: Vec4,
     add_color: Vec4,
 }
 
-impl From<RuffleTransform> for SWFTransform {
+impl From<RuffleTransform> for SwfTransform {
     fn from(transform: RuffleTransform) -> Self {
         let matrix = transform.matrix;
         let color_transform = transform.color_transform;
-        SWFTransform {
+        SwfTransform {
             world_transform: Mat4::from_cols_array_2d(&[
                 [matrix.a, matrix.b, 0.0, 0.0],
                 [matrix.c, matrix.d, 0.0, 0.0],
