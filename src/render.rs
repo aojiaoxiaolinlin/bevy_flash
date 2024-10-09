@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use bevy::{
     app::{App, Plugin, PostUpdate, Update},
     asset::{load_internal_asset, Assets, Handle},
+    core_pipeline::core_2d::graph::{Core2d, Node2d},
     ecs::system::lifetimeless::SRes,
     math::{Mat4, Vec3},
     prelude::{
@@ -10,13 +11,17 @@ use bevy::{
         ResMut, Shader, SpatialBundle, Transform, Visibility, With, Without,
     },
     render::{
+        graph::CameraDriverLabel,
+        render_graph::RenderGraphApp,
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult},
         renderer::RenderDevice,
         view::{ExtractedWindows, NoFrustumCulling, VisibilitySystems},
+        RenderApp,
     },
     sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
 };
 use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
+use node::{DefineShapeLabel, DefineShapeNode};
 use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::{
@@ -66,6 +71,10 @@ impl Plugin for FlashRenderPlugin {
                 PostUpdate,
                 calculate_shape_bounds.in_set(VisibilitySystems::CalculateBounds),
             );
+
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
     }
 }
 
