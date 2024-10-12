@@ -6,17 +6,20 @@ use bevy::{
     input::ButtonInput,
     math::Vec3,
     prelude::{
-        Camera2dBundle, Commands, Component, KeyCode, Msaa, Query, Res, ResMut, SpatialBundle,
-        TextBundle, Transform, With,
+        Camera2dBundle, Commands, Component, Entity, EventReader, KeyCode, Msaa, Query, Res,
+        ResMut, SpatialBundle, TextBundle, Transform, With,
     },
     text::{Text, TextSection, TextStyle},
     DefaultPlugins,
 };
-use bevy_flash::swf::display_object::{movie_clip::MovieClip, DisplayObject, TDisplayObject};
+use bevy_flash::swf::display_object::{
+    movie_clip::{MovieClip, NextFrame},
+    DisplayObject, TDisplayObject,
+};
 use bevy_flash::{
     assets::SwfMovie,
     bundle::{Swf, SwfBundle},
-    plugin::FlashPlugin,
+    plugin::{FlashPlugin, SwfInitEvent},
 };
 
 #[derive(Component)]
@@ -76,14 +79,45 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
 }
 
 fn control(
-    mut query: Query<(&mut Swf, &Handle<SwfMovie>)>,
+    mut query: Query<(&mut Swf, &Handle<SwfMovie>, Entity)>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut swf_init_event: EventReader<SwfInitEvent>,
 ) {
-    let mut control = |query: &mut Query<'_, '_, (&mut Swf, &Handle<SwfMovie>)>, frame: u16| {
-        query.iter_mut().for_each(|(mut swf, handle_swf_movie)| {
+    for swf_init_event in swf_init_event.read() {
+        query
+            .iter_mut()
+            .for_each(|(mut swf, handle_swf_movie, entity)| {
+                if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
+                    if swf_init_event.0 == entity {
+                        swf.root_movie_clip
+                            .goto_frame(&mut swf_movie.movie_library, 0, true);
+                    }
+                }
+            });
+    }
+
+    query.iter_mut().for_each(|(mut swf, handle_swf_movie, _)| {
+        if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
+            if swf.is_target_movie_clip() && swf.root_movie_clip.name() == swf.name.as_deref() {
+                if let Some(first_child_movie_clip) = swf.root_movie_clip.first_child_movie_clip() {
+                    if matches!(
+                        first_child_movie_clip.determine_next_frame(),
+                        NextFrame::First
+                    ) {
+                        swf.root_movie_clip
+                            .goto_frame(&mut swf_movie.movie_library, 20, true);
+                    }
+                }
+            }
+        }
+    });
+
+    let mut control = |query: &mut Query<'_, '_, (&mut Swf, &Handle<SwfMovie>, Entity)>,
+                       frame: u16| {
+        query.iter_mut().for_each(|(mut swf, handle_swf_movie, _)| {
             if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
-                if swf.is_target_movie_clip() && swf.root_movie_clip.name() == Some("_mc") {
+                if swf.is_target_movie_clip() && swf.root_movie_clip.name() == swf.name.as_deref() {
                     swf.root_movie_clip
                         .goto_frame(&mut swf_movie.movie_library, frame, true);
                 }

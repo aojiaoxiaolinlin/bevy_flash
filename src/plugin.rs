@@ -14,7 +14,9 @@ use bevy::asset::{AssetEvent, Handle};
 use bevy::color::{Color, ColorToComponents};
 use bevy::log::error;
 use bevy::math::{Mat3, Mat4};
-use bevy::prelude::{EventReader, Image, IntoSystemConfigs, Mesh, Query, Resource};
+use bevy::prelude::{
+    Entity, Event, EventReader, EventWriter, Image, IntoSystemConfigs, Mesh, Query, Resource,
+};
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::time::{Time, Timer, TimerMode};
@@ -39,6 +41,7 @@ pub struct FlashPlugin;
 impl Plugin for FlashPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FlashRenderPlugin)
+            .add_event::<SwfInitEvent>()
             .init_asset::<SwfMovie>()
             .init_asset_loader::<SwfLoader>()
             .insert_resource(PlayerTimer(Timer::from_seconds(
@@ -86,13 +89,16 @@ pub struct ShapeMesh {
     pub mesh: Handle<Mesh>,
     pub draw_type: ShapeDrawType,
 }
+#[derive(Event)]
+pub struct SwfInitEvent(pub Entity);
 
 fn pre_parse(
-    mut query: Query<(&mut Swf, &Handle<SwfMovie>)>,
+    mut query: Query<(&mut Swf, &Handle<SwfMovie>, Entity)>,
     mut swf_events: EventReader<AssetEvent<SwfMovie>>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
+    mut swf_init_events: EventWriter<SwfInitEvent>,
 ) {
     for event in swf_events.read() {
         match event {
@@ -334,11 +340,17 @@ fn pre_parse(
                         },
                     );
                     swf_movie.movie_library = library;
-                    if let Some((mut swf, _)) =
-                        query.iter_mut().find(|(_, handle)| handle.id() == *id)
+                    if let Some((mut swf, _, entity)) =
+                        query.iter_mut().find(|(_, handle, _)| handle.id() == *id)
                     {
                         swf.root_movie_clip = root_movie_clip.clone();
                         swf.status = SwfState::Ready;
+                        for _ in 0..5 {
+                            // 初始化影片剪辑
+                            swf.root_movie_clip
+                                .enter_frame(&mut swf_movie.movie_library);
+                        }
+                        swf_init_events.send(SwfInitEvent(entity));
                     }
                 }
             }

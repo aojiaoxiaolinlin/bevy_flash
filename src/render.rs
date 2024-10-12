@@ -22,7 +22,7 @@ use ruffle_render::transform::Transform as RuffleTransform;
 use crate::{
     bundle::{ShapeMark, ShapeMarkEntities, Swf, SwfGraphicComponent, SwfState},
     plugin::{ShapeDrawType, ShapeMesh},
-    swf::display_object::{DisplayObject, TDisplayObject},
+    swf::display_object::{BlendType, DisplayObject, TDisplayObject, TrivialBlend},
 };
 
 pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
@@ -118,6 +118,7 @@ pub fn render_swf(
                     display_objects,
                     &parent_clip_transform,
                     &mut z_index,
+                    BlendType::Trivial(TrivialBlend::Normal),
                 );
 
                 shape_mark_entities
@@ -167,6 +168,7 @@ pub fn handler_render_list(
     display_objects: &mut BTreeMap<u128, DisplayObject>,
     parent_clip_transform: &RuffleTransform,
     z_index: &mut f32,
+    blend_type: BlendType,
 ) {
     for display_object in render_list.iter() {
         if let Some(display_object) = display_objects.get_mut(display_object) {
@@ -300,8 +302,8 @@ pub fn handler_render_list(
                         color_transform: parent_clip_transform.color_transform
                             * movie_clip.base().transform().color_transform,
                     };
-                    // dbg!(movie_clip.character_id(), movie_clip.depth());
-                    // dbg!(movie_clip.blend_mode());
+                    let blend_type = BlendType::from(movie_clip.blend_mode());
+
                     handler_render_list(
                         parent_entity,
                         graphic_children_entities,
@@ -315,6 +317,7 @@ pub fn handler_render_list(
                         movie_clip.raw_container_mut().display_objects_mut(),
                         &current_transform,
                         z_index,
+                        blend_type,
                     );
                 }
             }
