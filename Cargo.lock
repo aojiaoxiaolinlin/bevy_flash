@@ -570,6 +570,7 @@ dependencies = [
  "bevy",
  "bitflags 2.6.0",
  "copyless",
+ "enum-map",
  "indexmap",
  "lyon_tessellation",
  "ruffle_macros",
@@ -577,6 +578,7 @@ dependencies = [
  "ruffle_render_wgpu",
  "smallvec",
  "swf",
+ "swf_macro",
  "thiserror",
  "uuid",
  "wgpu",
@@ -3741,6 +3743,14 @@ dependencies = [
  "num-derive",
  "num-traits",
  "simple_asn1",
+]
+
+[[package]]
+name = "swf_macro"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

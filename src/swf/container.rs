@@ -42,6 +42,12 @@ impl ChildContainer {
         Arc::make_mut(&mut self.render_list)
     }
 
+    pub fn first_child(&self) -> Option<&DisplayObject> {
+        self.render_list
+            .first()
+            .and_then(|id| self.display_objects.get(id))
+    }
+
     pub fn child_by_depth(&mut self, depth: Depth) -> Option<&mut DisplayObject> {
         let display_object_id = self.depth_list.get(&depth);
         if let Some(display_object_id) = display_object_id {
