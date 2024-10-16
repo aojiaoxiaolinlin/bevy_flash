@@ -34,14 +34,14 @@ fn main() {
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
-        swf_handle: assert_server.load("spirit2590src.swf"),
+        swf_handle: assert_server.load("spirit2159src.swf"),
         swf: Swf {
             name: Some(String::from("_mc")),
             ..Default::default()
         },
         spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(-3000.0, 900.0, 0.0))
-                .with_scale(Vec3::splat(4.0)),
+            transform: Transform::from_translation(Vec3::new(-1000.0, 300.0, 0.0))
+                .with_scale(Vec3::splat(2.0)),
             ..Default::default()
         },
         ..Default::default()
