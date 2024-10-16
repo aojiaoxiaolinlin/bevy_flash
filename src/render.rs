@@ -3,7 +3,6 @@ use std::{collections::BTreeMap, sync::Arc};
 use bevy::{
     app::{App, Plugin, PostUpdate, Update},
     asset::{load_internal_asset, Assets, Handle},
-    core_pipeline::core_2d::graph::{Core2d, Node2d},
     ecs::system::lifetimeless::SRes,
     math::{Mat4, Vec3},
     prelude::{
@@ -11,8 +10,6 @@ use bevy::{
         ResMut, Shader, SpatialBundle, Transform, Visibility, With, Without,
     },
     render::{
-        graph::CameraDriverLabel,
-        render_graph::RenderGraphApp,
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult},
         renderer::RenderDevice,
         view::{ExtractedWindows, NoFrustumCulling, VisibilitySystems},
@@ -20,14 +17,14 @@ use bevy::{
     },
     sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
 };
+use blend_pipeline::{BlendType, TrivialBlend};
 use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
-use node::{DefineShapeLabel, DefineShapeNode};
 use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::{
     bundle::{ShapeMark, ShapeMarkEntities, Swf, SwfGraphicComponent, SwfState},
     plugin::{ShapeDrawType, ShapeMesh},
-    swf::display_object::{BlendType, DisplayObject, TDisplayObject, TrivialBlend},
+    swf::display_object::{DisplayObject, TDisplayObject},
 };
 
 pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
@@ -37,6 +34,7 @@ pub const GRADIENT_MATERIAL_SHADER_HANDLE: Handle<Shader> =
 pub const BITMAP_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     Handle::weak_from_u128(1209708179628049255077713250256144531);
 
+pub mod blend_pipeline;
 pub(crate) mod material;
 pub(crate) mod node;
 pub(crate) mod tessellator;

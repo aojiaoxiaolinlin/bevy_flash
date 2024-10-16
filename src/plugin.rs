@@ -59,14 +59,6 @@ fn enter_frame(
     time: Res<Time>,
     mut timer: ResMut<PlayerTimer>,
 ) {
-    query.iter_mut().for_each(|(mut swf, _)| {
-        let target = swf.name.clone().unwrap_or("root".to_string());
-        if target != swf.root_movie_clip.name().unwrap_or("root") {
-            if let Some(target_movie_clip) = swf.root_movie_clip.query_movie_clip(&target) {
-                swf.root_movie_clip = target_movie_clip.clone();
-            }
-        }
-    });
     if timer.0.tick(time.delta()).just_finished() {
         for (mut swf, swf_handle) in query.iter_mut() {
             if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
@@ -345,11 +337,6 @@ fn pre_parse(
                     {
                         swf.root_movie_clip = root_movie_clip.clone();
                         swf.status = SwfState::Ready;
-                        for _ in 0..5 {
-                            // 初始化影片剪辑
-                            swf.root_movie_clip
-                                .enter_frame(&mut swf_movie.movie_library);
-                        }
                         swf_init_events.send(SwfInitEvent(entity));
                     }
                 }
