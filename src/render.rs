@@ -89,6 +89,7 @@ pub fn render_swf(
     mut query: Query<(&mut Swf, Entity, &mut ShapeMarkEntities)>,
     mut entities_material_query: Query<(
         Entity,
+        &mut Transform,
         Option<&Handle<SwfColorMaterial>>,
         Option<&Handle<GradientMaterial>>,
         Option<&Handle<BitmapMaterial>>,
@@ -164,6 +165,7 @@ pub fn handler_render_list(
         '_,
         (
             Entity,
+            &mut Transform,
             Option<&Handle<SwfColorMaterial>>,
             Option<&Handle<GradientMaterial>>,
             Option<&Handle<BitmapMaterial>>,
@@ -201,7 +203,6 @@ pub fn handler_render_list(
                     {
                         shape_mark.graphic_ref_count += 1;
                     }
-
                     *z_index += graphic.depth() as f32 / 100.0;
                     if let Some(&existing_entity) = shape_mark_entities.entity(&shape_mark) {
                         // 存在缓存实体
@@ -212,6 +213,7 @@ pub fn handler_render_list(
                             graphic_children.iter().for_each(|child| {
                                 for (
                                     material_entity,
+                                    mut transform,
                                     swf_color_material_handle,
                                     swf_gradient_material_handle,
                                     swf_bitmap_material_handle,
@@ -220,6 +222,7 @@ pub fn handler_render_list(
                                 {
                                     if material_entity == *child {
                                         *z_index += 0.001;
+                                        transform.translation.z = *z_index;
                                         if let Some(handle) = swf_color_material_handle {
                                             update_swf_material(
                                                 (handle, swf_shape_mesh.as_mut()),
