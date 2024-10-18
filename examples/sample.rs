@@ -37,7 +37,7 @@ fn main() {
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(SwfBundle {
-        swf_handle: assert_server.load("spirit2159src_new.swf"),
+        swf_handle: assert_server.load("spirit2724src.swf"),
         swf: Swf {
             name: Some(String::from("_mc")),
             ..Default::default()
@@ -88,10 +88,12 @@ fn control(
         query
             .iter_mut()
             .for_each(|(mut swf, handle_swf_movie, entity)| {
+                let name = swf.name.clone();
+                swf.root_movie_clip.set_name(name);
                 if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
                     if swf_init_event.0 == entity {
                         swf.root_movie_clip
-                            .goto_frame(&mut swf_movie.movie_library, 60, true);
+                            .goto_frame(&mut swf_movie.movie_library, 0, true);
                     }
                 }
             });
@@ -99,17 +101,17 @@ fn control(
 
     query.iter_mut().for_each(|(mut swf, handle_swf_movie, _)| {
         if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
-            // if swf.is_target_movie_clip() && swf.root_movie_clip.name() == swf.name.as_deref() {
-            //     if let Some(first_child_movie_clip) = swf.root_movie_clip.first_child_movie_clip() {
-            //         if matches!(
-            //             first_child_movie_clip.determine_next_frame(),
-            //             NextFrame::First
-            //         ) {
-            //             swf.root_movie_clip
-            //                 .goto_frame(&mut swf_movie.movie_library, 20, true);
-            //         }
-            //     }
-            // }
+            if swf.is_target_movie_clip() && swf.root_movie_clip.name() == swf.name.as_deref() {
+                if let Some(first_child_movie_clip) = swf.root_movie_clip.first_child_movie_clip() {
+                    if matches!(
+                        first_child_movie_clip.determine_next_frame(),
+                        NextFrame::First
+                    ) {
+                        swf.root_movie_clip
+                            .goto_frame(&mut swf_movie.movie_library, 20, true);
+                    }
+                }
+            }
         }
     });
 
