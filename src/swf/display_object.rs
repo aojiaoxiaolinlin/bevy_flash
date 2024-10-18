@@ -4,6 +4,7 @@ pub mod movie_clip;
 use std::sync::Arc;
 
 use bitflags::bitflags;
+use enum_map::Enum;
 use graphic::Graphic;
 use morph_shape::MorphShape;
 use movie_clip::MovieClip;
@@ -419,6 +420,10 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
     }
     fn name(&self) -> Option<&str> {
         self.base().name()
+    }
+
+    fn blend_mode(&self) -> ExtendedBlendMode {
+        self.base().blend_mode()
     }
 
     fn set_name(&mut self, name: Option<String>) {

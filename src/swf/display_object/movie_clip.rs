@@ -23,7 +23,7 @@ type FrameNumber = u16;
 type SwfVersion = u8;
 /// Indication of what frame `run_frame` should jump to next.
 #[derive(PartialEq, Eq)]
-enum NextFrame {
+pub enum NextFrame {
     /// Construct and run the next frame in the clip.
     Next,
 
@@ -143,6 +143,17 @@ impl MovieClip {
 
     fn child_by_depth(&mut self, depth: Depth) -> Option<&mut DisplayObject> {
         self.container.child_by_depth(depth)
+    }
+
+    pub fn first_child_movie_clip(&mut self) -> Option<&MovieClip> {
+        if let Some(child) = self.container.first_child() {
+            match child {
+                DisplayObject::MovieClip(mc) => Some(mc),
+                _ => None,
+            }
+        } else {
+            None
+        }
     }
 
     pub fn parse_swf(&mut self, library: &mut MovieLibrary) {
@@ -768,7 +779,7 @@ impl MovieClip {
         }
     }
 
-    fn determine_next_frame(&self) -> NextFrame {
+    pub fn determine_next_frame(&self) -> NextFrame {
         if self.current_frame < self.total_frames {
             NextFrame::Next
         } else if self.total_frames > 1 {

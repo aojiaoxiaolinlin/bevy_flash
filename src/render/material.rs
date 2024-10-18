@@ -10,6 +10,7 @@ use ruffle_render::{
     shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
 };
 use swf::GradientSpread;
+use swf_macro::SwfMaterial;
 
 use super::{
     BITMAP_MATERIAL_SHADER_HANDLE, GRADIENT_MATERIAL_SHADER_HANDLE,
@@ -21,7 +22,7 @@ pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {
     fn world_transform(&self) -> Mat4;
 }
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
 pub struct GradientMaterial {
     #[uniform(0)]
     pub gradient: GradientUniforms,
@@ -43,14 +44,6 @@ impl Material2d for GradientMaterial {
     }
 }
 
-impl SwfMaterial for GradientMaterial {
-    fn update_swf_material(&mut self, swf_transform: SwfTransform) {
-        self.transform = swf_transform
-    }
-    fn world_transform(&self) -> Mat4 {
-        self.transform.world_transform
-    }
-}
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct GradientUniforms {
     pub focal_point: f32,
@@ -77,7 +70,7 @@ impl From<Gradient> for GradientUniforms {
     }
 }
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
 pub struct SwfColorMaterial {
     #[uniform(0)]
     pub transform: SwfTransform,
@@ -91,16 +84,8 @@ impl Material2d for SwfColorMaterial {
         SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
     }
 }
-impl SwfMaterial for SwfColorMaterial {
-    fn update_swf_material(&mut self, swf_transform: SwfTransform) {
-        self.transform = swf_transform
-    }
-    fn world_transform(&self) -> Mat4 {
-        self.transform.world_transform
-    }
-}
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
 pub struct BitmapMaterial {
     #[texture(0)]
     #[sampler(1)]
@@ -117,15 +102,6 @@ impl Material2d for BitmapMaterial {
     }
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
         BITMAP_MATERIAL_SHADER_HANDLE.into()
-    }
-}
-
-impl SwfMaterial for BitmapMaterial {
-    fn update_swf_material(&mut self, swf_transform: SwfTransform) {
-        self.transform = swf_transform
-    }
-    fn world_transform(&self) -> Mat4 {
-        self.transform.world_transform
     }
 }
 

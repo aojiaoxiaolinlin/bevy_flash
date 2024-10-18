@@ -22,13 +22,12 @@ pub struct SwfBundle {
     pub shape_mark_entities: ShapeMarkEntities,
 }
 
-#[derive(Default, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ShapeMark {
-    // 用来记录父id和深度
-    pub parent_layer: (String, String),
+    // 记录shape被多次引用的情况
+    pub graphic_ref_count: u8,
     pub depth: Depth,
     pub id: CharacterId,
-    pub graphic_index: usize,
 }
 #[derive(Component, Default)]
 pub struct ShapeMarkEntities {
@@ -98,3 +97,6 @@ pub enum SwfState {
     Loading,
     Ready,
 }
+
+#[derive(Default, Component)]
+pub struct SwfGraphicComponent;
