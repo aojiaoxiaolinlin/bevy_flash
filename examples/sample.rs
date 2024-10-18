@@ -43,7 +43,7 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
             ..Default::default()
         },
         spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(-1000.0, 300.0, 0.0))
+            transform: Transform::from_translation(Vec3::new(-1200.0, 300.0, 0.0))
                 .with_scale(Vec3::splat(2.0)),
             ..Default::default()
         },
