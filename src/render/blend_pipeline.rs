@@ -4,9 +4,7 @@ use bevy::{
     asset::{AssetServer, Handle},
     prelude::{FromWorld, Resource, Shader, World},
     render::{
-        render_resource::{
-            BindGroupLayout, ShaderRef, SpecializedMeshPipeline, SpecializedRenderPipeline,
-        },
+        render_resource::{BindGroupLayout, ShaderRef},
         renderer::RenderDevice,
     },
     sprite::{Material2d, Mesh2dPipeline, Mesh2dPipelineKey},
@@ -36,6 +34,7 @@ pub enum ComplexBlend {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum BlendType {
     Trivial(TrivialBlend),
     Complex(ComplexBlend),
@@ -74,7 +73,7 @@ bitflags::bitflags! {
         const SCREEN = 1 << 3;
     }
 }
-
+#[allow(dead_code)]
 pub struct Mesh2dBlendPipeline {
     mesh2d_pipeline: Mesh2dPipeline,
 }

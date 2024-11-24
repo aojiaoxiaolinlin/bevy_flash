@@ -336,6 +336,7 @@ fn pre_parse(
                         query.iter_mut().find(|(_, handle, _)| handle.id() == *id)
                     {
                         swf.root_movie_clip = root_movie_clip.clone();
+                        swf.root_movie_clip.set_root(); // 设置为根节点
                         swf.status = SwfState::Ready;
                         swf_init_events.send(SwfInitEvent(entity));
                     }

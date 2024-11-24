@@ -4,10 +4,11 @@ use anyhow::anyhow;
 use bevy::log::{error, info};
 use bitflags::bitflags;
 
+use ruffle_render::matrix::Matrix;
 use smallvec::SmallVec;
 use swf::{
-    extensions::ReadSwfExt, read::Reader, CharacterId, Color, Depth, PlaceObjectAction, SwfStr,
-    TagCode,
+    extensions::ReadSwfExt, read::Reader, CharacterId, Color, ColorTransform, Depth,
+    PlaceObjectAction, SwfStr, TagCode,
 };
 
 use crate::swf::{
@@ -37,33 +38,13 @@ bitflags! {
     /// Boolean state flags used by `MovieClip`.
     #[derive(Clone, Copy)]
     struct MovieClipFlags: u8 {
-        /// Whether this `MovieClip` has run its initial frame.
-        const INITIALIZED             = 1 << 0;
-
         /// Whether this `MovieClip` is playing or stopped.
-        const PLAYING                 = 1 << 1;
+        const PLAYING                 = 1 << 0;
 
-        /// Whether this `MovieClip` has been played as a result of an AS3 command.
-        ///
-        /// The AS3 `isPlaying` property is broken and yields false until you first
-        /// call `play` to unbreak it. This flag tracks that bug.
-        const PROGRAMMATICALLY_PLAYED = 1 << 2;
-
-        /// Executing an AVM2 frame script.
-        ///
-        /// This causes any goto action to be queued and executed at the end of the script.
-        const EXECUTING_AVM2_FRAME_SCRIPT = 1 << 3;
-
-        /// Flag set when AVM2 loops to the next frame.
-        ///
-        /// Because AVM2 queues PlaceObject tags to run later, explicit gotos
-        /// that happen while those tags run should cancel the loop.
-        const LOOP_QUEUED = 1 << 4;
-
-        const RUNNING_CONSTRUCT_FRAME = 1 << 5;
+        const STOP                     = 1 << 1;
 
         /// Whether this `MovieClip` has been post-instantiated yet.
-        const POST_INSTANTIATED = 1 << 5;
+        const POST_INSTANTIATED        = 1 << 2;
     }
 }
 #[derive(Clone)]
@@ -457,6 +438,10 @@ impl MovieClip {
                 child.set_depth(depth);
                 child.set_place_frame(self.current_frame);
                 child.apply_place_object(&place_object, self.swf.version());
+                if self.is_root() {
+                    // 将初始位置设置为 (0, 0)
+                    child.set_matrix(Matrix::IDENTITY);
+                }
                 if let Some(name) = &place_object.name {
                     let name = name
                         .to_str_lossy(SwfStr::encoding_for_version(self.swf.version()))

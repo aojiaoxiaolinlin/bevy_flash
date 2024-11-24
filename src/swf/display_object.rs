@@ -1,12 +1,9 @@
 pub(crate) mod graphic;
-pub(crate) mod morph_shape;
 pub mod movie_clip;
 use std::sync::Arc;
 
 use bitflags::bitflags;
-use enum_map::Enum;
 use graphic::Graphic;
-use morph_shape::MorphShape;
 use movie_clip::MovieClip;
 use ruffle_macros::enum_trait_object;
 use ruffle_render::{
@@ -15,7 +12,6 @@ use ruffle_render::{
     blend::ExtendedBlendMode,
     filters::Filter,
     matrix::Matrix,
-    pixel_bender::PixelBenderShaderHandle,
     transform::Transform,
 };
 use swf::{CharacterId, Color, ColorTransform, Depth, Point, Rectangle, Twips};
@@ -26,60 +22,22 @@ bitflags! {
     /// Bit flags used by `DisplayObject`.
     #[derive(Clone, Copy)]
     struct DisplayObjectFlags: u16 {
-        /// Whether this object has been removed from the display list.
-        /// Necessary in AVM1 to throw away queued actions from removed movie clips.
-        const AVM1_REMOVED             = 1 << 0;
-
         /// If this object is visible (`_visible` property).
-        const VISIBLE                  = 1 << 1;
-
-        /// Whether the `_xscale`, `_yscale` and `_rotation` of the object have been calculated and cached.
-        const SCALE_ROTATION_CACHED    = 1 << 2;
-
-        /// Whether this object has been transformed by ActionScript.
-        /// When this flag is set, changes from SWF `PlaceObject` tags are ignored.
-        const TRANSFORMED_BY_SCRIPT    = 1 << 3;
-
-        /// Whether this object has been placed in a container by ActionScript 3.
-        /// When this flag is set, changes from SWF `RemoveObject` tags are ignored.
-        const PLACED_BY_SCRIPT         = 1 << 4;
-
-        /// Whether this object has been instantiated by a SWF tag.
-        /// When this flag is set, attempts to change the object's name from AVM2 throw an exception.
-        const INSTANTIATED_BY_TIMELINE = 1 << 5;
+        const VISIBLE                  = 1 << 0;
 
         /// Whether this object is a "root", the top-most display object of a loaded SWF or Bitmap.
         /// Used by `MovieClip.getBytesLoaded` in AVM1 and `DisplayObject.root` in AVM2.
-        const IS_ROOT                  = 1 << 6;
-
-        /// Whether this object has `_lockroot` set to true, in which case
-        /// it becomes the _root of itself and of any children
-        const LOCK_ROOT                = 1 << 7;
+        const IS_ROOT                  = 1 << 1;
 
         /// Whether this object will be cached to bitmap.
-        const CACHE_AS_BITMAP          = 1 << 8;
-
-        /// Whether this object has a scroll rectangle applied.
-        const HAS_SCROLL_RECT          = 1 << 9;
-
-        /// Whether this object has an explicit name.
-        const HAS_EXPLICIT_NAME        = 1 << 10;
-
-        /// Flag set when we should skip running our next 'enterFrame'
-        /// for ourself and our children.
-        /// This is set for objects constructed from ActionScript,
-        /// which are observed to lag behind objects placed by the timeline
-        /// (even if they are both placed in the same frame)
-        const SKIP_NEXT_ENTER_FRAME    = 1 << 11;
+        const CACHE_AS_BITMAP          = 1 << 2;
 
         /// If this object has already had `invalidate_cached_bitmap` called this frame
-        const CACHE_INVALIDATED        = 1 << 12;
-
-        /// If this AVM1 object is pending removal (will be removed on the next frame).
-        const AVM1_PENDING_REMOVAL     = 1 << 13;
+        const CACHE_INVALIDATED        = 1 << 3;
     }
 }
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct BitmapCache {
     /// The `Matrix.a` value that was last used with this cache
     matrix_a: f32,
@@ -106,6 +64,7 @@ pub struct BitmapCache {
     warned_for_oversize: bool,
 }
 
+#[allow(dead_code)]
 impl BitmapCache {
     /// Forcefully make this BitmapCache invalid and require regeneration.
     /// This should be used for changes that aren't automatically detected, such as children.
@@ -192,11 +151,8 @@ pub struct DisplayObjectBase {
     name: Option<String>,
     transform: Transform,
     blend_mode: ExtendedBlendMode,
-    blend_shader: Option<PixelBenderShaderHandle>,
-    masker: Option<Arc<DisplayObject>>,
     flags: DisplayObjectFlags,
-    scroll_rect: Option<Rectangle<Twips>>,
-    next_scroll_rect: Rectangle<Twips>,
+    #[allow(unused)]
     scaling_grid: Rectangle<Twips>,
     opaque_background: Option<Color>,
     filters: Vec<Filter>,
@@ -214,15 +170,11 @@ impl Default for DisplayObjectBase {
             name: None,
             transform: Default::default(),
             blend_mode: Default::default(),
-            blend_shader: None,
             opaque_background: Default::default(),
             flags: DisplayObjectFlags::VISIBLE,
             filters: Default::default(),
             cache: None,
-            scroll_rect: None,
-            next_scroll_rect: Default::default(),
             scaling_grid: Default::default(),
-            masker: None,
         }
     }
 }
@@ -235,17 +187,10 @@ impl DisplayObjectBase {
         self.blend_mode
     }
 
-    fn blend_shader(&self) -> Option<PixelBenderShaderHandle> {
-        self.blend_shader.clone()
-    }
-
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    fn masker(&self) -> Option<Arc<DisplayObject>> {
-        self.masker.clone()
-    }
     pub fn matrix(&self) -> &Matrix {
         &self.transform.matrix
     }
@@ -254,6 +199,7 @@ impl DisplayObjectBase {
         self.filters.clone()
     }
 
+    #[allow(unused)]
     fn clip_depth(&self) -> Depth {
         self.clip_depth
     }
@@ -266,8 +212,11 @@ impl DisplayObjectBase {
         self.name = name;
     }
 
-    fn set_transform(&mut self, transform: Transform) {
+    pub fn set_transform(&mut self, transform: Transform) {
         self.transform = transform;
+    }
+    pub fn set_root(&mut self) {
+        self.flags.set(DisplayObjectFlags::IS_ROOT, true);
     }
 
     fn set_depth(&mut self, depth: Depth) {
@@ -345,32 +294,19 @@ impl DisplayObjectBase {
         true
     }
 
-    fn clear_invalidate_flag(&mut self) {
+    pub fn clear_invalidate_flag(&mut self) {
         self.flags.remove(DisplayObjectFlags::CACHE_INVALIDATED);
-    }
-
-    fn has_scroll_rect(&self) -> bool {
-        self.flags.contains(DisplayObjectFlags::HAS_SCROLL_RECT)
     }
 
     fn set_clip_depth(&mut self, depth: Depth) {
         self.clip_depth = depth;
     }
 
-    pub fn should_skip_next_enter_frame(&self) -> bool {
-        self.flags
-            .contains(DisplayObjectFlags::SKIP_NEXT_ENTER_FRAME)
-    }
-
-    pub fn set_skip_next_enter_frame(&mut self, skip: bool) {
-        self.flags
-            .set(DisplayObjectFlags::SKIP_NEXT_ENTER_FRAME, skip);
-    }
-
     fn is_root(&self) -> bool {
         self.flags.contains(DisplayObjectFlags::IS_ROOT)
     }
 
+    #[allow(unused)]
     fn bitmap_cache_mut(&mut self) -> Option<&mut BitmapCache> {
         self.cache.as_mut()
     }
@@ -409,9 +345,7 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
     fn opaque_background(&self) -> Option<Color> {
         self.base().opaque_background
     }
-    fn scroll_rect(&self) -> Option<Rectangle<Twips>> {
-        self.base().scroll_rect.clone()
-    }
+
     fn allow_as_mask(&self) -> bool {
         true
     }
@@ -461,6 +395,9 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
     fn set_depth(&mut self, depth: Depth) {
         self.base_mut().set_depth(depth);
     }
+    fn set_root(&mut self) {
+        self.base_mut().set_root();
+    }
 
     fn invalidate_cached_bitmap(&mut self) {
         if self.base_mut().invalidate_cached_bitmap() {
@@ -484,9 +421,6 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
 
     fn replace_with(&mut self, _id: CharacterId, _library: &mut MovieLibrary) {}
 
-    fn as_morph_shape(&mut self) -> Option<MorphShape> {
-        None
-    }
     fn as_movie(&mut self) -> Option<MovieClip> {
         None
     }
@@ -500,11 +434,6 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
         }
         if let Some(color_transform) = &place_object.color_transform {
             self.set_color_transform(*color_transform);
-        }
-        if let Some(ratio) = place_object.ratio {
-            if let Some(mut morph_shape) = self.as_morph_shape() {
-                morph_shape.set_ratio(ratio);
-            }
         }
         if let Some(is_bitmap_cached) = place_object.is_bitmap_cached {
             self.set_bitmap_cached_preference(is_bitmap_cached);
