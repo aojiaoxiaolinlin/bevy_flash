@@ -1,6 +1,6 @@
 use bevy::{
     asset::Handle,
-    prelude::{Bundle, Component, Entity, SpatialBundle},
+    prelude::{Component, Entity, Transform, Visibility},
     utils::hashbrown::HashMap,
 };
 use swf::{CharacterId, Depth};
@@ -9,15 +9,13 @@ use crate::{
     assets::SwfMovie,
     swf::display_object::{movie_clip::MovieClip, TDisplayObject},
 };
-
-#[derive(Bundle, Default)]
+#[derive(Component, Default)]
+#[require(Transform, Visibility)]
 pub struct SwfBundle {
     /// 要渲染的swf资源的引用计数句柄。
     pub swf_handle: Handle<SwfMovie>,
     /// 根movie_clip对象
     pub swf: Swf,
-    /// 包含实体的空间属性。
-    pub spatial: SpatialBundle,
     /// shape对应实体
     pub shape_mark_entities: ShapeMarkEntities,
 }

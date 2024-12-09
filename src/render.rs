@@ -1,21 +1,20 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use bevy::prelude::ChildBuild;
+use bevy::render::mesh::MeshAabb;
 use bevy::{
     app::{App, Plugin, PostUpdate, Update},
     asset::{load_internal_asset, Assets, Handle},
-    ecs::system::lifetimeless::SRes,
     math::{Mat4, Vec3},
     prelude::{
-        BuildChildren, Children, Commands, Component, Entity, IntoSystemConfigs, Mesh, Query, Res,
-        ResMut, Shader, SpatialBundle, Transform, Visibility, With, Without,
+        BuildChildren, Children, Commands, Component, Entity, IntoSystemConfigs, Mesh, Mesh2d,
+        Query, Res, ResMut, Shader, Transform, Visibility, With, Without,
     },
     render::{
-        render_phase::{PhaseItem, RenderCommand, RenderCommandResult},
-        renderer::RenderDevice,
-        view::{ExtractedWindows, NoFrustumCulling, VisibilitySystems},
+        view::{NoFrustumCulling, VisibilitySystems},
         RenderApp,
     },
-    sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
+    sprite::{Material2dPlugin, MeshMaterial2d},
 };
 use blend_pipeline::{BlendType, TrivialBlend};
 use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
@@ -256,9 +255,8 @@ pub fn handler_render_list(
                         let graphic_entity = commands
                             .spawn((
                                 SwfGraphicComponent,
-                                SpatialBundle {
-                                    ..Default::default()
-                                },
+                                Transform::default(),
+                                Visibility::default(),
                             ))
                             .id();
                         commands.entity(parent_entity).add_child(graphic_entity);
@@ -363,12 +361,9 @@ fn spawn_mesh<T: SwfMaterial>(
     let aabb_transform = swf_material.world_transform();
     commands.entity(parent_entity).with_children(|parent| {
         parent.spawn((
-            MaterialMesh2dBundle {
-                mesh: shape.mesh.clone().into(),
-                material: swf_materials.add(swf_material),
-                transform,
-                ..Default::default()
-            },
+            Mesh2d(shape.mesh.clone()),
+            MeshMaterial2d(swf_materials.add(swf_material)),
+            transform,
             SwfShapeMesh {
                 transform: aabb_transform,
             },
@@ -379,7 +374,7 @@ fn spawn_mesh<T: SwfMaterial>(
 pub fn calculate_shape_bounds(
     mut commands: Commands,
     meshes: Res<Assets<Mesh>>,
-    meshes_without_aabb: Query<(Entity, &Mesh2dHandle, &SwfShapeMesh), Without<NoFrustumCulling>>,
+    meshes_without_aabb: Query<(Entity, &Mesh2d, &SwfShapeMesh), Without<NoFrustumCulling>>,
 ) {
     meshes_without_aabb
         .iter()
@@ -397,32 +392,4 @@ pub fn calculate_shape_bounds(
                 }
             }
         });
-}
-
-pub struct DrawSwfMesh2d;
-impl<P: PhaseItem> RenderCommand<P> for DrawSwfMesh2d {
-    type Param = (SRes<RenderDevice>, SRes<ExtractedWindows>);
-
-    type ViewQuery = ();
-
-    type ItemQuery = ();
-
-    fn render<'w>(
-        item: &P,
-        view: bevy::ecs::query::ROQueryItem<'w, Self::ViewQuery>,
-        entity: Option<bevy::ecs::query::ROQueryItem<'w, Self::ItemQuery>>,
-        (device, extract_windows): bevy::ecs::system::SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
-    ) -> bevy::render::render_phase::RenderCommandResult {
-        let device = device.into_inner();
-        let extract_windows = extract_windows.into_inner();
-        for (_, window) in extract_windows.windows.iter() {
-            if let Some(memory) = &window.screenshot_memory {
-                let width = window.physical_width;
-                let height = window.physical_height;
-                let texture_format = window.swap_chain_texture_format.unwrap();
-            }
-        }
-        RenderCommandResult::Success
-    }
 }
