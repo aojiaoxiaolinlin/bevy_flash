@@ -69,7 +69,7 @@ impl Plugin for FlashRenderPlugin {
                 calculate_shape_bounds.in_set(VisibilitySystems::CalculateBounds),
             );
 
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+        let Some(_render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
     }
@@ -89,9 +89,9 @@ pub fn render_swf(
     mut entities_material_query: Query<(
         Entity,
         &mut Transform,
-        Option<&Handle<SwfColorMaterial>>,
-        Option<&Handle<GradientMaterial>>,
-        Option<&Handle<BitmapMaterial>>,
+        Option<&MeshMaterial2d<SwfColorMaterial>>,
+        Option<&MeshMaterial2d<GradientMaterial>>,
+        Option<&MeshMaterial2d<BitmapMaterial>>,
         &mut SwfShapeMesh,
     )>,
     graphic_query: Query<(Entity, &Children), With<SwfGraphicComponent>>,
@@ -165,9 +165,9 @@ pub fn handler_render_list(
         (
             Entity,
             &mut Transform,
-            Option<&Handle<SwfColorMaterial>>,
-            Option<&Handle<GradientMaterial>>,
-            Option<&Handle<BitmapMaterial>>,
+            Option<&MeshMaterial2d<SwfColorMaterial>>,
+            Option<&MeshMaterial2d<GradientMaterial>>,
+            Option<&MeshMaterial2d<BitmapMaterial>>,
             &mut SwfShapeMesh,
         ),
     >,
