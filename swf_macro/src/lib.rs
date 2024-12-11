@@ -29,8 +29,8 @@ pub fn swf_material_derive(input: TokenStream) -> TokenStream {
     let gen = quote! {
         impl SwfMaterial for #name {
             fn update_swf_material(&mut self, swf_transform: SwfTransform) {
-            self.transform = swf_transform
-        }
+                self.transform = swf_transform
+            }
             fn world_transform(&self) -> Mat4 {
                 self.transform.world_transform
             }

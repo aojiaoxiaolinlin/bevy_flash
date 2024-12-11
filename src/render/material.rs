@@ -4,7 +4,7 @@ use bevy::{
     prelude::Image,
     reflect::TypePath,
     render::render_resource::{AsBindGroup, ShaderType},
-    sprite::Material2d,
+    sprite::{AlphaMode2d, Material2d},
 };
 use ruffle_render::{
     shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
@@ -41,6 +41,9 @@ impl Material2d for GradientMaterial {
     }
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
         GRADIENT_MATERIAL_SHADER_HANDLE.into()
+    }
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Blend
     }
 }
 
@@ -83,6 +86,9 @@ impl Material2d for SwfColorMaterial {
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
         SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
     }
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Blend
+    }
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
@@ -102,6 +108,9 @@ impl Material2d for BitmapMaterial {
     }
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
         BITMAP_MATERIAL_SHADER_HANDLE.into()
+    }
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Blend
     }
 }
 
