@@ -16,7 +16,7 @@ pub struct ShapeMark {
     pub id: CharacterId,
 }
 
-#[derive(Component, Default, Reflect)]
+#[derive(Default, Reflect)]
 pub struct ShapeMarkEntities {
     graphic_entities: HashMap<ShapeMark, Entity>,
     current_frame_entities: Vec<ShapeMark>,
@@ -63,7 +63,7 @@ pub struct SwfGraphicComponent;
 #[reflect(Component, Default)]
 pub struct FlashAnimation {
     /// 要渲染的swf资源的引用计数句柄。
-    pub swf_handle: Handle<SwfMovie>,
+    pub swf_movie: Handle<SwfMovie>,
     /// 要渲染和控制的movie_clip，子影片默认为根影片
     pub name: Option<String>,
     /// 加载处理状态

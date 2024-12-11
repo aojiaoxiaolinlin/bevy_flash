@@ -20,8 +20,10 @@ use blend_pipeline::{BlendType, TrivialBlend};
 use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
 use ruffle_render::transform::Transform as RuffleTransform;
 
+use crate::assets::SwfMovie;
+use crate::bundle::FlashAnimation;
 use crate::{
-    bundle::{ShapeMark, ShapeMarkEntities, Swf, SwfGraphicComponent, SwfState},
+    bundle::{ShapeMark, ShapeMarkEntities, SwfGraphicComponent, SwfState},
     plugin::{ShapeDrawType, ShapeMesh},
     swf::display_object::{DisplayObject, TDisplayObject},
 };
@@ -82,10 +84,11 @@ pub struct SwfShapeMesh {
 
 pub fn render_swf(
     mut commands: Commands,
+    mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut color_materials: ResMut<Assets<SwfColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
-    mut query: Query<(&mut Swf, Entity, &mut ShapeMarkEntities)>,
+    mut query: Query<(&mut FlashAnimation, Entity)>,
     mut entities_material_query: Query<(
         Entity,
         &mut Transform,
@@ -96,52 +99,62 @@ pub fn render_swf(
     )>,
     graphic_query: Query<(Entity, &Children), With<SwfGraphicComponent>>,
 ) {
-    for (mut swf, entity, mut shape_mark_entities) in query.iter_mut() {
-        match swf.status {
+    for (mut flash_animation, entity) in query.iter_mut() {
+        match flash_animation.status {
             SwfState::Loading => {
                 continue;
             }
             SwfState::Ready => {
-                shape_mark_entities.clear_current_frame_entity();
-                let render_list = swf.root_movie_clip.raw_container().render_list();
-                let parent_clip_transform = swf.root_movie_clip.base().transform().clone();
-                let display_objects = swf
-                    .root_movie_clip
-                    .raw_container_mut()
-                    .display_objects_mut();
+                flash_animation
+                    .shape_mark_entities
+                    .clear_current_frame_entity();
+                if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
+                    let render_list = swf_movie.root_movie_clip.raw_container().render_list();
+                    let parent_clip_transform =
+                        swf_movie.root_movie_clip.base().transform().clone();
+                    let display_objects = swf_movie
+                        .root_movie_clip
+                        .raw_container_mut()
+                        .display_objects_mut();
 
-                let mut z_index = 0.000;
+                    let mut z_index = 0.000;
 
-                handler_render_list(
-                    entity,
-                    &graphic_query,
-                    &mut commands,
-                    &mut color_materials,
-                    &mut gradient_materials,
-                    &mut bitmap_materials,
-                    &mut entities_material_query,
-                    shape_mark_entities.as_mut(),
-                    render_list,
-                    display_objects,
-                    &parent_clip_transform,
-                    &mut z_index,
-                    BlendType::Trivial(TrivialBlend::Normal),
-                );
+                    handler_render_list(
+                        entity,
+                        &graphic_query,
+                        &mut commands,
+                        &mut color_materials,
+                        &mut gradient_materials,
+                        &mut bitmap_materials,
+                        &mut entities_material_query,
+                        &mut flash_animation.shape_mark_entities,
+                        render_list,
+                        display_objects,
+                        &parent_clip_transform,
+                        &mut z_index,
+                        BlendType::Trivial(TrivialBlend::Normal),
+                    );
 
-                shape_mark_entities
-                    .graphic_entities()
-                    .iter()
-                    .for_each(|(_, entity)| {
-                        commands.entity(*entity).insert(Visibility::Hidden);
-                    });
-                shape_mark_entities
-                    .current_frame_entities()
-                    .iter()
-                    .for_each(|shape_mark| {
-                        let entity = shape_mark_entities.entity(shape_mark).unwrap();
-                        commands.entity(*entity).insert(Visibility::Inherited);
-                    });
-                swf.status = SwfState::Loading;
+                    flash_animation
+                        .shape_mark_entities
+                        .graphic_entities()
+                        .iter()
+                        .for_each(|(_, entity)| {
+                            commands.entity(*entity).insert(Visibility::Hidden);
+                        });
+                    flash_animation
+                        .shape_mark_entities
+                        .current_frame_entities()
+                        .iter()
+                        .for_each(|shape_mark| {
+                            let entity = flash_animation
+                                .shape_mark_entities
+                                .entity(shape_mark)
+                                .unwrap();
+                            commands.entity(*entity).insert(Visibility::Inherited);
+                        });
+                    flash_animation.status = SwfState::Loading;
+                }
             }
         }
     }
