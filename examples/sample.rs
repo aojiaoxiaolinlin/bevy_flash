@@ -29,14 +29,13 @@ struct FpsText;
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin, FlashPlugin))
-        // .insert_resource(Msaa::Sample8)
         .add_systems(Startup, setup)
         .add_systems(Update, (control, text_update_system))
         .run();
 }
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
-    commands.spawn(Camera2d::default());
+    commands.spawn((Camera2d::default(), Msaa::Sample8));
     commands.spawn((
         FlashAnimation {
             name: Some(String::from("mc")),
@@ -80,10 +79,7 @@ fn control(
 
     query.iter_mut().for_each(|(flash_animation, _)| {
         if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-            if swf_movie
-                .is_target_movie_clip(flash_animation.name.clone().unwrap_or(String::from("root")))
-                && swf_movie.root_movie_clip.name() == flash_animation.name.as_deref()
-            {
+            if flash_animation.name.as_deref() == Some("mc") {
                 if let Some(first_child_movie_clip) =
                     swf_movie.root_movie_clip.first_child_movie_clip()
                 {
@@ -105,10 +101,7 @@ fn control(
     let mut control = |query: &mut Query<'_, '_, (&mut FlashAnimation, Entity)>, frame: u16| {
         query.iter_mut().for_each(|(flash_animation, _)| {
             if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-                if swf_movie.is_target_movie_clip(
-                    flash_animation.name.clone().unwrap_or(String::from("root")),
-                ) && swf_movie.root_movie_clip.name() == flash_animation.name.as_deref()
-                {
+                if flash_animation.name.as_deref() == Some("mc") {
                     swf_movie
                         .root_movie_clip
                         .goto_frame(&mut swf_movie.movie_library, frame, true);

@@ -5,27 +5,13 @@ use bevy::{
     reflect::TypePath,
 };
 
-use crate::swf::{
-    display_object::{movie_clip::MovieClip, TDisplayObject},
-    library::MovieLibrary,
-    tag_utils,
-};
+use crate::swf::{display_object::movie_clip::MovieClip, library::MovieLibrary, tag_utils};
 
 #[derive(Asset, TypePath)]
 pub struct SwfMovie {
     pub swf_movie: Arc<tag_utils::SwfMovie>,
     pub movie_library: MovieLibrary,
     pub root_movie_clip: MovieClip,
-}
-
-impl SwfMovie {
-    pub fn is_target_movie_clip(&self, name: String) -> bool {
-        if self.root_movie_clip.name().unwrap_or("root") == name {
-            true
-        } else {
-            false
-        }
-    }
 }
 
 #[derive(Default)]
