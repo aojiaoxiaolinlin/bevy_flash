@@ -42,7 +42,7 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
             swf_movie: assert_server.load("spirit2724src.swf"),
             ..Default::default()
         },
-        Transform::from_translation(Vec3::new(-1200.0, 300.0, 0.0)).with_scale(Vec3::splat(2.0)),
+        Transform::from_translation(Vec3::new(00.0, 00.0, 0.0)).with_scale(Vec3::splat(2.0)),
         Visibility::default(),
     ));
 
