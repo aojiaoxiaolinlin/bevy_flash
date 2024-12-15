@@ -1,4 +1,3 @@
-use ruffle_render::bitmap::BitmapSize;
 use swf::DefineBitsLossless;
 
 use super::display_object::{graphic::Graphic, movie_clip::MovieClip};
@@ -8,6 +7,12 @@ pub enum Character {
     MovieClip(MovieClip),
     Graphic(Graphic),
     Bitmap(CompressedBitmap),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct BitmapSize {
+    pub width: u16,
+    pub height: u16,
 }
 
 #[derive(Clone, Debug)]
@@ -35,13 +40,15 @@ impl CompressedBitmap {
         }
     }
 
-    pub fn decode(&self) -> Result<ruffle_render::bitmap::Bitmap, ruffle_render::error::Error> {
+    pub fn decode(
+        &self,
+    ) -> Result<crate::render::utils::bitmap::Bitmap, crate::render::utils::error::Error> {
         match self {
             CompressedBitmap::Jpeg { data, alpha, .. } => {
-                ruffle_render::utils::decode_define_bits_jpeg(data, alpha.as_deref())
+                crate::render::utils::bitmap::decode_define_bits_jpeg(data, alpha.as_deref())
             }
             CompressedBitmap::Lossless(define_bits_lossless) => {
-                ruffle_render::utils::decode_define_bits_lossless(define_bits_lossless)
+                crate::render::utils::bitmap::decode_define_bits_lossless(define_bits_lossless)
             }
         }
     }

@@ -3,7 +3,7 @@ use crate::bundle::{FlashAnimation, SwfState};
 use crate::render::material::{
     BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial,
 };
-use crate::render::tessellator::ShapeTessellator;
+use crate::render::tessellator::{DrawType, ShapeTessellator};
 use crate::render::FlashRenderPlugin;
 use crate::swf::characters::Character;
 use crate::swf::display_object::movie_clip::MovieClip;
@@ -26,7 +26,6 @@ use bevy::{
     prelude::{Res, ResMut},
 };
 use copyless::VecHelper;
-use ruffle_render::tessellator::DrawType;
 use swf::GradientInterpolation;
 use wgpu::{Extent3d, PrimitiveTopology};
 

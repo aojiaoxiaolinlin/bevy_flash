@@ -9,7 +9,7 @@ pub enum Error {
     InvalidSwf(#[from] swf::error::Error),
 
     #[error("Couldn't register bitmap: {0}")]
-    InvalidBitmap(#[from] ruffle_render::error::Error),
+    InvalidBitmap(#[from] crate::render::utils::error::Error),
 
     // #[error("Couldn't register font: {0}")]
     // InvalidFont(#[from] ttf_parser::FaceParsingError),

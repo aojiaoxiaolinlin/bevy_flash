@@ -1,3 +1,4 @@
+use super::utils::transform::Transform as RuffleTransform;
 use bevy::{
     asset::{Asset, Handle},
     math::{Mat4, Vec4},
@@ -6,15 +7,12 @@ use bevy::{
     render::render_resource::{AsBindGroup, ShaderType},
     sprite::{AlphaMode2d, Material2d},
 };
-use ruffle_render::{
-    shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
-};
 use swf::GradientSpread;
 use swf_macro::SwfMaterial;
 
 use super::{
-    BITMAP_MATERIAL_SHADER_HANDLE, GRADIENT_MATERIAL_SHADER_HANDLE,
-    SWF_COLOR_MATERIAL_SHADER_HANDLE,
+    tessellator::Gradient, utils::shape_utils::GradientType, BITMAP_MATERIAL_SHADER_HANDLE,
+    GRADIENT_MATERIAL_SHADER_HANDLE, SWF_COLOR_MATERIAL_SHADER_HANDLE,
 };
 
 pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {

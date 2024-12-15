@@ -12,7 +12,8 @@ use bevy::{
     sprite::{Material2d, Mesh2dPipeline, Mesh2dPipelineKey},
 };
 use enum_map::Enum;
-use ruffle_render::blend::ExtendedBlendMode;
+
+use super::utils::blend::ExtendedBlendMode;
 
 #[derive(Enum, Debug, Copy, Clone)]
 pub enum TrivialBlend {

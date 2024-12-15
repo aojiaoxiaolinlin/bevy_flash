@@ -245,7 +245,8 @@ impl MovieClip {
         }
         let jpeg_data = reader.read_slice(jpeg_len)?;
         let alpha_data = reader.read_slice_to_end();
-        let (width, height) = ruffle_render::utils::decode_define_bits_jpeg_dimensions(jpeg_data)?;
+        let (width, height) =
+            crate::render::utils::bitmap::decode_define_bits_jpeg_dimensions(jpeg_data)?;
         library.register_character(
             id,
             Character::Bitmap(CompressedBitmap::Jpeg {

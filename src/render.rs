@@ -18,7 +18,7 @@ use bevy::{
 };
 use blend_pipeline::{BlendType, TrivialBlend};
 use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
-use ruffle_render::transform::Transform as RuffleTransform;
+use utils::transform::Transform as RuffleTransform;
 
 use crate::assets::SwfMovie;
 use crate::bundle::FlashAnimation;
@@ -39,6 +39,7 @@ pub mod blend_pipeline;
 pub(crate) mod material;
 pub(crate) mod node;
 pub(crate) mod tessellator;
+pub(crate) mod utils;
 pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {

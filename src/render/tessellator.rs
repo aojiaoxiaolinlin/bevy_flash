@@ -6,13 +6,12 @@ use lyon_tessellation::{
     VertexBuffers,
 };
 use lyon_tessellation::{FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor};
-use ruffle_render::matrix::Matrix;
-use ruffle_render::{
-    shape_utils::{DistilledShape, DrawCommand, DrawPath, GradientType},
-    tessellator::{Bitmap, Draw, DrawType, Gradient, Mesh, Vertex},
-};
+use swf::GradientRecord;
 
 use crate::swf::library::MovieLibrary;
+
+use super::utils::matrix::Matrix;
+use super::utils::shape_utils::{DistilledShape, DrawCommand, DrawPath, GradientType};
 
 pub struct ShapeTessellator {
     fill_tess: FillTessellator,
@@ -354,6 +353,61 @@ fn swf_gradient_to_uniforms(
         focal_point,
         interpolation: gradient.interpolation,
     }
+}
+
+pub struct Mesh {
+    pub draws: Vec<Draw>,
+    pub gradients: Vec<Gradient>,
+}
+
+pub struct Draw {
+    pub draw_type: DrawType,
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
+    pub mask_index_count: u32,
+}
+
+pub enum DrawType {
+    Color,
+    Gradient {
+        matrix: [[f32; 3]; 3],
+        gradient: usize,
+    },
+    Bitmap(Bitmap),
+}
+
+impl DrawType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Color => "Color",
+            Self::Gradient { .. } => "Gradient",
+            Self::Bitmap { .. } => "Bitmap",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct Gradient {
+    pub gradient_type: GradientType,
+    pub repeat_mode: swf::GradientSpread,
+    pub focal_point: swf::Fixed8,
+    pub interpolation: swf::GradientInterpolation,
+    pub records: Vec<GradientRecord>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Vertex {
+    pub x: f32,
+    pub y: f32,
+    pub color: swf::Color,
+}
+
+#[derive(Clone, Debug)]
+pub struct Bitmap {
+    pub matrix: [[f32; 3]; 3],
+    pub bitmap_id: u16,
+    pub is_smoothed: bool,
+    pub is_repeating: bool,
 }
 
 struct RuffleVertexCtor {
