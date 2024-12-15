@@ -1,35 +1,22 @@
 use bevy::{
     asset::Handle,
-    prelude::{Bundle, Component, Entity, SpatialBundle},
+    prelude::{Component, Entity, ReflectComponent, ReflectDefault, Transform, Visibility},
+    reflect::Reflect,
     utils::hashbrown::HashMap,
 };
 use swf::{CharacterId, Depth};
 
-use crate::{
-    assets::SwfMovie,
-    swf::display_object::{movie_clip::MovieClip, TDisplayObject},
-};
+use crate::assets::SwfMovie;
 
-#[derive(Bundle, Default)]
-pub struct SwfBundle {
-    /// 要渲染的swf资源的引用计数句柄。
-    pub swf_handle: Handle<SwfMovie>,
-    /// 根movie_clip对象
-    pub swf: Swf,
-    /// 包含实体的空间属性。
-    pub spatial: SpatialBundle,
-    /// shape对应实体
-    pub shape_mark_entities: ShapeMarkEntities,
-}
-
-#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug, Reflect)]
 pub struct ShapeMark {
     // 记录shape被多次引用的情况
     pub graphic_ref_count: u8,
     pub depth: Depth,
     pub id: CharacterId,
 }
-#[derive(Component, Default)]
+
+#[derive(Default, Reflect)]
 pub struct ShapeMarkEntities {
     graphic_entities: HashMap<ShapeMark, Entity>,
     current_frame_entities: Vec<ShapeMark>,
@@ -61,37 +48,7 @@ impl ShapeMarkEntities {
     }
 }
 
-#[derive(Component)]
-pub struct Swf {
-    pub root_movie_clip: MovieClip,
-    /// 要渲染和控制的movie_clip，子影片默认为根影片
-    pub name: Option<String>,
-    /// 加载处理状态
-    pub status: SwfState,
-}
-impl Swf {
-    /// 判断根影片是否为目标影片
-    pub fn is_target_movie_clip(&self) -> bool {
-        if self.root_movie_clip.name().unwrap_or("root")
-            == self.name.clone().unwrap_or(String::from("root"))
-        {
-            true
-        } else {
-            false
-        }
-    }
-}
-impl Default for Swf {
-    fn default() -> Self {
-        Self {
-            root_movie_clip: Default::default(),
-            name: Some(String::from("root")),
-            status: Default::default(),
-        }
-    }
-}
-
-#[derive(Default)]
+#[derive(Default, Reflect)]
 pub enum SwfState {
     #[default]
     Loading,
@@ -100,3 +57,17 @@ pub enum SwfState {
 
 #[derive(Default, Component)]
 pub struct SwfGraphicComponent;
+
+#[derive(Component, Default, Reflect)]
+#[require(Transform, Visibility)]
+#[reflect(Component, Default)]
+pub struct FlashAnimation {
+    /// 要渲染的swf资源的引用计数句柄。
+    pub swf_movie: Handle<SwfMovie>,
+    /// 要渲染和控制的movie_clip，子影片默认为根影片
+    pub name: Option<String>,
+    /// 加载处理状态
+    pub status: SwfState,
+    /// shape对应实体
+    pub shape_mark_entities: ShapeMarkEntities,
+}

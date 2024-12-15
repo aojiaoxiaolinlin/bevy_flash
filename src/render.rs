@@ -1,28 +1,29 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use bevy::prelude::ChildBuild;
+use bevy::render::mesh::MeshAabb;
 use bevy::{
     app::{App, Plugin, PostUpdate, Update},
     asset::{load_internal_asset, Assets, Handle},
-    ecs::system::lifetimeless::SRes,
     math::{Mat4, Vec3},
     prelude::{
-        BuildChildren, Children, Commands, Component, Entity, IntoSystemConfigs, Mesh, Query, Res,
-        ResMut, Shader, SpatialBundle, Transform, Visibility, With, Without,
+        BuildChildren, Children, Commands, Component, Entity, IntoSystemConfigs, Mesh, Mesh2d,
+        Query, Res, ResMut, Shader, Transform, Visibility, With, Without,
     },
     render::{
-        render_phase::{PhaseItem, RenderCommand, RenderCommandResult},
-        renderer::RenderDevice,
-        view::{ExtractedWindows, NoFrustumCulling, VisibilitySystems},
+        view::{NoFrustumCulling, VisibilitySystems},
         RenderApp,
     },
-    sprite::{Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle},
+    sprite::{Material2dPlugin, MeshMaterial2d},
 };
 use blend_pipeline::{BlendType, TrivialBlend};
 use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
 use ruffle_render::transform::Transform as RuffleTransform;
 
+use crate::assets::SwfMovie;
+use crate::bundle::FlashAnimation;
 use crate::{
-    bundle::{ShapeMark, ShapeMarkEntities, Swf, SwfGraphicComponent, SwfState},
+    bundle::{ShapeMark, ShapeMarkEntities, SwfGraphicComponent, SwfState},
     plugin::{ShapeDrawType, ShapeMesh},
     swf::display_object::{DisplayObject, TDisplayObject},
 };
@@ -70,7 +71,7 @@ impl Plugin for FlashRenderPlugin {
                 calculate_shape_bounds.in_set(VisibilitySystems::CalculateBounds),
             );
 
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+        let Some(_render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
     }
@@ -83,66 +84,77 @@ pub struct SwfShapeMesh {
 
 pub fn render_swf(
     mut commands: Commands,
+    mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut color_materials: ResMut<Assets<SwfColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
-    mut query: Query<(&mut Swf, Entity, &mut ShapeMarkEntities)>,
+    mut query: Query<(&mut FlashAnimation, Entity)>,
     mut entities_material_query: Query<(
         Entity,
         &mut Transform,
-        Option<&Handle<SwfColorMaterial>>,
-        Option<&Handle<GradientMaterial>>,
-        Option<&Handle<BitmapMaterial>>,
+        Option<&MeshMaterial2d<SwfColorMaterial>>,
+        Option<&MeshMaterial2d<GradientMaterial>>,
+        Option<&MeshMaterial2d<BitmapMaterial>>,
         &mut SwfShapeMesh,
     )>,
     graphic_query: Query<(Entity, &Children), With<SwfGraphicComponent>>,
 ) {
-    for (mut swf, entity, mut shape_mark_entities) in query.iter_mut() {
-        match swf.status {
+    for (mut flash_animation, entity) in query.iter_mut() {
+        match flash_animation.status {
             SwfState::Loading => {
                 continue;
             }
             SwfState::Ready => {
-                shape_mark_entities.clear_current_frame_entity();
-                let render_list = swf.root_movie_clip.raw_container().render_list();
-                let parent_clip_transform = swf.root_movie_clip.base().transform().clone();
-                let display_objects = swf
-                    .root_movie_clip
-                    .raw_container_mut()
-                    .display_objects_mut();
+                flash_animation
+                    .shape_mark_entities
+                    .clear_current_frame_entity();
+                if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
+                    let render_list = swf_movie.root_movie_clip.raw_container().render_list();
+                    let parent_clip_transform =
+                        swf_movie.root_movie_clip.base().transform().clone();
+                    let display_objects = swf_movie
+                        .root_movie_clip
+                        .raw_container_mut()
+                        .display_objects_mut();
 
-                let mut z_index = 0.000;
+                    let mut z_index = 0.000;
 
-                handler_render_list(
-                    entity,
-                    &graphic_query,
-                    &mut commands,
-                    &mut color_materials,
-                    &mut gradient_materials,
-                    &mut bitmap_materials,
-                    &mut entities_material_query,
-                    shape_mark_entities.as_mut(),
-                    render_list,
-                    display_objects,
-                    &parent_clip_transform,
-                    &mut z_index,
-                    BlendType::Trivial(TrivialBlend::Normal),
-                );
+                    handler_render_list(
+                        entity,
+                        &graphic_query,
+                        &mut commands,
+                        &mut color_materials,
+                        &mut gradient_materials,
+                        &mut bitmap_materials,
+                        &mut entities_material_query,
+                        &mut flash_animation.shape_mark_entities,
+                        render_list,
+                        display_objects,
+                        &parent_clip_transform,
+                        &mut z_index,
+                        BlendType::Trivial(TrivialBlend::Normal),
+                    );
 
-                shape_mark_entities
-                    .graphic_entities()
-                    .iter()
-                    .for_each(|(_, entity)| {
-                        commands.entity(*entity).insert(Visibility::Hidden);
-                    });
-                shape_mark_entities
-                    .current_frame_entities()
-                    .iter()
-                    .for_each(|shape_mark| {
-                        let entity = shape_mark_entities.entity(shape_mark).unwrap();
-                        commands.entity(*entity).insert(Visibility::Inherited);
-                    });
-                swf.status = SwfState::Loading;
+                    flash_animation
+                        .shape_mark_entities
+                        .graphic_entities()
+                        .iter()
+                        .for_each(|(_, entity)| {
+                            commands.entity(*entity).insert(Visibility::Hidden);
+                        });
+                    flash_animation
+                        .shape_mark_entities
+                        .current_frame_entities()
+                        .iter()
+                        .for_each(|shape_mark| {
+                            let entity = flash_animation
+                                .shape_mark_entities
+                                .entity(shape_mark)
+                                .unwrap();
+                            commands.entity(*entity).insert(Visibility::Inherited);
+                        });
+                    flash_animation.status = SwfState::Loading;
+                }
             }
         }
     }
@@ -166,9 +178,9 @@ pub fn handler_render_list(
         (
             Entity,
             &mut Transform,
-            Option<&Handle<SwfColorMaterial>>,
-            Option<&Handle<GradientMaterial>>,
-            Option<&Handle<BitmapMaterial>>,
+            Option<&MeshMaterial2d<SwfColorMaterial>>,
+            Option<&MeshMaterial2d<GradientMaterial>>,
+            Option<&MeshMaterial2d<BitmapMaterial>>,
             &mut SwfShapeMesh,
         ),
     >,
@@ -256,9 +268,8 @@ pub fn handler_render_list(
                         let graphic_entity = commands
                             .spawn((
                                 SwfGraphicComponent,
-                                SpatialBundle {
-                                    ..Default::default()
-                                },
+                                Transform::default(),
+                                Visibility::default(),
                             ))
                             .id();
                         commands.entity(parent_entity).add_child(graphic_entity);
@@ -363,12 +374,9 @@ fn spawn_mesh<T: SwfMaterial>(
     let aabb_transform = swf_material.world_transform();
     commands.entity(parent_entity).with_children(|parent| {
         parent.spawn((
-            MaterialMesh2dBundle {
-                mesh: shape.mesh.clone().into(),
-                material: swf_materials.add(swf_material),
-                transform,
-                ..Default::default()
-            },
+            Mesh2d(shape.mesh.clone()),
+            MeshMaterial2d(swf_materials.add(swf_material)),
+            transform,
             SwfShapeMesh {
                 transform: aabb_transform,
             },
@@ -379,7 +387,7 @@ fn spawn_mesh<T: SwfMaterial>(
 pub fn calculate_shape_bounds(
     mut commands: Commands,
     meshes: Res<Assets<Mesh>>,
-    meshes_without_aabb: Query<(Entity, &Mesh2dHandle, &SwfShapeMesh), Without<NoFrustumCulling>>,
+    meshes_without_aabb: Query<(Entity, &Mesh2d, &SwfShapeMesh), Without<NoFrustumCulling>>,
 ) {
     meshes_without_aabb
         .iter()
@@ -397,32 +405,4 @@ pub fn calculate_shape_bounds(
                 }
             }
         });
-}
-
-pub struct DrawSwfMesh2d;
-impl<P: PhaseItem> RenderCommand<P> for DrawSwfMesh2d {
-    type Param = (SRes<RenderDevice>, SRes<ExtractedWindows>);
-
-    type ViewQuery = ();
-
-    type ItemQuery = ();
-
-    fn render<'w>(
-        item: &P,
-        view: bevy::ecs::query::ROQueryItem<'w, Self::ViewQuery>,
-        entity: Option<bevy::ecs::query::ROQueryItem<'w, Self::ItemQuery>>,
-        (device, extract_windows): bevy::ecs::system::SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
-    ) -> bevy::render::render_phase::RenderCommandResult {
-        let device = device.into_inner();
-        let extract_windows = extract_windows.into_inner();
-        for (_, window) in extract_windows.windows.iter() {
-            if let Some(memory) = &window.screenshot_memory {
-                let width = window.physical_width;
-                let height = window.physical_height;
-                let texture_format = window.swap_chain_texture_format.unwrap();
-            }
-        }
-        RenderCommandResult::Success
-    }
 }

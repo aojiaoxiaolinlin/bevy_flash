@@ -1,5 +1,5 @@
 use crate::assets::{SwfLoader, SwfMovie};
-use crate::bundle::{Swf, SwfState};
+use crate::bundle::{FlashAnimation, SwfState};
 use crate::render::material::{
     BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial,
 };
@@ -54,17 +54,18 @@ impl Plugin for FlashPlugin {
 }
 
 fn enter_frame(
-    mut query: Query<(&mut Swf, &Handle<SwfMovie>)>,
+    mut query: Query<&mut FlashAnimation>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     time: Res<Time>,
     mut timer: ResMut<PlayerTimer>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        for (mut swf, swf_handle) in query.iter_mut() {
-            if let Some(swf_movie) = swf_movies.get_mut(swf_handle.id()) {
-                swf.root_movie_clip
+        for mut flash_animation in query.iter_mut() {
+            if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
+                swf_movie
+                    .root_movie_clip
                     .enter_frame(&mut swf_movie.movie_library);
-                swf.status = SwfState::Ready;
+                flash_animation.status = SwfState::Ready;
             }
         }
     }
@@ -85,7 +86,7 @@ pub struct ShapeMesh {
 pub struct SwfInitEvent(pub Entity);
 
 fn pre_parse(
-    mut query: Query<(&mut Swf, &Handle<SwfMovie>, Entity)>,
+    mut query: Query<(&mut FlashAnimation, Entity)>,
     mut swf_events: EventReader<AssetEvent<SwfMovie>>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -332,12 +333,12 @@ fn pre_parse(
                         },
                     );
                     swf_movie.movie_library = library;
-                    if let Some((mut swf, _, entity)) =
-                        query.iter_mut().find(|(_, handle, _)| handle.id() == *id)
+                    if let Some((mut flash_animation, entity)) = query
+                        .iter_mut()
+                        .find(|(flash_animation, _)| flash_animation.swf_movie.id() == *id)
                     {
-                        swf.root_movie_clip = root_movie_clip.clone();
-                        swf.root_movie_clip.set_root(); // 设置为根节点
-                        swf.status = SwfState::Ready;
+                        swf_movie.root_movie_clip = root_movie_clip.clone();
+                        flash_animation.status = SwfState::Ready;
                         swf_init_events.send(SwfInitEvent(entity));
                     }
                 }

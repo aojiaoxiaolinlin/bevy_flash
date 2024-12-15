@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
 use bevy::{
-    asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
+    asset::{io::Reader, Asset, AssetLoader, LoadContext},
     reflect::TypePath,
 };
 
-use crate::swf::{library::MovieLibrary, tag_utils};
+use crate::swf::{display_object::movie_clip::MovieClip, library::MovieLibrary, tag_utils};
 
 #[derive(Asset, TypePath)]
 pub struct SwfMovie {
     pub swf_movie: Arc<tag_utils::SwfMovie>,
-    // pub movie_libraries: PtrWeakKeyHashMap<Weak<SwfMovie>, MovieLibrary>,
     pub movie_library: MovieLibrary,
+    pub root_movie_clip: MovieClip,
 }
 
 #[derive(Default)]
@@ -23,11 +23,11 @@ impl AssetLoader for SwfLoader {
     type Settings = ();
 
     type Error = tag_utils::Error;
-    async fn load<'a>(
-        &'a self,
-        reader: &'a mut Reader<'_>,
-        _settings: &'a (),
-        _load_context: &'a mut LoadContext<'_>,
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _settings: &(),
+        _load_context: &mut LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
         let mut swf_data = Vec::new();
         reader.read_to_end(&mut swf_data).await?;
@@ -35,6 +35,7 @@ impl AssetLoader for SwfLoader {
         Ok(SwfMovie {
             swf_movie,
             movie_library: MovieLibrary::new(),
+            root_movie_clip: MovieClip::default(),
         })
     }
 

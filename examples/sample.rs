@@ -1,25 +1,26 @@
 use bevy::{
     app::{App, Startup, Update},
-    asset::{AssetServer, Assets, Handle},
+    asset::{AssetServer, Assets},
     color::palettes::css::GOLD,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     input::ButtonInput,
     math::Vec3,
     prelude::{
-        Camera2dBundle, Commands, Component, Entity, EventReader, KeyCode, Msaa, Query, Res,
-        ResMut, SpatialBundle, TextBundle, Transform, With,
+        Camera2d, Commands, Component, Entity, EventReader, KeyCode, Msaa, Query, Res, ResMut,
+        Text, Transform, Visibility, With,
     },
-    text::{Text, TextSection, TextStyle},
     DefaultPlugins,
-};
-use bevy_flash::swf::display_object::{
-    movie_clip::{MovieClip, NextFrame},
-    DisplayObject, TDisplayObject,
 };
 use bevy_flash::{
     assets::SwfMovie,
-    bundle::{Swf, SwfBundle},
     plugin::{FlashPlugin, SwfInitEvent},
+};
+use bevy_flash::{
+    bundle::FlashAnimation,
+    swf::display_object::{
+        movie_clip::{MovieClip, NextFrame},
+        DisplayObject, TDisplayObject,
+    },
 };
 
 #[derive(Component)]
@@ -28,99 +29,81 @@ struct FpsText;
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin, FlashPlugin))
-        .insert_resource(Msaa::Sample8)
         .add_systems(Startup, setup)
         .add_systems(Update, (control, text_update_system))
         .run();
 }
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
-    commands.spawn(Camera2dBundle::default());
-    commands.spawn(SwfBundle {
-        swf_handle: assert_server.load("spirit2819src.swf"),
-        swf: Swf {
-            name: Some(String::from("_mc")),
+    commands.spawn((Camera2d::default(), Msaa::Sample8));
+    commands.spawn((
+        FlashAnimation {
+            name: Some(String::from("mc")),
+            swf_movie: assert_server.load("spirit2724src.swf"),
             ..Default::default()
         },
-        spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(00.0, 500.0, 0.0))
-                .with_scale(Vec3::splat(4.0)),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-
-    commands.spawn(SwfBundle {
-        swf_handle: assert_server.load("131381-idle.swf"),
-        spatial: SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0))
-                .with_scale(Vec3::splat(6.0)),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
+        Transform::from_translation(Vec3::new(-1200.0, 300.0, 0.0)).with_scale(Vec3::splat(2.0)),
+        Visibility::default(),
+    ));
 
     commands.spawn((
-        TextBundle::from_sections([
-            TextSection::new(
-                "FPS",
-                TextStyle {
-                    font_size: 40.0,
-                    ..Default::default()
-                },
-            ),
-            TextSection::from_style(TextStyle {
-                color: GOLD.into(),
-                ..Default::default()
-            }),
-        ]),
-        FpsText,
+        FlashAnimation {
+            name: Some(String::from("m")),
+            swf_movie: assert_server.load("131381-idle.swf"),
+            ..Default::default()
+        },
+        Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
+        Visibility::default(),
     ));
 }
 
 fn control(
-    mut query: Query<(&mut Swf, &Handle<SwfMovie>, Entity)>,
+    mut query: Query<(&mut FlashAnimation, Entity)>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut swf_init_event: EventReader<SwfInitEvent>,
 ) {
     for swf_init_event in swf_init_event.read() {
-        query
-            .iter_mut()
-            .for_each(|(mut swf, handle_swf_movie, entity)| {
-                let name = swf.name.clone();
-                swf.root_movie_clip.set_name(name);
-                if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
-                    if swf_init_event.0 == entity {
-                        swf.root_movie_clip
-                            .goto_frame(&mut swf_movie.movie_library, 0, true);
-                    }
+        query.iter_mut().for_each(|(flash_animation, entity)| {
+            let name = flash_animation.name.clone();
+            if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
+                swf_movie.root_movie_clip.set_name(name);
+                if swf_init_event.0 == entity {
+                    swf_movie
+                        .root_movie_clip
+                        .goto_frame(&mut swf_movie.movie_library, 0, true);
                 }
-            });
+            }
+        });
     }
 
-    query.iter_mut().for_each(|(mut swf, handle_swf_movie, _)| {
-        if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
-            if swf.is_target_movie_clip() && swf.root_movie_clip.name() == swf.name.as_deref() {
-                if let Some(first_child_movie_clip) = swf.root_movie_clip.first_child_movie_clip() {
+    query.iter_mut().for_each(|(flash_animation, _)| {
+        if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
+            if flash_animation.name.as_deref() == Some("mc") {
+                if let Some(first_child_movie_clip) =
+                    swf_movie.root_movie_clip.first_child_movie_clip()
+                {
                     if matches!(
                         first_child_movie_clip.determine_next_frame(),
                         NextFrame::First
                     ) {
-                        swf.root_movie_clip
-                            .goto_frame(&mut swf_movie.movie_library, 20, true);
+                        swf_movie.root_movie_clip.goto_frame(
+                            &mut swf_movie.movie_library,
+                            20,
+                            true,
+                        );
                     }
                 }
             }
         }
     });
 
-    let mut control = |query: &mut Query<'_, '_, (&mut Swf, &Handle<SwfMovie>, Entity)>,
-                       frame: u16| {
-        query.iter_mut().for_each(|(mut swf, handle_swf_movie, _)| {
-            if let Some(swf_movie) = swf_movies.get_mut(handle_swf_movie.id()) {
-                if swf.is_target_movie_clip() && swf.root_movie_clip.name() == swf.name.as_deref() {
-                    swf.root_movie_clip
+    let mut control = |query: &mut Query<'_, '_, (&mut FlashAnimation, Entity)>, frame: u16| {
+        query.iter_mut().for_each(|(flash_animation, _)| {
+            if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
+                if flash_animation.name.as_deref() == Some("mc") {
+                    swf_movie
+                        .root_movie_clip
                         .goto_frame(&mut swf_movie.movie_library, frame, true);
                 }
             }
@@ -221,7 +204,6 @@ fn text_update_system(
         if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
             if let Some(value) = fps.smoothed() {
                 // Update the value of the second section
-                text.sections[1].value = format!("{value:.2}");
             }
         }
     }
