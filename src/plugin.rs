@@ -338,7 +338,11 @@ fn pre_parse(
                         .find(|(flash_animation, _)| flash_animation.swf_movie.id() == *id)
                     {
                         swf_movie.root_movie_clip = root_movie_clip.clone();
-                        swf_movie.root_movie_clip.set_root();
+                        if flash_animation.ignore_root_swf_transform {
+                            // 这里设置当前影片剪辑的根影片剪辑时，在MovieClip的实例化中就不会应用根影片的变换
+                            // 如果后续根影片无其他作用，这里可以更改为更加语义化的方法名
+                            swf_movie.root_movie_clip.set_root();
+                        }
                         flash_animation.status = SwfState::Ready;
                         swf_init_events.send(SwfInitEvent(entity));
                     }

@@ -58,16 +58,30 @@ pub enum SwfState {
 #[derive(Default, Component)]
 pub struct SwfGraphicComponent;
 
-#[derive(Component, Default, Reflect)]
+#[derive(Component, Reflect)]
 #[require(Transform, Visibility)]
 #[reflect(Component, Default)]
 pub struct FlashAnimation {
     /// 要渲染的swf资源的引用计数句柄。
     pub swf_movie: Handle<SwfMovie>,
-    /// 要渲染和控制的movie_clip，子影片默认为根影片
+    /// 要渲染和控制的movie_clip，影片默认为根影片
     pub name: Option<String>,
     /// 加载处理状态
     pub status: SwfState,
     /// shape对应实体
     pub shape_mark_entities: ShapeMarkEntities,
+    /// 是否应用根影片的变换 默认为true，不会应用根影片的变换; 若为false则会应用根影片的变换
+    pub ignore_root_swf_transform: bool,
+}
+
+impl Default for FlashAnimation {
+    fn default() -> Self {
+        Self {
+            swf_movie: Default::default(),
+            name: None,
+            status: Default::default(),
+            shape_mark_entities: Default::default(),
+            ignore_root_swf_transform: true,
+        }
+    }
 }
