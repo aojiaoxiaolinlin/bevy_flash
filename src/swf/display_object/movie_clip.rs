@@ -7,8 +7,8 @@ use bitflags::bitflags;
 use ruffle_render::matrix::Matrix;
 use smallvec::SmallVec;
 use swf::{
-    extensions::ReadSwfExt, read::Reader, CharacterId, Color, ColorTransform, Depth,
-    PlaceObjectAction, SwfStr, TagCode,
+    extensions::ReadSwfExt, read::Reader, CharacterId, Color, Depth, PlaceObjectAction, SwfStr,
+    TagCode,
 };
 
 use crate::swf::{

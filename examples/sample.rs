@@ -1,13 +1,10 @@
 use bevy::{
     app::{App, Startup, Update},
     asset::{AssetServer, Assets},
-    color::palettes::css::GOLD,
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     input::ButtonInput,
     math::Vec3,
     prelude::{
-        Camera2d, Commands, Component, Entity, EventReader, KeyCode, Msaa, Query, Res, ResMut,
-        Text, Transform, Visibility, With,
+        Camera2d, Commands, Entity, EventReader, KeyCode, Msaa, Query, Res, ResMut, Transform,
     },
     DefaultPlugins,
 };
@@ -23,14 +20,11 @@ use bevy_flash::{
     },
 };
 
-#[derive(Component)]
-struct FpsText;
-
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin, FlashPlugin))
+        .add_plugins((DefaultPlugins, FlashPlugin))
         .add_systems(Startup, setup)
-        .add_systems(Update, (control, text_update_system))
+        .add_systems(Update, control)
         .run();
 }
 
@@ -43,7 +37,6 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
             ..Default::default()
         },
         Transform::from_translation(Vec3::new(00.0, 00.0, 0.0)).with_scale(Vec3::splat(2.0)),
-        Visibility::default(),
     ));
 
     commands.spawn((
@@ -53,7 +46,6 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
             ..Default::default()
         },
         Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
-        Visibility::default(),
     ));
 }
 
@@ -194,17 +186,4 @@ fn show(movie_clip: &MovieClip, mut space: i32) {
             }
         }
     });
-}
-
-fn text_update_system(
-    diagnostics: Res<DiagnosticsStore>,
-    mut query: Query<&mut Text, With<FpsText>>,
-) {
-    for mut text in &mut query {
-        if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
-            if let Some(value) = fps.smoothed() {
-                // Update the value of the second section
-            }
-        }
-    }
 }

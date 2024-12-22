@@ -15,7 +15,6 @@ cargo run --package bevy_flash --example sample
 ![展示](./assets/docs/xiao_hai_shen_long.png)
 
 > Reference [Ruffle](https://github.com/ruffle-rs/ruffle/);
-> **Note:** 目前依赖的`ruffle-render`版本是nightly-2024-08-06。后续版本wgpu版本不兼容。
 
 ## Support
 
