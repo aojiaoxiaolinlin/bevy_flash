@@ -20,10 +20,12 @@ use super::{
 pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {
     fn update_swf_material(&mut self, swf_transform: SwfTransform);
     fn world_transform(&self) -> Mat4;
+    fn set_alpha_mode2d(&mut self, alpha_mode2d: AlphaMode2d);
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
 pub struct GradientMaterial {
+    pub alpha_mode2d: AlphaMode2d,
     #[uniform(0)]
     pub gradient: GradientUniforms,
     #[texture(1)]
@@ -43,7 +45,7 @@ impl Material2d for GradientMaterial {
         GRADIENT_MATERIAL_SHADER_HANDLE.into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
+        self.alpha_mode2d
     }
 }
 
@@ -75,6 +77,7 @@ impl From<Gradient> for GradientUniforms {
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
 pub struct SwfColorMaterial {
+    pub alpha_mode2d: AlphaMode2d,
     #[uniform(0)]
     pub transform: SwfTransform,
 }
@@ -87,12 +90,13 @@ impl Material2d for SwfColorMaterial {
         SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
+        self.alpha_mode2d
     }
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
 pub struct BitmapMaterial {
+    pub alpha_mode2d: AlphaMode2d,
     #[texture(0)]
     #[sampler(1)]
     pub texture: Handle<Image>,
@@ -110,7 +114,7 @@ impl Material2d for BitmapMaterial {
         BITMAP_MATERIAL_SHADER_HANDLE.into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
+        self.alpha_mode2d
     }
 }
 

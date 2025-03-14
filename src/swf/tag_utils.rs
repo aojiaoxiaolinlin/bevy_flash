@@ -20,7 +20,7 @@ pub enum Error {
     PreloadVideoIntoInvalidCharacter(CharacterId),
 
     #[error("IO Error: {0}")]
-    IOError(#[from] std::io::Error),
+    IO(#[from] std::io::Error),
 
     #[error("Invalid SWF url")]
     InvalidSwfUrl,

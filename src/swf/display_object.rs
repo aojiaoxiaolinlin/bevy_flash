@@ -16,7 +16,7 @@ use ruffle_render::{
 };
 use swf::{CharacterId, Color, ColorTransform, Depth, Point, Rectangle, Twips};
 
-use super::{container::ChildContainer, library::MovieLibrary, tag_utils::SwfMovie};
+use super::{library::MovieLibrary, tag_utils::SwfMovie};
 
 bitflags! {
     /// Bit flags used by `DisplayObject`.
@@ -422,9 +422,6 @@ pub trait TDisplayObject: Clone + Into<DisplayObject> {
     fn replace_with(&mut self, _id: CharacterId, _library: &mut MovieLibrary) {}
 
     fn as_movie(&mut self) -> Option<MovieClip> {
-        None
-    }
-    fn as_child(self) -> Option<ChildContainer> {
         None
     }
 

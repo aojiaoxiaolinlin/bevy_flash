@@ -1,42 +1,49 @@
 use bevy::{
     app::{App, Startup, Update},
     asset::{AssetServer, Assets},
+    color::Color,
+    dev_tools::fps_overlay::FpsOverlayPlugin,
     input::ButtonInput,
     math::Vec3,
     prelude::{
-        Camera2d, Commands, Entity, EventReader, KeyCode, Msaa, Query, Res, ResMut, Transform,
+        Camera2d, ClearColor, Commands, Entity, EventReader, KeyCode, Msaa, Query, Res, ResMut,
+        Transform,
     },
     DefaultPlugins,
 };
 use bevy_flash::{
     assets::SwfMovie,
-    plugin::{FlashPlugin, SwfInitEvent},
-};
-use bevy_flash::{
     bundle::FlashAnimation,
-    swf::display_object::{
-        movie_clip::{MovieClip, NextFrame},
-        DisplayObject, TDisplayObject,
-    },
+    plugin::{FlashPlayerTimer, FlashPlugin, SwfInitEvent},
+    swf::display_object::{movie_clip::NextFrame, TDisplayObject},
 };
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, FlashPlugin))
+        .insert_resource(ClearColor(Color::srgb(
+            102.0 / 255.0,
+            102.0 / 255.0,
+            102.0 / 255.0,
+        )))
+        .add_plugins((DefaultPlugins, FlashPlugin, FpsOverlayPlugin::default()))
         .add_systems(Startup, setup)
         .add_systems(Update, control)
         .run();
 }
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
-    commands.spawn((Camera2d::default(), Msaa::Sample8));
+    // 统一flash动画的帧率
+    commands.insert_resource(FlashPlayerTimer::from_frame_rate(24.));
+
+    commands.spawn((Camera2d, Msaa::Sample8));
     commands.spawn((
         FlashAnimation {
             name: Some(String::from("mc")),
-            swf_movie: assert_server.load("spirit2724src.swf"),
+            swf_movie: assert_server.load("spirit2159src.swf"),
+            ignore_root_swf_transform: false,
             ..Default::default()
         },
-        Transform::from_translation(Vec3::new(00.0, 00.0, 0.0)).with_scale(Vec3::splat(2.0)),
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
     ));
 
     commands.spawn((
@@ -45,8 +52,43 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
             swf_movie: assert_server.load("131381-idle.swf"),
             ..Default::default()
         },
-        Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(8.0)),
     ));
+
+    commands.spawn((
+        FlashAnimation {
+            name: Some(String::from("m")),
+            swf_movie: assert_server.load("leiyi.swf"),
+            ignore_root_swf_transform: false,
+            ..Default::default()
+        },
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
+    ));
+
+    // commands.spawn(FlashAnimation {
+    //     name: Some(String::from("blend_add")),
+    //     swf_movie: assert_server.load("blend_add.swf"),
+    //     ignore_root_swf_transform: false,
+    //     ..Default::default()
+    // });
+    // commands.spawn((
+    //     FlashAnimation {
+    //         name: Some(String::from("blend_sub")),
+    //         swf_movie: assert_server.load("blend_sub.swf"),
+    //         ignore_root_swf_transform: false,
+    //         ..Default::default()
+    //     },
+    //     Transform::from_translation(Vec3::new(-400.0, 0.0, 0.0)),
+    // ));
+    // commands.spawn((
+    //     FlashAnimation {
+    //         name: Some(String::from("blend_screen")),
+    //         swf_movie: assert_server.load("blend_screen.swf"),
+    //         ignore_root_swf_transform: false,
+    //         ..Default::default()
+    //     },
+    //     Transform::from_translation(Vec3::new(-800.0, 0.0, 0.0)),
+    // ));
 }
 
 fn control(
@@ -60,10 +102,12 @@ fn control(
             let name = flash_animation.name.clone();
             if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
                 swf_movie.root_movie_clip.set_name(name);
-                if swf_init_event.0 == entity {
-                    swf_movie
-                        .root_movie_clip
-                        .goto_frame(&mut swf_movie.movie_library, 0, true);
+                if swf_movie.root_movie_clip.name() == Some("mc") {
+                    if swf_init_event.0 == entity {
+                        swf_movie
+                            .root_movie_clip
+                            .goto_frame(&mut swf_movie.movie_library, 0, true);
+                    }
                 }
             }
         });
@@ -149,41 +193,4 @@ fn control(
     if keyboard_input.just_released(KeyCode::KeyO) {
         control(&mut query, 110);
     }
-
-    // query.iter().for_each(|(swf, _)| {
-    //     let movie_clip = &swf.root_movie_clip;
-    //     println!("MovieClip:{}", movie_clip.character_id());
-    //     let space = 0;
-    //     show(movie_clip, space);
-    // });
-
-    // println!("-------------end----------------------");
-}
-
-fn show(movie_clip: &MovieClip, mut space: i32) {
-    space += 2;
-    let render_list = movie_clip.raw_container().render_list();
-    let display_objects = movie_clip.raw_container().display_objects();
-    render_list.iter().for_each(|display_id| {
-        let display_object = display_objects.get(&display_id).unwrap();
-        match display_object {
-            DisplayObject::MovieClip(movie_clip) => {
-                for _ in 0..space {
-                    print!(" ");
-                }
-                println!(
-                    "MovieClip:{} depth:{}",
-                    movie_clip.character_id(),
-                    movie_clip.depth()
-                );
-                show(movie_clip, space);
-            }
-            DisplayObject::Graphic(graphic) => {
-                for _ in 0..space {
-                    print!(" ");
-                }
-                println!("Graphic:{:?}", graphic.character_id());
-            }
-        }
-    });
 }

@@ -7,7 +7,7 @@ use bevy::{
         render_resource::{BindGroupLayout, ShaderRef},
         renderer::RenderDevice,
     },
-    sprite::{Material2d, Mesh2dPipeline, Mesh2dPipelineKey},
+    sprite::{AlphaMode2d, Material2d, Mesh2dPipeline, Mesh2dPipelineKey},
 };
 use enum_map::Enum;
 use ruffle_render::blend::ExtendedBlendMode;
@@ -58,6 +58,20 @@ impl BlendType {
             ExtendedBlendMode::Overlay => BlendType::Complex(ComplexBlend::Overlay),
             ExtendedBlendMode::HardLight => BlendType::Complex(ComplexBlend::HardLight),
             ExtendedBlendMode::Shader => unreachable!(),
+        }
+    }
+}
+
+impl From<BlendType> for AlphaMode2d {
+    fn from(value: BlendType) -> Self {
+        match value {
+            BlendType::Trivial(TrivialBlend::Normal) => AlphaMode2d::Blend,
+            BlendType::Trivial(TrivialBlend::Add) => AlphaMode2d::Add,
+            BlendType::Trivial(TrivialBlend::Subtract) => AlphaMode2d::Subtract,
+            BlendType::Trivial(TrivialBlend::Screen) => AlphaMode2d::Screen,
+            BlendType::Complex(ComplexBlend::Lighten) => AlphaMode2d::Lighten,
+            // TODO: Implement complex blend modes
+            _ => AlphaMode2d::Blend,
         }
     }
 }

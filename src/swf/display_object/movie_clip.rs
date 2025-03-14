@@ -1,4 +1,4 @@
-use std::{cmp::max, collections::HashMap, sync::Arc, usize};
+use std::{cmp::max, collections::HashMap, sync::Arc};
 
 use anyhow::anyhow;
 use bevy::log::{error, info};
@@ -139,7 +139,7 @@ impl MovieClip {
 
     pub fn parse_swf(&mut self, library: &mut MovieLibrary) {
         let swf = self.swf.clone();
-        let mut reader = Reader::new(&swf.data()[..], swf.version());
+        let mut reader = Reader::new(swf.data(), swf.version());
         let tag_callback = |reader: &mut SwfStream<'_>, tag_code, tag_len| {
             match tag_code {
                 // TagCode::SetBackgroundColor => self.set_background_color(library, reader),
@@ -346,7 +346,7 @@ impl MovieClip {
             PlaceObjectAction::Replace(id) => {
                 let swf = self.swf.clone();
                 let current_frame = self.current_frame;
-                if let Some(child) = self.child_by_depth(place_object.depth.into()) {
+                if let Some(child) = self.child_by_depth(place_object.depth) {
                     child.replace_with(id, library);
                     child.apply_place_object(&place_object, swf.version());
                     child.set_place_frame(current_frame);
@@ -354,7 +354,7 @@ impl MovieClip {
             }
             PlaceObjectAction::Modify => {
                 let swf = self.swf.clone();
-                if let Some(child) = self.child_by_depth(place_object.depth.into()) {
+                if let Some(child) = self.child_by_depth(place_object.depth) {
                     child.apply_place_object(&place_object, swf.version());
                 }
             }
@@ -394,9 +394,8 @@ impl MovieClip {
         } else {
             reader.read_remove_object_2()
         }?;
-        if let Some(_child) = self.child_by_depth(remove_object.depth.into()) {
-            self.raw_container_mut()
-                .remove_child(remove_object.depth.into());
+        if let Some(_child) = self.child_by_depth(remove_object.depth) {
+            self.raw_container_mut().remove_child(remove_object.depth);
         }
         Ok(())
     }
@@ -437,7 +436,7 @@ impl MovieClip {
             Ok(mut child) => {
                 child.set_depth(depth);
                 child.set_place_frame(self.current_frame);
-                child.apply_place_object(&place_object, self.swf.version());
+                child.apply_place_object(place_object, self.swf.version());
                 if self.is_root() {
                     // 将初始位置设置为 (0, 0)
                     child.set_matrix(Matrix::IDENTITY);
@@ -642,7 +641,7 @@ impl MovieClip {
         } else {
             reader.read_place_object_2_or_3(version)
         }?;
-        let depth: Depth = place_object.depth.into();
+        let depth: Depth = place_object.depth;
         let mut goto_place = GotoPlaceObject::new(
             self.current_frame,
             place_object,
@@ -673,7 +672,7 @@ impl MovieClip {
         } else {
             reader.read_remove_object_2()
         }?;
-        let depth: Depth = remove_object.depth.into();
+        let depth: Depth = remove_object.depth;
         if let Some(i) = goto_commands.iter().position(|o| o.depth() == depth) {
             goto_commands.swap_remove(i);
         }
@@ -778,16 +777,13 @@ impl MovieClip {
         if self.name() == Some(arg) {
             return Some(self);
         } else {
-            for (_, child) in self.raw_container_mut().display_objects_mut() {
-                match child {
-                    DisplayObject::MovieClip(movie_clip) => {
-                        if movie_clip.name() == Some(arg) {
-                            return Some(movie_clip);
-                        } else {
-                            return movie_clip.query_movie_clip(arg);
-                        }
+            for child in self.raw_container_mut().display_objects_mut().values_mut() {
+                if let DisplayObject::MovieClip(movie_clip) = child {
+                    if movie_clip.name() == Some(arg) {
+                        return Some(movie_clip);
+                    } else {
+                        return movie_clip.query_movie_clip(arg);
                     }
-                    _ => {}
                 }
             }
         }
@@ -806,10 +802,6 @@ impl TDisplayObject for MovieClip {
 
     fn character_id(&self) -> CharacterId {
         self.id
-    }
-
-    fn as_child(self) -> Option<ChildContainer> {
-        Some(self.container)
     }
 
     fn as_movie(&mut self) -> Option<MovieClip> {
@@ -999,7 +991,7 @@ impl<'a> GotoPlaceObject<'a> {
 
     #[inline]
     fn depth(&self) -> Depth {
-        self.place_object.depth.into()
+        self.place_object.depth
     }
 
     fn merge(&mut self, next: &mut GotoPlaceObject<'a>) {

@@ -1,8 +1,8 @@
 use bevy::{
     asset::Handle,
+    platform_support::collections::HashMap,
     prelude::{Component, Entity, ReflectComponent, ReflectDefault, Transform, Visibility},
     reflect::Reflect,
-    utils::hashbrown::HashMap,
 };
 use swf::{CharacterId, Depth};
 
@@ -16,7 +16,8 @@ pub struct ShapeMark {
     pub id: CharacterId,
 }
 
-#[derive(Default, Reflect)]
+#[derive(Default, Clone, Debug, Reflect)]
+#[reflect(Default)]
 pub struct ShapeMarkEntities {
     graphic_entities: HashMap<ShapeMark, Entity>,
     current_frame_entities: Vec<ShapeMark>,
@@ -39,7 +40,7 @@ impl ShapeMarkEntities {
         self.current_frame_entities.clear();
     }
 
-    pub fn graphic_entities(&self) -> &HashMap<ShapeMark, bevy::prelude::Entity> {
+    pub fn graphic_entities(&self) -> &HashMap<ShapeMark, Entity> {
         &self.graphic_entities
     }
 
@@ -48,7 +49,7 @@ impl ShapeMarkEntities {
     }
 }
 
-#[derive(Default, Reflect)]
+#[derive(Default, Debug, Clone, Reflect)]
 pub enum SwfState {
     #[default]
     Loading,
@@ -56,11 +57,12 @@ pub enum SwfState {
 }
 
 #[derive(Default, Component)]
-pub struct SwfGraphicComponent;
-
-#[derive(Component, Reflect)]
 #[require(Transform, Visibility)]
-#[reflect(Component, Default)]
+pub struct SwfGraph;
+
+#[derive(Component, Debug, Clone, Reflect)]
+#[require(Transform, Visibility)]
+#[reflect(Component, Default, Debug)]
 pub struct FlashAnimation {
     /// 要渲染的swf资源的引用计数句柄。
     pub swf_movie: Handle<SwfMovie>,

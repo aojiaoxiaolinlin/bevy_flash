@@ -1,4 +1,25 @@
 {
+  "wgsl-analyzer.customImports": {
+    "bevy_pbr::clustered_forward": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/clustered_forward.wgsl",
+    "bevy_pbr::mesh_bindings": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/mesh_bindings.wgsl",
+    "bevy_pbr::mesh_functions": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/mesh_functions.wgsl",
+    "bevy_pbr::mesh_types": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/mesh_types.wgsl",
+    "bevy_pbr::mesh_view_bindings": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/mesh_view_bindings.wgsl",
+    "bevy_pbr::mesh_view_types": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/mesh_view_types.wgsl",
+    "bevy_pbr::pbr_bindings": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/pbr_bindings.wgsl",
+    "bevy_pbr::pbr_functions": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/pbr_functions.wgsl",
+    "bevy_pbr::lighting": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/pbr_lighting.wgsl",
+    "bevy_pbr::pbr_types": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/pbr_types.wgsl",
+    "bevy_pbr::shadows": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/shadows.wgsl",
+    "bevy_pbr::skinning": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/skinning.wgsl",
+    "bevy_pbr::utils": "file:///D:/Code/Rust/bevy/crates/bevy_pbr/src/render/utils.wgsl",
+    "bevy_sprite::mesh2d_bindings": "file:///D:/Code/Rust/bevy/crates/bevy_sprite/src/mesh2d/mesh2d_bindings.wgsl",
+    "bevy_sprite::mesh2d_functions": "file:///D:/Code/Rust/bevy/crates/bevy_sprite/src/mesh2d/mesh2d_functions.wgsl",
+    "bevy_sprite::mesh2d_types": "file:///D:/Code/Rust/bevy/crates/bevy_sprite/src/mesh2d/mesh2d_types.wgsl",
+    "bevy_sprite::mesh2d_vertex_output": "file:///D:/Code/Rust/bevy/crates/bevy_sprite/src/mesh2d/mesh2d_vertex_output.wgsl",
+    "bevy_sprite::mesh2d_view_bindings": "file:///D:/Code/Rust/bevy/crates/bevy_sprite/src/mesh2d/mesh2d_view_bindings.wgsl",
+    "bevy_sprite::mesh2d_view_types": "file:///D:/Code/Rust/bevy/crates/bevy_sprite/src/mesh2d/mesh2d_view_types.wgsl"
+  },
   "cSpell.words": [
     "Aabb",
     "bitflags",

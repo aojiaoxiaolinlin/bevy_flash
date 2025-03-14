@@ -38,7 +38,7 @@ impl MovieLibrary {
     }
 
     pub fn get_graphic(&self, id: CharacterId) -> Option<Graphic> {
-        if let Some(Character::Graphic(graphic)) = self.characters.get(&id).clone() {
+        if let Some(Character::Graphic(graphic)) = self.characters.get(&id) {
             Some(graphic.clone())
         } else {
             None
@@ -46,7 +46,7 @@ impl MovieLibrary {
     }
 
     pub fn get_bitmap(&self, id: CharacterId) -> Option<CompressedBitmap> {
-        if let Some(Character::Bitmap(bitmap)) = self.characters.get(&id).clone() {
+        if let Some(Character::Bitmap(bitmap)) = self.characters.get(&id) {
             Some(bitmap.clone())
         } else {
             None

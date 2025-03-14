@@ -111,12 +111,8 @@ impl ShapeTessellator {
                     is_smoothed,
                     is_repeating,
                 } => {
-                    let bitmap_size = if let Some(compressed_bitmap) = library.get_bitmap(*id) {
-                        Some(compressed_bitmap.size())
-                    } else {
-                        None
-                    };
-                    if let Some(bitmap_size) = bitmap_size {
+                    if let Some(compressed_bitmap) = library.get_bitmap(*id) {
+                        let bitmap_size = compressed_bitmap.size();
                         (
                             DrawType::Bitmap(Bitmap {
                                 matrix: swf_bitmap_to_gl_matrix(

@@ -1,14 +1,21 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use bevy::prelude::ChildBuild;
+use bevy::asset::weak_handle;
+use bevy::ecs::event::EventReader;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::math::Vec2;
 use bevy::render::mesh::MeshAabb;
+use bevy::render::primitives::Aabb;
+use bevy::sprite::AlphaMode2d;
+use bevy::transform::components::GlobalTransform;
+use bevy::window::{Window, WindowResized};
 use bevy::{
     app::{App, Plugin, PostUpdate, Update},
     asset::{load_internal_asset, Assets, Handle},
     math::{Mat4, Vec3},
     prelude::{
-        BuildChildren, Children, Commands, Component, Entity, IntoSystemConfigs, Mesh, Mesh2d,
-        Query, Res, ResMut, Shader, Transform, Visibility, With, Without,
+        Children, Commands, Component, Entity, Mesh, Mesh2d, Query, Res, ResMut, Shader, Transform,
+        Visibility, With, Without,
     },
     render::{
         view::{NoFrustumCulling, VisibilitySystems},
@@ -17,25 +24,27 @@ use bevy::{
     sprite::{Material2dPlugin, MeshMaterial2d},
 };
 use blend_pipeline::{BlendType, TrivialBlend};
+use filter::blur::BLUR_FILTER_SHADER_HANDLE;
 use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
 use ruffle_render::transform::Transform as RuffleTransform;
 
 use crate::assets::SwfMovie;
-use crate::bundle::FlashAnimation;
 use crate::{
-    bundle::{ShapeMark, ShapeMarkEntities, SwfGraphicComponent, SwfState},
+    bundle::{FlashAnimation, ShapeMark, ShapeMarkEntities, SwfGraph, SwfState},
     plugin::{ShapeDrawType, ShapeMesh},
     swf::display_object::{DisplayObject, TDisplayObject},
 };
 
 pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    Handle::weak_from_u128(283691495474896754103765489274589);
+    weak_handle!("8c2a5b0f-3e6d-4f8a-b217-84d2f5e1c9b3");
 pub const GRADIENT_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    Handle::weak_from_u128(55042096615683885463288330940691701066);
+    weak_handle!("5e9f1a78-9b34-4c15-8d7e-2a3b0f47d862");
 pub const BITMAP_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    Handle::weak_from_u128(1209708179628049255077713250256144531);
-
+    weak_handle!("a34c7d82-1f5b-4a9e-93d8-6b7e20c45a1f");
+pub const FLASH_COMMON_MATERIAL_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("e53b9f82-6a4c-4d5b-91e7-4f2a63b8c5d9");
 pub mod blend_pipeline;
+pub mod filter;
 pub(crate) mod material;
 pub(crate) mod node;
 pub(crate) mod tessellator;
@@ -43,6 +52,12 @@ pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {
     fn build(&self, app: &mut App) {
+        load_internal_asset!(
+            app,
+            FLASH_COMMON_MATERIAL_SHADER_HANDLE,
+            "render/shaders/common.wgsl",
+            Shader::from_wgsl
+        );
         load_internal_asset!(
             app,
             SWF_COLOR_MATERIAL_SHADER_HANDLE,
@@ -62,6 +77,13 @@ impl Plugin for FlashRenderPlugin {
             Shader::from_wgsl
         );
 
+        load_internal_asset!(
+            app,
+            BLUR_FILTER_SHADER_HANDLE,
+            "render/shaders/filters/blur.wgsl",
+            Shader::from_wgsl
+        );
+
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
             .add_plugins(Material2dPlugin::<SwfColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
@@ -77,11 +99,20 @@ impl Plugin for FlashRenderPlugin {
     }
 }
 
+type SwfShapeMeshQuery = (
+    Entity,
+    &'static mut Transform,
+    Option<&'static MeshMaterial2d<SwfColorMaterial>>,
+    Option<&'static MeshMaterial2d<GradientMaterial>>,
+    Option<&'static MeshMaterial2d<BitmapMaterial>>,
+    &'static mut SwfShapeMesh,
+);
+
 #[derive(Component, Default)]
 pub struct SwfShapeMesh {
     transform: Mat4,
 }
-
+#[allow(clippy::too_many_arguments)]
 pub fn render_swf(
     mut commands: Commands,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
@@ -89,15 +120,8 @@ pub fn render_swf(
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
     mut query: Query<(&mut FlashAnimation, Entity)>,
-    mut entities_material_query: Query<(
-        Entity,
-        &mut Transform,
-        Option<&MeshMaterial2d<SwfColorMaterial>>,
-        Option<&MeshMaterial2d<GradientMaterial>>,
-        Option<&MeshMaterial2d<BitmapMaterial>>,
-        &mut SwfShapeMesh,
-    )>,
-    graphic_query: Query<(Entity, &Children), With<SwfGraphicComponent>>,
+    mut entities_material_query: Query<SwfShapeMeshQuery>,
+    graphic_query: Query<(Entity, &Children), With<SwfGraph>>,
 ) {
     for (mut flash_animation, entity) in query.iter_mut() {
         match flash_animation.status {
@@ -160,30 +184,15 @@ pub fn render_swf(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handler_render_list(
     parent_entity: Entity,
-    graphic_children_entities: &Query<
-        '_,
-        '_,
-        (bevy::prelude::Entity, &Children),
-        With<SwfGraphicComponent>,
-    >,
+    graphic_children_entities: &Query<'_, '_, (Entity, &Children), With<SwfGraph>>,
     commands: &mut Commands,
     color_materials: &mut ResMut<Assets<SwfColorMaterial>>,
     gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
     bitmap_materials: &mut ResMut<Assets<BitmapMaterial>>,
-    entities_material_query: &mut Query<
-        '_,
-        '_,
-        (
-            Entity,
-            &mut Transform,
-            Option<&MeshMaterial2d<SwfColorMaterial>>,
-            Option<&MeshMaterial2d<GradientMaterial>>,
-            Option<&MeshMaterial2d<BitmapMaterial>>,
-            &mut SwfShapeMesh,
-        ),
-    >,
+    entities_material_query: &mut Query<'_, '_, SwfShapeMeshQuery>,
     shape_mark_entities: &mut ShapeMarkEntities,
     render_list: Arc<Vec<u128>>,
     display_objects: &mut BTreeMap<u128, DisplayObject>,
@@ -208,16 +217,16 @@ pub fn handler_render_list(
                         depth: graphic.depth(),
                         id: graphic.character_id(),
                     };
-                    while let Some(_) = shape_mark_entities
+                    while shape_mark_entities
                         .current_frame_entities()
                         .iter()
-                        .find(|&x| *x == shape_mark)
+                        .any(|x| *x == shape_mark)
                     {
                         shape_mark.graphic_ref_count += 1;
                     }
                     *z_index += graphic.depth() as f32 / 100.0;
                     if let Some(&existing_entity) = shape_mark_entities.entity(&shape_mark) {
-                        // 存在缓存实体
+                        // 如果存在缓存实体
                         if let Some((_, graphic_children)) = graphic_children_entities
                             .iter()
                             .find(|(entity, _)| *entity == existing_entity)
@@ -265,13 +274,7 @@ pub fn handler_render_list(
                         }
                     } else {
                         // 不存在缓存实体
-                        let graphic_entity = commands
-                            .spawn((
-                                SwfGraphicComponent,
-                                Transform::default(),
-                                Visibility::default(),
-                            ))
-                            .id();
+                        let graphic_entity = commands.spawn(SwfGraph).id();
                         commands.entity(parent_entity).add_child(graphic_entity);
                         shape_mark_entities.add_entities_pool(shape_mark, graphic_entity);
                         graphic.shape_mesh().iter_mut().for_each(|shape| {
@@ -288,6 +291,7 @@ pub fn handler_render_list(
                                         graphic_entity,
                                         transform,
                                         shape,
+                                        blend_type.clone().into(),
                                     );
                                 }
                                 ShapeDrawType::Gradient(gradient_material) => {
@@ -299,6 +303,7 @@ pub fn handler_render_list(
                                         graphic_entity,
                                         transform,
                                         shape,
+                                        blend_type.clone().into(),
                                     );
                                 }
                                 ShapeDrawType::Bitmap(bitmap_material) => {
@@ -310,6 +315,7 @@ pub fn handler_render_list(
                                         graphic_entity,
                                         transform,
                                         shape,
+                                        blend_type.clone().into(),
                                     );
                                 }
                             }
@@ -361,6 +367,7 @@ fn update_swf_material<T: SwfMaterial>(
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn spawn_mesh<T: SwfMaterial>(
     commands: &mut Commands,
     mut swf_material: T,
@@ -369,8 +376,10 @@ fn spawn_mesh<T: SwfMaterial>(
     parent_entity: Entity,
     transform: Transform,
     shape: &ShapeMesh,
+    alpha_mode2d: AlphaMode2d,
 ) {
     swf_material.update_swf_material(swf_transform);
+    swf_material.set_alpha_mode2d(alpha_mode2d);
     let aabb_transform = swf_material.world_transform();
     commands.entity(parent_entity).with_children(|parent| {
         parent.spawn((
@@ -387,22 +396,50 @@ fn spawn_mesh<T: SwfMaterial>(
 pub fn calculate_shape_bounds(
     mut commands: Commands,
     meshes: Res<Assets<Mesh>>,
-    meshes_without_aabb: Query<(Entity, &Mesh2d, &SwfShapeMesh), Without<NoFrustumCulling>>,
+    meshes_without_aabb: Query<
+        (Entity, &Mesh2d, &SwfShapeMesh, &GlobalTransform),
+        (Without<Aabb>, Without<NoFrustumCulling>),
+    >,
+    meshes_with_aabb: Query<
+        (Entity, &Mesh2d, &SwfShapeMesh, &GlobalTransform),
+        Without<NoFrustumCulling>,
+    >,
+    mut resize_reader: EventReader<WindowResized>,
+    query_window: Query<&Window>,
 ) {
-    meshes_without_aabb
-        .iter()
-        .for_each(|(entity, mesh_handle, swf_shape_mesh)| {
-            if let Some(mesh) = meshes.get(&mesh_handle.0) {
-                if let Some(mut aabb) = mesh.compute_aabb() {
-                    let swf_transform = Mat4::from_cols_array_2d(&[
-                        [1.0, 0.0, 0.0, 0.0],
-                        [0.0, -1.0, 0.0, 0.0],
-                        [0.0, 0.0, 1.0, 0.0],
-                        [0.0, 0.0, 0.0, 1.0],
-                    ]) * swf_shape_mesh.transform;
-                    aabb.center = swf_transform.transform_point3a(aabb.center);
-                    commands.entity(entity).try_insert(aabb);
-                }
+    let mut calculate = |(entity, mesh_handle, swf_shape_mesh, global_transform): (
+        Entity,
+        &Mesh2d,
+        &SwfShapeMesh,
+        &GlobalTransform,
+    ),
+                         size: Vec2| {
+        if let Some(mesh) = meshes.get(&mesh_handle.0) {
+            if let Some(mut aabb) = mesh.compute_aabb() {
+                let swf_transform = Mat4::from_cols_array_2d(&[
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, -1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [
+                        size.x / (-2.0 * global_transform.scale().x.abs()),
+                        size.y / (2.0 * global_transform.scale().x.abs()),
+                        0.0,
+                        1.0,
+                    ],
+                ]) * swf_shape_mesh.transform;
+                aabb.center = swf_transform.transform_point3a(aabb.center);
+                commands.entity(entity).try_insert(aabb);
             }
-        });
+        }
+    };
+    meshes_without_aabb.iter().for_each(|item| {
+        if let Ok(window) = query_window.single() {
+            calculate(item, window.size());
+        }
+    });
+    for e in resize_reader.read() {
+        meshes_with_aabb
+            .iter()
+            .for_each(|item| calculate(item, Vec2::new(e.width, e.height)));
+    }
 }
