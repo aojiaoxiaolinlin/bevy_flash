@@ -1,32 +1,38 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use bevy::asset::weak_handle;
+use bevy::asset::{RenderAssetUsages, weak_handle};
+use bevy::core_pipeline::core_2d::Camera2d;
 use bevy::ecs::event::EventReader;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::image::Image;
 use bevy::math::Vec2;
+use bevy::render::camera::{Camera, RenderToIntermediateTexture};
 use bevy::render::mesh::MeshAabb;
 use bevy::render::primitives::Aabb;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+use bevy::render::view::RenderLayers;
 use bevy::sprite::AlphaMode2d;
 use bevy::transform::components::GlobalTransform;
 use bevy::window::{Window, WindowResized};
 use bevy::{
     app::{App, Plugin, PostUpdate, Update},
-    asset::{load_internal_asset, Assets, Handle},
+    asset::{Assets, Handle, load_internal_asset},
     math::{Mat4, Vec3},
     prelude::{
         Children, Commands, Component, Entity, Mesh, Mesh2d, Query, Res, ResMut, Shader, Transform,
         Visibility, With, Without,
     },
     render::{
-        view::{NoFrustumCulling, VisibilitySystems},
         RenderApp,
+        view::{NoFrustumCulling, VisibilitySystems},
     },
     sprite::{Material2dPlugin, MeshMaterial2d},
 };
 use blend_pipeline::{BlendType, TrivialBlend};
-use filter::blur::BLUR_FILTER_SHADER_HANDLE;
+use filter::{BLUR_FILTER_SHADER_HANDLE, Filter};
 use material::{BitmapMaterial, GradientMaterial, SwfColorMaterial, SwfMaterial, SwfTransform};
 use ruffle_render::transform::Transform as RuffleTransform;
+use swf::{Rectangle as SwfRectangle, Twips};
 
 use crate::assets::SwfMovie;
 use crate::{
@@ -34,6 +40,11 @@ use crate::{
     plugin::{ShapeDrawType, ShapeMesh},
     swf::display_object::{DisplayObject, TDisplayObject},
 };
+
+pub mod blend_pipeline;
+pub mod filter;
+pub(crate) mod material;
+pub(crate) mod tessellator;
 
 pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("8c2a5b0f-3e6d-4f8a-b217-84d2f5e1c9b3");
@@ -43,11 +54,9 @@ pub const BITMAP_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("a34c7d82-1f5b-4a9e-93d8-6b7e20c45a1f");
 pub const FLASH_COMMON_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("e53b9f82-6a4c-4d5b-91e7-4f2a63b8c5d9");
-pub mod blend_pipeline;
-pub mod filter;
-pub(crate) mod material;
-pub(crate) mod node;
-pub(crate) mod tessellator;
+
+const INTERMEDIATE_TEXTURE_LAYERS: RenderLayers = RenderLayers::layer(63);
+
 pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {
@@ -115,15 +124,16 @@ pub struct SwfShapeMesh {
 #[allow(clippy::too_many_arguments)]
 pub fn render_swf(
     mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
     mut color_materials: ResMut<Assets<SwfColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
-    mut query: Query<(&mut FlashAnimation, Entity)>,
+    mut query: Query<(Entity, &mut FlashAnimation, &GlobalTransform)>,
     mut entities_material_query: Query<SwfShapeMeshQuery>,
     graphic_query: Query<(Entity, &Children), With<SwfGraph>>,
 ) {
-    for (mut flash_animation, entity) in query.iter_mut() {
+    for (entity, mut flash_animation, global_transform) in query.iter_mut() {
         match flash_animation.status {
             SwfState::Loading => {
                 continue;
@@ -142,11 +152,12 @@ pub fn render_swf(
                         .display_objects_mut();
 
                     let mut z_index = 0.000;
-
-                    handler_render_list(
+                    exec_render_list(
                         entity,
+                        global_transform,
                         &graphic_query,
                         &mut commands,
+                        &mut images,
                         &mut color_materials,
                         &mut gradient_materials,
                         &mut bitmap_materials,
@@ -157,6 +168,7 @@ pub fn render_swf(
                         &parent_clip_transform,
                         &mut z_index,
                         BlendType::Trivial(TrivialBlend::Normal),
+                        Vec::new(),
                     );
 
                     flash_animation
@@ -185,10 +197,12 @@ pub fn render_swf(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn handler_render_list(
+pub fn exec_render_list(
     parent_entity: Entity,
+    global_transform: &GlobalTransform,
     graphic_children_entities: &Query<'_, '_, (Entity, &Children), With<SwfGraph>>,
     commands: &mut Commands,
+    images: &mut ResMut<Assets<Image>>,
     color_materials: &mut ResMut<Assets<SwfColorMaterial>>,
     gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
     bitmap_materials: &mut ResMut<Assets<BitmapMaterial>>,
@@ -199,6 +213,7 @@ pub fn handler_render_list(
     parent_clip_transform: &RuffleTransform,
     z_index: &mut f32,
     blend_type: BlendType,
+    mut filters: Vec<Filter>,
 ) {
     for display_object in render_list.iter() {
         if let Some(display_object) = display_objects.get_mut(display_object) {
@@ -277,6 +292,25 @@ pub fn handler_render_list(
                         let graphic_entity = commands.spawn(SwfGraph).id();
                         commands.entity(parent_entity).add_child(graphic_entity);
                         shape_mark_entities.add_entities_pool(shape_mark, graphic_entity);
+
+                        let is_filter = !filters.is_empty();
+                        if is_filter {
+                            let intermediate_texture = images.add(generate_image_for_filter(
+                                &graphic.bounds,
+                                &mut filters,
+                                global_transform.scale(),
+                                swf_transform.scale(),
+                            ));
+                            commands.entity(graphic_entity).insert((
+                                Camera2d,
+                                Camera {
+                                    target: intermediate_texture.clone().into(),
+                                    ..Default::default()
+                                },
+                                INTERMEDIATE_TEXTURE_LAYERS,
+                                RenderToIntermediateTexture,
+                            ));
+                        }
                         graphic.shape_mesh().iter_mut().for_each(|shape| {
                             *z_index += 0.001;
                             let transform =
@@ -292,6 +326,7 @@ pub fn handler_render_list(
                                         transform,
                                         shape,
                                         blend_type.clone().into(),
+                                        is_filter,
                                     );
                                 }
                                 ShapeDrawType::Gradient(gradient_material) => {
@@ -304,6 +339,7 @@ pub fn handler_render_list(
                                         transform,
                                         shape,
                                         blend_type.clone().into(),
+                                        is_filter,
                                     );
                                 }
                                 ShapeDrawType::Bitmap(bitmap_material) => {
@@ -316,6 +352,7 @@ pub fn handler_render_list(
                                         transform,
                                         shape,
                                         blend_type.clone().into(),
+                                        is_filter,
                                     );
                                 }
                             }
@@ -330,11 +367,13 @@ pub fn handler_render_list(
                             * movie_clip.base().transform().color_transform,
                     };
                     let blend_type = BlendType::from(movie_clip.blend_mode());
-
-                    handler_render_list(
+                    let filters = movie_clip.filters();
+                    exec_render_list(
                         parent_entity,
+                        global_transform,
                         graphic_children_entities,
                         commands,
+                        images,
                         color_materials,
                         gradient_materials,
                         bitmap_materials,
@@ -345,6 +384,7 @@ pub fn handler_render_list(
                         &current_transform,
                         z_index,
                         blend_type,
+                        filters,
                     );
                 }
             }
@@ -377,6 +417,7 @@ fn spawn_mesh<T: SwfMaterial>(
     transform: Transform,
     shape: &ShapeMesh,
     alpha_mode2d: AlphaMode2d,
+    is_filter: bool,
 ) {
     swf_material.update_swf_material(swf_transform);
     swf_material.set_alpha_mode2d(alpha_mode2d);
@@ -389,22 +430,71 @@ fn spawn_mesh<T: SwfMaterial>(
             SwfShapeMesh {
                 transform: aabb_transform,
             },
+            if is_filter {
+                INTERMEDIATE_TEXTURE_LAYERS
+            } else {
+                RenderLayers::default()
+            },
         ));
     });
+}
+
+fn generate_image_for_filter(
+    bounds: &SwfRectangle<Twips>,
+    filters: &mut Vec<Filter>,
+    global_scale: Vec3,
+    swf_scale: Vec3,
+) -> Image {
+    let width = bounds.width().to_pixels().ceil().max(0.0);
+    let height = bounds.height().to_pixels().ceil().max(0.0);
+    let mut filter_rect = SwfRectangle {
+        x_min: Twips::ZERO,
+        x_max: Twips::from_pixels_i32(width as i32),
+        y_min: Twips::ZERO,
+        y_max: Twips::from_pixels_i32(height as i32),
+    };
+
+    let scale_x = global_scale.x * swf_scale.x;
+    let scale_y = global_scale.y * swf_scale.y;
+
+    for filter in filters {
+        filter.scale(scale_x, scale_y);
+        filter_rect = filter.calculate_dest_rect(filter_rect);
+    }
+
+    let filter_rect = SwfRectangle {
+        x_min: filter_rect.x_min.to_pixels().floor() as i32,
+        x_max: filter_rect.x_max.to_pixels().ceil() as i32,
+        y_min: filter_rect.y_min.to_pixels().floor() as i32,
+        y_max: filter_rect.y_max.to_pixels().ceil() as i32,
+    };
+    let width = filter_rect.width() as u32;
+    let height = filter_rect.height() as u32;
+    let size = Extent3d {
+        width,
+        height,
+        ..Default::default()
+    };
+
+    let mut image = Image::new_uninit(
+        size,
+        TextureDimension::D2,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+
+    image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    image
 }
 
 pub fn calculate_shape_bounds(
     mut commands: Commands,
     meshes: Res<Assets<Mesh>>,
-    meshes_without_aabb: Query<
-        (Entity, &Mesh2d, &SwfShapeMesh, &GlobalTransform),
-        (Without<Aabb>, Without<NoFrustumCulling>),
-    >,
-    meshes_with_aabb: Query<
+    shape_meshes: Query<
         (Entity, &Mesh2d, &SwfShapeMesh, &GlobalTransform),
         Without<NoFrustumCulling>,
     >,
-    mut resize_reader: EventReader<WindowResized>,
     query_window: Query<&Window>,
 ) {
     let mut calculate = |(entity, mesh_handle, swf_shape_mesh, global_transform): (
@@ -432,14 +522,9 @@ pub fn calculate_shape_bounds(
             }
         }
     };
-    meshes_without_aabb.iter().for_each(|item| {
+    shape_meshes.iter().for_each(|item| {
         if let Ok(window) = query_window.single() {
             calculate(item, window.size());
         }
     });
-    for e in resize_reader.read() {
-        meshes_with_aabb
-            .iter()
-            .for_each(|item| calculate(item, Vec2::new(e.width, e.height)));
-    }
 }

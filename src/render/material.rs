@@ -1,6 +1,6 @@
 use bevy::{
     asset::{Asset, Handle},
-    math::{Mat4, Vec4},
+    math::{Mat4, Vec3, Vec4},
     prelude::Image,
     reflect::TypePath,
     render::render_resource::{AsBindGroup, ShaderType},
@@ -123,6 +123,16 @@ pub struct SwfTransform {
     pub world_transform: Mat4,
     mult_color: Vec4,
     add_color: Vec4,
+}
+
+impl SwfTransform {
+    pub fn scale(&self) -> Vec3 {
+        Vec3::new(
+            self.world_transform.x_axis.x,
+            self.world_transform.y_axis.y,
+            1.0,
+        )
+    }
 }
 
 impl From<RuffleTransform> for SwfTransform {

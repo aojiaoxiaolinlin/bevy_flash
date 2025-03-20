@@ -1,4 +1,5 @@
 use bevy::{
+    DefaultPlugins,
     app::{App, Startup, Update},
     asset::{AssetServer, Assets},
     color::Color,
@@ -6,16 +7,16 @@ use bevy::{
     input::ButtonInput,
     math::Vec3,
     prelude::{
-        Camera2d, ClearColor, Commands, Entity, EventReader, KeyCode, Msaa, Query, Res, ResMut,
-        Transform,
+        Camera2d, ClearColor, Commands, Entity, EventReader, KeyCode, Msaa, PluginGroup, Query,
+        Res, ResMut, Transform,
     },
-    DefaultPlugins,
+    window::{Window, WindowPlugin},
 };
 use bevy_flash::{
     assets::SwfMovie,
     bundle::FlashAnimation,
     plugin::{FlashPlayerTimer, FlashPlugin, SwfInitEvent},
-    swf::display_object::{movie_clip::NextFrame, TDisplayObject},
+    swf::display_object::{TDisplayObject, movie_clip::NextFrame},
 };
 
 fn main() {
@@ -25,7 +26,17 @@ fn main() {
             102.0 / 255.0,
             102.0 / 255.0,
         )))
-        .add_plugins((DefaultPlugins, FlashPlugin, FpsOverlayPlugin::default()))
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    present_mode: bevy::window::PresentMode::AutoNoVsync,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            FlashPlugin,
+            FpsOverlayPlugin::default(),
+        ))
         .add_systems(Startup, setup)
         .add_systems(Update, control)
         .run();

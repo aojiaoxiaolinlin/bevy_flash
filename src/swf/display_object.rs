@@ -10,11 +10,12 @@ use ruffle_render::{
     backend::RenderBackend,
     bitmap::{BitmapHandle, BitmapInfo},
     blend::ExtendedBlendMode,
-    filters::Filter,
     matrix::Matrix,
     transform::Transform,
 };
 use swf::{CharacterId, Color, ColorTransform, Depth, Point, Rectangle, Twips};
+
+use crate::render::filter::Filter;
 
 use super::{library::MovieLibrary, tag_utils::SwfMovie};
 
