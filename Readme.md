@@ -12,7 +12,7 @@
 cargo run --package bevy_flash --example sample
 ```
 
-![展示](./assets/docs/xiao_hai_shen_long.png)
+![展示](./docs/Readme/xiao_hai_shen_long.png)
 
 > Reference [Ruffle](https://github.com/ruffle-rs/ruffle/);
 
