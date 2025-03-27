@@ -1,5 +1,5 @@
 use bevy::{
-    asset::{weak_handle, Handle},
+    asset::{Handle, weak_handle},
     core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state,
     ecs::{component::Component, resource::Resource, world::FromWorld},
     image::BevyDefault,
@@ -7,11 +7,11 @@ use bevy::{
         extract_component::ExtractComponent,
         render_graph::{RenderLabel, ViewNode},
         render_resource::{
-            binding_types::{sampler, texture_2d},
             BindGroupLayout, BindGroupLayoutEntries, CachedRenderPipelineId, ColorTargetState,
             ColorWrites, FragmentState, MultisampleState, PipelineCache, PrimitiveState,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, Shader,
-            ShaderStages, TextureFormat, TextureSampleType, VertexState,
+            ShaderStages, TextureFormat, TextureSampleType,
+            binding_types::{sampler, texture_2d},
         },
         renderer::RenderDevice,
         view::ViewTarget,

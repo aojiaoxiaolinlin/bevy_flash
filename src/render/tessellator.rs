@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use bevy::log::error;
 use indexmap::IndexSet;
 use lyon_tessellation::math::Point;
 use lyon_tessellation::{
-    path::Path, BuffersBuilder, FillOptions, FillTessellator, StrokeOptions, StrokeTessellator,
-    VertexBuffers,
+    BuffersBuilder, FillOptions, FillTessellator, StrokeOptions, StrokeTessellator, VertexBuffers,
+    path::Path,
 };
 use lyon_tessellation::{FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor};
 use ruffle_render::matrix::Matrix;
@@ -11,8 +13,9 @@ use ruffle_render::{
     shape_utils::{DistilledShape, DrawCommand, DrawPath, GradientType},
     tessellator::{Bitmap, Draw, DrawType, Gradient, Mesh, Vertex},
 };
+use swf::CharacterId;
 
-use crate::swf::library::MovieLibrary;
+use crate::swf::characters::CompressedBitmap;
 
 pub struct ShapeTessellator {
     fill_tess: FillTessellator,
@@ -37,7 +40,11 @@ impl ShapeTessellator {
         }
     }
 
-    pub fn tessellate_shape(&mut self, shape: DistilledShape, library: &MovieLibrary) -> Mesh {
+    pub fn tessellate_shape(
+        &mut self,
+        shape: DistilledShape,
+        library: &HashMap<CharacterId, CompressedBitmap>,
+    ) -> Mesh {
         self.mesh = Vec::new();
         self.gradients = IndexSet::new();
         self.lyon_mesh = VertexBuffers::new();
@@ -111,7 +118,7 @@ impl ShapeTessellator {
                     is_smoothed,
                     is_repeating,
                 } => {
-                    if let Some(compressed_bitmap) = library.get_bitmap(*id) {
+                    if let Some(compressed_bitmap) = library.get(id) {
                         let bitmap_size = compressed_bitmap.size();
                         (
                             DrawType::Bitmap(Bitmap {

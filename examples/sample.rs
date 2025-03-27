@@ -15,8 +15,8 @@ use bevy::{
 use bevy_flash::{
     assets::SwfMovie,
     bundle::FlashAnimation,
-    plugin::{FlashPlayerTimer, FlashPlugin, SwfInitEvent},
     swf::display_object::{TDisplayObject, movie_clip::NextFrame},
+    {FlashPlayerTimer, FlashPlugin, SwfInitEvent},
 };
 
 fn main() {
@@ -57,14 +57,14 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
     ));
 
-    commands.spawn((
-        FlashAnimation {
-            name: Some(String::from("m")),
-            swf_movie: assert_server.load("131381-idle.swf"),
-            ..Default::default()
-        },
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(8.0)),
-    ));
+    // commands.spawn((
+    //     FlashAnimation {
+    //         name: Some(String::from("m")),
+    //         swf_movie: assert_server.load("131381-idle.swf"),
+    //         ..Default::default()
+    //     },
+    //     Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(8.0)),
+    // ));
 
     commands.spawn((
         FlashAnimation {
@@ -112,12 +112,12 @@ fn control(
         query.iter_mut().for_each(|(flash_animation, entity)| {
             let name = flash_animation.name.clone();
             if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-                swf_movie.root_movie_clip.set_name(name);
-                if swf_movie.root_movie_clip.name() == Some("mc") {
+                swf_movie.movie_clip.set_name(name);
+                if swf_movie.movie_clip.name() == Some("mc") {
                     if swf_init_event.0 == entity {
                         swf_movie
-                            .root_movie_clip
-                            .goto_frame(&mut swf_movie.movie_library, 0, true);
+                            .movie_clip
+                            .goto_frame(&mut swf_movie.library, 0, true);
                     }
                 }
             }
@@ -127,18 +127,15 @@ fn control(
     query.iter_mut().for_each(|(flash_animation, _)| {
         if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
             if flash_animation.name.as_deref() == Some("mc") {
-                if let Some(first_child_movie_clip) =
-                    swf_movie.root_movie_clip.first_child_movie_clip()
+                if let Some(first_child_movie_clip) = swf_movie.movie_clip.first_child_movie_clip()
                 {
                     if matches!(
                         first_child_movie_clip.determine_next_frame(),
                         NextFrame::First
                     ) {
-                        swf_movie.root_movie_clip.goto_frame(
-                            &mut swf_movie.movie_library,
-                            20,
-                            true,
-                        );
+                        swf_movie
+                            .movie_clip
+                            .goto_frame(&mut swf_movie.library, 20, true);
                     }
                 }
             }
@@ -150,8 +147,8 @@ fn control(
             if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
                 if flash_animation.name.as_deref() == Some("mc") {
                     swf_movie
-                        .root_movie_clip
-                        .goto_frame(&mut swf_movie.movie_library, frame, true);
+                        .movie_clip
+                        .goto_frame(&mut swf_movie.library, frame, true);
                 }
             }
         });

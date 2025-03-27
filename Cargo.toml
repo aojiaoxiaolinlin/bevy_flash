@@ -13,6 +13,7 @@ ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle.git", tag = "n
 ruffle_macros = { git = "https://github.com/ruffle-rs/ruffle.git", tag = "nightly-2024-12-09" }
 swf_macro = { path = "./swf_macro" }
 smallvec = { version = "1.13.2", features = ["union"] }
+bytemuck = { version = "1.21.0", features = ["derive"] }
 
 bevy = { path = "../bevy", default-features = false, features = [
     "bevy_asset",
@@ -25,10 +26,9 @@ bitflags = "2.5"
 lyon_tessellation = "1.0"
 indexmap = "2.7"
 copyless = "0.1.5"
-
 uuid = "1.10"
 enum-map = "2.7.3"
-
+wgpu = "24"
 [dev-dependencies]
 bevy = { path = "../bevy", features = ["bevy_dev_tools"] }
 

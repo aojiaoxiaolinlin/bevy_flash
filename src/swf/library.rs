@@ -10,6 +10,7 @@ use super::{
 #[derive(Clone, Default)]
 pub struct MovieLibrary {
     characters: HashMap<CharacterId, Character>,
+    bitmap_characters: HashMap<CharacterId, CompressedBitmap>,
     pub instance_count: u16,
 }
 
@@ -17,9 +18,14 @@ impl MovieLibrary {
     pub fn new() -> Self {
         Self {
             characters: HashMap::new(),
+            bitmap_characters: HashMap::new(),
             instance_count: 0,
         }
     }
+    pub fn register_bitmap_character(&mut self, id: CharacterId, bitmap: CompressedBitmap) {
+        self.bitmap_characters.insert(id, bitmap);
+    }
+
     pub fn register_character(&mut self, id: CharacterId, character: Character) {
         self.characters.insert(id, character);
     }
@@ -45,11 +51,7 @@ impl MovieLibrary {
         }
     }
 
-    pub fn get_bitmap(&self, id: CharacterId) -> Option<CompressedBitmap> {
-        if let Some(Character::Bitmap(bitmap)) = self.characters.get(&id) {
-            Some(bitmap.clone())
-        } else {
-            None
-        }
+    pub fn get_bitmap_characters(&self) -> HashMap<CharacterId, CompressedBitmap> {
+        self.bitmap_characters.clone()
     }
 }

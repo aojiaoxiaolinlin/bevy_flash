@@ -8,13 +8,14 @@ pub enum TrivialBlend {
     Add,
     Subtract,
     Screen,
+    Lighten,
+    Darken,
+    Multiply,
 }
 
 #[derive(Enum, Debug, Copy, Clone)]
 pub enum ComplexBlend {
-    Multiply,   // Can't be trivial, 0 alpha is special case
-    Lighten,    // Might be trivial but I can't reproduce the right colors
-    Darken,     // Might be trivial but I can't reproduce the right colors
+    // Multiply,   // Can't be trivial, 0 alpha is special case
     Difference, // Can't be trivial, relies on abs operation
     Invert,     // May be trivial using a constant? Hard because it's without premultiplied alpha
     Alpha,      // Can't be trivial, requires layer tracking
@@ -38,10 +39,10 @@ impl BlendType {
             ExtendedBlendMode::Add => BlendType::Trivial(TrivialBlend::Add),
             ExtendedBlendMode::Subtract => BlendType::Trivial(TrivialBlend::Subtract),
             ExtendedBlendMode::Screen => BlendType::Trivial(TrivialBlend::Screen),
+            ExtendedBlendMode::Lighten => BlendType::Trivial(TrivialBlend::Lighten),
+            ExtendedBlendMode::Darken => BlendType::Trivial(TrivialBlend::Darken),
+            ExtendedBlendMode::Multiply => BlendType::Trivial(TrivialBlend::Multiply),
             ExtendedBlendMode::Alpha => BlendType::Complex(ComplexBlend::Alpha),
-            ExtendedBlendMode::Multiply => BlendType::Complex(ComplexBlend::Multiply),
-            ExtendedBlendMode::Lighten => BlendType::Complex(ComplexBlend::Lighten),
-            ExtendedBlendMode::Darken => BlendType::Complex(ComplexBlend::Darken),
             ExtendedBlendMode::Difference => BlendType::Complex(ComplexBlend::Difference),
             ExtendedBlendMode::Invert => BlendType::Complex(ComplexBlend::Invert),
             ExtendedBlendMode::Erase => BlendType::Complex(ComplexBlend::Erase),
@@ -59,9 +60,9 @@ impl From<BlendType> for AlphaMode2d {
             BlendType::Trivial(TrivialBlend::Add) => AlphaMode2d::Add,
             BlendType::Trivial(TrivialBlend::Subtract) => AlphaMode2d::Subtract,
             BlendType::Trivial(TrivialBlend::Screen) => AlphaMode2d::Screen,
-            BlendType::Complex(ComplexBlend::Lighten) => AlphaMode2d::Lighten,
-            BlendType::Complex(ComplexBlend::Multiply) => AlphaMode2d::Multiply,
-            BlendType::Complex(ComplexBlend::Darken) => AlphaMode2d::Darken,
+            BlendType::Trivial(TrivialBlend::Lighten) => AlphaMode2d::Lighten,
+            BlendType::Trivial(TrivialBlend::Multiply) => AlphaMode2d::Multiply,
+            BlendType::Trivial(TrivialBlend::Darken) => AlphaMode2d::Darken,
             // TODO: Implement complex blend modes
             _ => AlphaMode2d::Blend,
         }

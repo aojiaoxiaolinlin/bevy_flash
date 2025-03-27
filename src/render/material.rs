@@ -6,6 +6,7 @@ use bevy::{
     render::render_resource::{AsBindGroup, ShaderType},
     sprite::{AlphaMode2d, Material2d},
 };
+use bytemuck::{Pod, Zeroable};
 use ruffle_render::{
     shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
 };
@@ -49,7 +50,8 @@ impl Material2d for GradientMaterial {
     }
 }
 
-#[derive(Debug, Clone, Default, ShaderType)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable)]
 pub struct GradientUniforms {
     pub focal_point: f32,
     pub interpolation: i32,
@@ -121,8 +123,8 @@ impl Material2d for BitmapMaterial {
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct SwfTransform {
     pub world_transform: Mat4,
-    mult_color: Vec4,
-    add_color: Vec4,
+    pub mult_color: Vec4,
+    pub add_color: Vec4,
 }
 
 impl SwfTransform {

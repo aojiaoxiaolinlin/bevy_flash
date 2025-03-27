@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bevy::{
-    asset::{io::Reader, Asset, AssetLoader, LoadContext},
+    asset::{Asset, AssetLoader, LoadContext, io::Reader},
     reflect::TypePath,
 };
 
@@ -9,9 +9,8 @@ use crate::swf::{display_object::movie_clip::MovieClip, library::MovieLibrary, t
 
 #[derive(Asset, TypePath)]
 pub struct SwfMovie {
-    pub swf_movie: Arc<tag_utils::SwfMovie>,
-    pub movie_library: MovieLibrary,
-    pub root_movie_clip: MovieClip,
+    pub library: MovieLibrary,
+    pub movie_clip: MovieClip,
 }
 
 #[derive(Default)]
@@ -32,10 +31,13 @@ impl AssetLoader for SwfLoader {
         let mut swf_data = Vec::new();
         reader.read_to_end(&mut swf_data).await?;
         let swf_movie = Arc::new(tag_utils::SwfMovie::from_data(&swf_data[..])?);
+        let mut movie_clip = MovieClip::new(swf_movie.clone());
+        let mut library = MovieLibrary::new();
+        movie_clip.parse_swf(&mut library);
+        movie_clip.current_frame = 0;
         Ok(SwfMovie {
-            swf_movie,
-            movie_library: MovieLibrary::new(),
-            root_movie_clip: MovieClip::default(),
+            library,
+            movie_clip,
         })
     }
 

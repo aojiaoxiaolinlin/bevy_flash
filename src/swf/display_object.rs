@@ -1,6 +1,5 @@
 pub(crate) mod graphic;
 pub mod movie_clip;
-use std::sync::Arc;
 
 use bitflags::bitflags;
 use graphic::Graphic;
@@ -17,7 +16,7 @@ use swf::{CharacterId, Color, ColorTransform, Depth, Point, Rectangle, Twips};
 
 use crate::render::filter::Filter;
 
-use super::{library::MovieLibrary, tag_utils::SwfMovie};
+use super::library::MovieLibrary;
 
 bitflags! {
     /// Bit flags used by `DisplayObject`.
@@ -324,7 +323,6 @@ impl DisplayObjectBase {
 pub trait TDisplayObject: Clone + Into<DisplayObject> {
     fn base(&self) -> &DisplayObjectBase;
     fn base_mut(&mut self) -> &mut DisplayObjectBase;
-    fn movie(&self) -> Arc<SwfMovie>;
     fn character_id(&self) -> CharacterId;
     fn depth(&self) -> Depth {
         self.base().depth

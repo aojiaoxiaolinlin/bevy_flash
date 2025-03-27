@@ -588,6 +588,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "bitflags 2.9.0",
+ "bytemuck",
  "copyless",
  "enum-map",
  "indexmap",
@@ -600,6 +601,7 @@ dependencies = [
  "swf_macro",
  "thiserror 1.0.69",
  "uuid",
+ "wgpu 24.0.1",
 ]
 
 [[package]]

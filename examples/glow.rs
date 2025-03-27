@@ -1,11 +1,11 @@
 use bevy::{
+    DefaultPlugins,
     app::{App, Startup},
     asset::AssetServer,
     color::Color,
     prelude::{Camera2d, ClearColor, Commands, Res},
-    DefaultPlugins,
 };
-use bevy_flash::{bundle::FlashAnimation, plugin::FlashPlugin};
+use bevy_flash::{FlashPlugin, bundle::FlashAnimation};
 
 fn main() {
     App::new()

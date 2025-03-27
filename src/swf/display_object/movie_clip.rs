@@ -7,8 +7,8 @@ use bitflags::bitflags;
 use ruffle_render::matrix::Matrix;
 use smallvec::SmallVec;
 use swf::{
-    extensions::ReadSwfExt, read::Reader, CharacterId, Color, Depth, PlaceObjectAction, SwfStr,
-    TagCode,
+    CharacterId, Color, Depth, PlaceObjectAction, SwfStr, TagCode, extensions::ReadSwfExt,
+    read::Reader,
 };
 
 use crate::swf::{
@@ -18,7 +18,7 @@ use crate::swf::{
     tag_utils::{self, ControlFlow, Error, SwfMovie, SwfSlice, SwfStream},
 };
 
-use super::{graphic::Graphic, DisplayObject, DisplayObjectBase, TDisplayObject};
+use super::{DisplayObject, DisplayObjectBase, TDisplayObject, graphic::Graphic};
 
 type FrameNumber = u16;
 type SwfVersion = u8;
@@ -104,6 +104,10 @@ impl MovieClip {
             tag_stream_pos: 0,
             queued_tags: HashMap::new(),
         }
+    }
+
+    fn movie(&self) -> Arc<SwfMovie> {
+        self.swf.movie.clone()
     }
 
     pub fn raw_container(&self) -> &ChildContainer {
@@ -207,7 +211,7 @@ impl MovieClip {
     ) -> Result<(), Error> {
         let swf_shape = reader.read_define_shape(version)?;
         let id = swf_shape.id;
-        let graphic = Graphic::from_swf_tag(swf_shape, self.movie().clone());
+        let graphic = Graphic::from_swf_tag(swf_shape);
         library.register_character(id, Character::Graphic(graphic));
         Ok(())
     }
@@ -227,14 +231,14 @@ impl MovieClip {
         let jpeg_data = reader.read_slice(jpeg_len)?;
         let alpha_data = reader.read_slice_to_end();
         let (width, height) = ruffle_render::utils::decode_define_bits_jpeg_dimensions(jpeg_data)?;
-        library.register_character(
+        library.register_bitmap_character(
             id,
-            Character::Bitmap(CompressedBitmap::Jpeg {
+            CompressedBitmap::Jpeg {
                 data: jpeg_data.to_owned(),
                 alpha: Some(alpha_data.to_owned()),
                 width,
                 height,
-            }),
+            },
         );
         Ok(())
     }
@@ -848,10 +852,6 @@ impl TDisplayObject for MovieClip {
                 }
             }
         }
-    }
-
-    fn movie(&self) -> Arc<SwfMovie> {
-        self.swf.movie.clone()
     }
 }
 
