@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use bevy::{
     asset::{Handle, weak_handle},
+    core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state,
     ecs::{
         resource::Resource,
         system::{Query, Res, ResMut, SystemState},
@@ -21,13 +22,15 @@ use bevy::{
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::RenderDevice,
-        sync_world::{MainEntity, MainEntityHashMap},
-        texture::GpuImage,
         view::Msaa,
     },
 };
 
-use super::{MeshDrawType, SwfVertex, material::GradientUniforms};
+use super::{
+    ExtractedIntermediateTexture, MeshDrawType,
+    graph::filter::{BlurUniform, ColorMatrixUniform, GlowFilterUniform},
+    material::GradientUniforms,
+};
 
 pub const INTERMEDIATE_TEXTURE_MESH: Handle<Shader> =
     weak_handle!("f1e2d3c4-b5a6-4978-8c9d-0e1f2a3b4c5d");
@@ -188,31 +191,201 @@ impl SpecializedRenderPipeline for IntermediateTexturePipeline {
     }
 }
 
-#[derive(Resource, Default)]
-pub struct IntermediateRenderPhases(pub MainEntityHashMap<CachedRenderPipelineId>);
-
 pub fn specialize_meshes(
     mut specialized_render_pipelines: ResMut<
         SpecializedRenderPipelines<IntermediateTexturePipeline>,
     >,
-    mut intermediate_texture_phases: ResMut<IntermediateRenderPhases>,
     intermediate_texture_pipeline: Res<IntermediateTexturePipeline>,
     pipeline_cache: Res<PipelineCache>,
-    query: Query<(MainEntity, &SwfVertex)>,
+    mut query: Query<&mut ExtractedIntermediateTexture>,
 ) {
-    for (entity, swf_vertex) in query.iter() {
-        let key = match swf_vertex.mesh_draw_type {
-            MeshDrawType::Color(_) => IntermediateTextureKey::COLOR,
-            MeshDrawType::Gradient(_) => IntermediateTextureKey::GRADIENT,
-            MeshDrawType::Bitmap => IntermediateTextureKey::BITMAP,
-        };
-        let pipeline_id = specialized_render_pipelines.specialize(
-            &pipeline_cache,
-            &intermediate_texture_pipeline,
-            key,
+    for mut intermediate_texture in query.iter_mut() {
+        for swf_vertex in intermediate_texture.view_entities.iter_mut() {
+            let key = match swf_vertex.mesh_draw_type {
+                MeshDrawType::Color(_) => IntermediateTextureKey::COLOR,
+                MeshDrawType::Gradient(_) => IntermediateTextureKey::GRADIENT,
+                MeshDrawType::Bitmap => IntermediateTextureKey::BITMAP,
+            };
+            let pipeline_id = specialized_render_pipelines.specialize(
+                &pipeline_cache,
+                &intermediate_texture_pipeline,
+                key,
+            );
+            swf_vertex.pipeline_id = pipeline_id;
+        }
+    }
+}
+
+pub const BLUR_FILTER_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("f59e3d1c-7a24-4b8c-82a3-1d94e6f2c705");
+
+pub const COLOR_MATRIX_FILTER_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("1a2b3c4d-5e6f-4789-0123-456789abcdef");
+
+pub const GLOW_FILTER_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("c1d2e3f4-a5b6-4789-0123-456789abcdef");
+#[derive(Resource)]
+pub struct BlurFilterPipeline {
+    pub layout: BindGroupLayout,
+    pub sampler: Sampler,
+    pub pipeline_id: CachedRenderPipelineId,
+}
+
+impl FromWorld for BlurFilterPipeline {
+    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let layout = render_device.create_bind_group_layout(
+            "blur_filter_bind_group_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    uniform_buffer::<BlurUniform>(false),
+                ),
+            ),
         );
-        intermediate_texture_phases
-            .0
-            .insert(entity.into(), pipeline_id);
+        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
+
+        let descriptor = RenderPipelineDescriptor {
+            label: Some(Cow::from("blur_filter_render_pipeline")),
+            layout: vec![layout.clone()],
+            push_constant_ranges: vec![],
+            vertex: fullscreen_shader_vertex_state(),
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            fragment: Some(FragmentState {
+                shader: BLUR_FILTER_SHADER_HANDLE,
+                shader_defs: vec![],
+                entry_point: "fragment".into(),
+                targets: vec![Some(ColorTargetState {
+                    format: TextureFormat::bevy_default(),
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            zero_initialize_workgroup_memory: false,
+        };
+
+        let pipeline_id = pipeline_cache.queue_render_pipeline(descriptor);
+
+        Self {
+            layout,
+            sampler,
+            pipeline_id,
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct ColorMatrixFilterPipeline {
+    pub layout: BindGroupLayout,
+    pub sampler: Sampler,
+    pub pipeline_id: CachedRenderPipelineId,
+}
+
+impl FromWorld for ColorMatrixFilterPipeline {
+    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let layout = render_device.create_bind_group_layout(
+            "color_matrix_bind_group_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    uniform_buffer::<ColorMatrixUniform>(false),
+                ),
+            ),
+        );
+        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
+
+        let descriptor = RenderPipelineDescriptor {
+            label: Some(Cow::from("color_matrix_filter_render_pipeline")),
+            layout: vec![layout.clone()],
+            push_constant_ranges: vec![],
+            vertex: fullscreen_shader_vertex_state(),
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            fragment: Some(FragmentState {
+                shader: COLOR_MATRIX_FILTER_SHADER_HANDLE,
+                shader_defs: vec![],
+                entry_point: "fragment".into(),
+                targets: vec![Some(ColorTargetState {
+                    format: TextureFormat::bevy_default(),
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            zero_initialize_workgroup_memory: false,
+        };
+
+        let pipeline_id = pipeline_cache.queue_render_pipeline(descriptor);
+
+        Self {
+            layout,
+            sampler,
+            pipeline_id,
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct GlowFilterPipeline {
+    pub layout: BindGroupLayout,
+    pub sampler: Sampler,
+    pub pipeline_id: CachedRenderPipelineId,
+}
+
+impl FromWorld for GlowFilterPipeline {
+    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let layout = render_device.create_bind_group_layout(
+            "glow_filter_bind_group_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    uniform_buffer::<GlowFilterUniform>(false),
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                ),
+            ),
+        );
+        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
+
+        let descriptor = RenderPipelineDescriptor {
+            label: Some(Cow::from("glow_filter_filter_render_pipeline")),
+            layout: vec![layout.clone()],
+            push_constant_ranges: vec![],
+            vertex: fullscreen_shader_vertex_state(),
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            fragment: Some(FragmentState {
+                shader: GLOW_FILTER_SHADER_HANDLE,
+                shader_defs: vec![],
+                entry_point: "fragment".into(),
+                targets: vec![Some(ColorTargetState {
+                    format: TextureFormat::bevy_default(),
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            zero_initialize_workgroup_memory: false,
+        };
+
+        let pipeline_id = pipeline_cache.queue_render_pipeline(descriptor);
+
+        Self {
+            layout,
+            sampler,
+            pipeline_id,
+        }
     }
 }

@@ -23,6 +23,7 @@
   "cSpell.words": [
     "Aabb",
     "bitflags",
+    "blit",
     "bytemuck",
     "copyless",
     "despawn",
@@ -42,6 +43,7 @@
     "srgba",
     "subslice",
     "Tessellator",
+    "Texel",
     "thiserror",
     "tonemapping",
     "Twips",

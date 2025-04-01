@@ -56,6 +56,15 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         },
         Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
     ));
+    commands.spawn((
+        FlashAnimation {
+            name: Some(String::from("blur")),
+            swf_movie: assert_server.load("yue_se/frames.swf"),
+            ignore_root_swf_transform: false,
+            ..Default::default()
+        },
+        Transform::from_translation(Vec3::new(-100.0, 150.0, 0.0)).with_scale(Vec3::splat(2.0)),
+    ));
 
     // commands.spawn((
     //     FlashAnimation {

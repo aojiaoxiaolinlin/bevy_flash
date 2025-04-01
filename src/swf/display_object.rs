@@ -14,9 +14,7 @@ use ruffle_render::{
 };
 use swf::{CharacterId, Color, ColorTransform, Depth, Point, Rectangle, Twips};
 
-use crate::render::filter::Filter;
-
-use super::library::MovieLibrary;
+use super::{filter::Filter, library::MovieLibrary};
 
 bitflags! {
     /// Bit flags used by `DisplayObject`.

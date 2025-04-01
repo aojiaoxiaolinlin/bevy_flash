@@ -48,7 +48,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             color = saturate(color);
         }
     }
-    return common__srgb_to_linear(color);
+    return color;
 }
 
 

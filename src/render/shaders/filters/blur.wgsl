@@ -30,14 +30,15 @@ struct BlurFilter {
 
 
 @fragment
-fn main_fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    in.uv -= in.uv * filter_args.m;
+fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let direction = vec2<f32>(filter_args.dir_x, filter_args.dir_y);
+    var uv = in.uv;
+    uv -= direction * filter_args.m;
 
     var total = vec4<f32>(0.0);
 
     // The first (potentially fractional) pixel, to the left of the trivial pixel pairs.
-    total += textureSample(texture, texture_sampler, in.uv - direction) * filter_args.first_weight;
+    total += textureSample(texture, texture_sampler, uv - direction) * filter_args.first_weight;
 
     var center = vec4<f32>();
     for (var i = 0.5; i < filter_args.m2; i += 2.0) {
@@ -46,12 +47,12 @@ fn main_fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         // The +0.5 offset is baked right into i. This doesn't affect the
         // iteration (which has a granularity of 2.0, and is open-ended),
         // but saves an addition here in the loop body.
-        center += textureSample(texture, texture_sampler, in.uv + direction * i);
+        center += textureSample(texture, texture_sampler, uv + direction * i);
     }
     total += center * 2.0;
 
     // The last pixel pair, the second of which may have fractional weight, sampled together.
-    let last_location = in.uv + direction * (filter_args.m2 + filter_args.last_offset);
+    let last_location = uv + direction * (filter_args.m2 + filter_args.last_offset);
     total += textureSample(texture, texture_sampler, last_location) * filter_args.last_weight;
 
     // The sum of every weight is full_size.

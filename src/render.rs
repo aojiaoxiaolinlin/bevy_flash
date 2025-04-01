@@ -1,27 +1,30 @@
+use std::sync::atomic::AtomicUsize;
 use std::{collections::BTreeMap, sync::Arc};
 
 use bevy::asset::{RenderAssetUsages, weak_handle};
 use bevy::color::LinearRgba;
-use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::EntityCommands;
+use bevy::ecs::system::{EntityCommands, Local};
 use bevy::image::{BevyDefault, Image};
 use bevy::math::{UVec2, Vec2};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform_support::collections::hash_map::Entry;
+use bevy::platform_support::collections::{HashMap, HashSet};
+use bevy::reflect::Reflect;
+use bevy::render::camera::{NormalizedRenderTarget, RenderTarget};
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
-use bevy::render::graph::CameraDriverLabel;
 use bevy::render::mesh::{Indices, MeshAabb, PrimitiveTopology};
-use bevy::render::render_graph::RenderGraph;
+use bevy::render::render_asset::{self, RenderAssets};
+use bevy::render::render_graph::{InternedRenderSubGraph, RenderSubGraph};
 use bevy::render::render_resource::{
-    Extent3d, SpecializedRenderPipelines, TextureDescriptor, TextureDimension, TextureFormat,
-    TextureUsages,
+    CachedRenderPipelineId, Extent3d, SpecializedRenderPipelines, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages,
 };
 use bevy::render::renderer::RenderDevice;
-use bevy::render::sync_world::MainEntity;
-use bevy::render::texture::{ColorAttachment, TextureCache};
-use bevy::render::view::Msaa;
-use bevy::render::{Render, RenderSet};
-use bevy::sprite::AlphaMode2d;
+use bevy::render::sync_world::{MainEntity, RenderEntity, SyncToRenderWorld};
+use bevy::render::texture::{ColorAttachment, GpuImage, OutputColorAttachment, TextureCache};
+use bevy::render::view::{MainTargetTextures, Msaa, ViewTarget, ViewTargetAttachments};
+use bevy::render::{Extract, ExtractSchedule, Render, RenderSet};
+use bevy::sprite::{AlphaMode2d, ColorMaterial};
 use bevy::transform::components::GlobalTransform;
 use bevy::window::Window;
 use bevy::{
@@ -29,8 +32,8 @@ use bevy::{
     asset::{Assets, Handle, load_internal_asset},
     math::{Mat4, Vec3},
     prelude::{
-        Children, Commands, Component, Entity, Mesh, Mesh2d, Query, Res, ResMut, Shader, Transform,
-        Visibility, With, Without,
+        Children, Commands, Component, Deref, DerefMut, Entity, Mesh, Mesh2d, Query,
+        ReflectComponent, Res, ResMut, Shader, Transform, Visibility, With, Without,
     },
     render::{
         RenderApp,
@@ -39,32 +42,32 @@ use bevy::{
     sprite::{Material2dPlugin, MeshMaterial2d},
 };
 use blend_pipeline::{BlendType, TrivialBlend};
-use filter::{BLUR_FILTER_SHADER_HANDLE, Filter};
-use intermediate_texture_driver_node::{
-    IntermediateTextureDriverLabel, IntermediateTextureDriverNode, Vertex, VertexColor,
-};
+use graph::{FlashFilterRenderPlugin, FlashFilterSubGraph, RenderPhases};
 use material::{
     BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial, SwfMaterial, SwfTransform,
 };
 use pipeline::{
-    INTERMEDIATE_TEXTURE_GRADIENT, INTERMEDIATE_TEXTURE_MESH, IntermediateRenderPhases,
-    IntermediateTexturePipeline, specialize_meshes,
+    BLUR_FILTER_SHADER_HANDLE, COLOR_MATRIX_FILTER_SHADER_HANDLE, GLOW_FILTER_SHADER_HANDLE,
+    INTERMEDIATE_TEXTURE_GRADIENT, INTERMEDIATE_TEXTURE_MESH, IntermediateTexturePipeline,
+    specialize_meshes,
 };
+use raw_vertex::{Vertex, VertexColor};
 use ruffle_render::transform::Transform as RuffleTransform;
 use swf::{Rectangle as SwfRectangle, Twips};
 
 use crate::ShapeDrawType;
 use crate::assets::SwfMovie;
+use crate::swf::filter::Filter;
 use crate::{
     bundle::{FlashAnimation, ShapeMark, ShapeMarkEntities, SwfGraph, SwfState},
     swf::display_object::{DisplayObject, TDisplayObject},
 };
 
 pub(crate) mod blend_pipeline;
-pub(crate) mod filter;
-mod intermediate_texture_driver_node;
+mod graph;
 pub(crate) mod material;
 mod pipeline;
+mod raw_vertex;
 pub(crate) mod tessellator;
 
 pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
@@ -75,6 +78,15 @@ pub const BITMAP_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("a34c7d82-1f5b-4a9e-93d8-6b7e20c45a1f");
 pub const FLASH_COMMON_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("e53b9f82-6a4c-4d5b-91e7-4f2a63b8c5d9");
+
+type SwfShapeMeshQuery = (
+    Entity,
+    &'static mut Transform,
+    Option<&'static MeshMaterial2d<SwfColorMaterial>>,
+    Option<&'static MeshMaterial2d<GradientMaterial>>,
+    Option<&'static MeshMaterial2d<BitmapMaterial>>,
+    &'static mut SwfShapeMesh,
+);
 
 pub struct FlashRenderPlugin;
 
@@ -104,7 +116,6 @@ impl Plugin for FlashRenderPlugin {
             "render/shaders/bitmap.wgsl",
             Shader::from_wgsl
         );
-
         load_internal_asset!(
             app,
             INTERMEDIATE_TEXTURE_MESH,
@@ -117,50 +128,60 @@ impl Plugin for FlashRenderPlugin {
             "render/shaders/intermediate_texture/gradient.wgsl",
             Shader::from_wgsl
         );
-
         load_internal_asset!(
             app,
             BLUR_FILTER_SHADER_HANDLE,
             "render/shaders/filters/blur.wgsl",
             Shader::from_wgsl
         );
+        load_internal_asset!(
+            app,
+            COLOR_MATRIX_FILTER_SHADER_HANDLE,
+            "render/shaders/filters/color_matrix.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            GLOW_FILTER_SHADER_HANDLE,
+            "render/shaders/filters/glow.wgsl",
+            Shader::from_wgsl
+        );
 
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
             .add_plugins(Material2dPlugin::<SwfColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
-            .add_plugins(ExtractComponentPlugin::<IntermediateTexture>::default())
-            .add_plugins(ExtractComponentPlugin::<SwfVertex>::default())
+            .add_plugins(FlashFilterRenderPlugin)
+            .add_plugins(ExtractComponentPlugin::<FlashFilters>::default())
             .add_systems(Update, generate_swf_mesh)
             .add_systems(
                 PostUpdate,
-                (
-                    calculate_shape_bounds.in_set(VisibilitySystems::CalculateBounds),
-                    collect_intermediate_texture_children,
-                ),
+                calculate_shape_bounds.in_set(VisibilitySystems::CalculateBounds),
             );
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         render_app
-            .init_resource::<IntermediateTextures>()
-            .init_resource::<IntermediateRenderPhases>()
+            .init_resource::<RenderPhases>()
             .init_resource::<SpecializedRenderPipelines<IntermediateTexturePipeline>>()
+            .add_systems(
+                ExtractSchedule,
+                (extract_intermediate_phase, extract_intermediate_texture),
+            )
             .add_systems(
                 Render,
                 (
-                    prepare_intermediate_texture.in_set(RenderSet::PrepareResources),
                     specialize_meshes.in_set(RenderSet::PrepareAssets),
+                    prepare_view_attachments
+                        .in_set(RenderSet::ManageViews)
+                        .before(prepare_intermediate_texture_view_targets),
+                    prepare_intermediate_texture_view_targets
+                        .in_set(RenderSet::ManageViews)
+                        .after(prepare_view_attachments)
+                        .after(render_asset::prepare_assets::<GpuImage>),
+                    queue_swf_vertex.in_set(RenderSet::Queue),
                 ),
             );
-        let intermediate_texture_driver_node =
-            IntermediateTextureDriverNode::new(render_app.world_mut());
-        let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
-        render_graph.add_node(
-            IntermediateTextureDriverLabel,
-            intermediate_texture_driver_node,
-        );
-        render_graph.add_node_edge(IntermediateTextureDriverLabel, CameraDriverLabel);
     }
 
     fn finish(&self, app: &mut App) {
@@ -170,44 +191,93 @@ impl Plugin for FlashRenderPlugin {
     }
 }
 
-type SwfShapeMeshQuery = (
-    Entity,
-    &'static mut Transform,
-    Option<&'static MeshMaterial2d<SwfColorMaterial>>,
-    Option<&'static MeshMaterial2d<GradientMaterial>>,
-    Option<&'static MeshMaterial2d<BitmapMaterial>>,
-    &'static mut SwfShapeMesh,
-);
-
 /// 用于记录Swf Transform 的矩阵变换，从而计算正确的Aabb，防止被剔除
 #[derive(Component, Default)]
 pub struct SwfShapeMesh {
     transform: Mat4,
 }
 
+#[derive(Component, Clone, Debug, Default, ExtractComponent, DerefMut, Deref)]
+pub struct FlashFilters(Vec<Filter>);
+
+/// Configures the [`RenderGraph`](crate::render_graph::RenderGraph) name assigned to be run for a given [`Camera`] entity.
+#[derive(Component, Debug, Deref, DerefMut, Reflect, Clone)]
+#[reflect(opaque)]
+#[reflect(Component, Debug, Clone)]
+pub struct FlashFilterRenderGraph(InternedRenderSubGraph);
+
+impl FlashFilterRenderGraph {
+    /// Creates a new [`CameraRenderGraph`] from any string-like type.
+    #[inline]
+    pub fn new<T: RenderSubGraph>(name: T) -> Self {
+        Self(name.intern())
+    }
+}
+
 /// 用于需要进行滤镜处理得到中间纹理
-#[derive(Component, Default, Clone, ExtractComponent)]
+#[derive(Component, Default, Clone)]
+#[require(SyncToRenderWorld, FlashFilterRenderGraph(||FlashFilterRenderGraph::new(FlashFilterSubGraph)))]
 pub struct IntermediateTexture {
+    /// target
+    target: RenderTarget,
     /// 当前帧是否渲染
-    is_draw: bool,
+    is_active: bool,
     /// 全局变换缩放倍数，用于矢量缩放
-    scale: Vec2,
+    scale: Vec3,
     /// Graphic 原始bunds大小
     size: UVec2,
     /// 应用滤镜后的bunds大小
-    filter_rect: UVec2,
+    filter_size: UVec2,
     /// 中间纹理包含的子实体（`Mesh2d`）
-    children: Vec<Entity>,
+    view_entities: Vec<SwfVertex>,
     /// swf 的world transform 变换，保证矢量缩放、旋转。
     world_transform: Mat4,
 }
 
-pub fn collect_intermediate_texture_children(
-    mut query: Query<(&mut IntermediateTexture, &Children)>,
+#[derive(Component, Clone)]
+pub struct ExtractedIntermediateTexture {
+    /// target
+    target: Option<NormalizedRenderTarget>,
+    /// 全局变换缩放倍数，用于矢量缩放
+    scale: Vec3,
+    /// Graphic 原始bunds大小
+    size: UVec2,
+    /// 应用滤镜后的bunds大小
+    filter_size: UVec2,
+    /// 中间纹理包含的子实体（`Mesh2d`）
+    view_entities: Vec<SwfVertex>,
+    /// swf 的world transform 变换，保证矢量缩放、旋转。
+    world_transform: Mat4,
+    render_graph: InternedRenderSubGraph,
+}
+
+pub fn extract_intermediate_phase(
+    query: Extract<Query<(RenderEntity, &IntermediateTexture)>>,
+    mut render_phases: ResMut<RenderPhases>,
+    mut live_entities: Local<HashSet<MainEntity>>,
 ) {
-    query.iter_mut().for_each(|(mut parent, children)| {
-        parent.children = children.to_vec();
-    });
+    live_entities.clear();
+    for (main_entity, intermediate_texture) in query.iter() {
+        if !intermediate_texture.is_active {
+            continue;
+        }
+        render_phases.insert_or_clear(main_entity.into());
+        live_entities.insert(main_entity.into());
+    }
+    render_phases.retain(|entity, _| live_entities.contains(entity));
+}
+
+pub fn queue_swf_vertex(
+    mut query: Query<(Entity, &mut ExtractedIntermediateTexture)>,
+    mut render_phases: ResMut<RenderPhases>,
+) {
+    for (entity, mut intermediate_texture) in query.iter_mut() {
+        let main_entity: MainEntity = entity.into();
+        let Some(render_phase) = render_phases.get_mut(&main_entity) else {
+            continue;
+        };
+        render_phase.append(&mut intermediate_texture.view_entities);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -215,15 +285,31 @@ pub fn generate_swf_mesh(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
+    mut color_materials: ResMut<Assets<ColorMaterial>>,
     mut swf_movies: ResMut<Assets<SwfMovie>>,
-    mut color_materials: ResMut<Assets<SwfColorMaterial>>,
+    mut swf_color_materials: ResMut<Assets<SwfColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
-    mut query: Query<(Entity, &mut FlashAnimation, &GlobalTransform)>,
+    mut query: Query<(
+        Entity,
+        &mut FlashAnimation,
+        &GlobalTransform,
+        Option<&Children>,
+    )>,
     mut entities_material_query: Query<SwfShapeMeshQuery>,
-    mut graphic_query: Query<(Entity, &Children, Option<&mut IntermediateTexture>), With<SwfGraph>>,
+    mut graphic_query: Query<
+        (
+            Entity,
+            Option<&Children>,
+            Option<&mut IntermediateTexture>,
+            Option<&mut FlashFilters>,
+            Option<&MeshMaterial2d<BitmapMaterial>>,
+            &mut Transform,
+        ),
+        (With<SwfGraph>, Without<SwfShapeMesh>),
+    >,
 ) {
-    for (entity, mut flash_animation, global_transform) in query.iter_mut() {
+    for (entity, mut flash_animation, global_transform, children) in query.iter_mut() {
         match flash_animation.status {
             SwfState::Loading => {
                 continue;
@@ -240,13 +326,17 @@ pub fn generate_swf_mesh(
                         .raw_container_mut()
                         .display_objects_mut();
 
-                    graphic_query
-                        .iter_mut()
-                        .for_each(|(_, _, intermediate_texture)| {
-                            if let Some(mut intermediate_texture) = intermediate_texture {
-                                intermediate_texture.is_draw = false
-                            }
-                        });
+                    if let Some(children) = children {
+                        graphic_query
+                            .iter_mut()
+                            .filter(|(entity, _, _, _, _, _)| children.contains(entity))
+                            .for_each(|(_, _, intermediate_texture, _, _, _)| {
+                                if let Some(mut intermediate_texture) = intermediate_texture {
+                                    intermediate_texture.is_active = false;
+                                }
+                            });
+                    }
+
                     let mut z_index = 0.0;
                     exec_render_list(
                         entity,
@@ -256,6 +346,7 @@ pub fn generate_swf_mesh(
                         &mut meshes,
                         &mut images,
                         &mut color_materials,
+                        &mut swf_color_materials,
                         &mut gradient_materials,
                         &mut bitmap_materials,
                         &mut entities_material_query,
@@ -294,58 +385,163 @@ pub fn generate_swf_mesh(
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TextureCacheInfo {
-    filter_rect: UVec2,
-    main_entity: MainEntity,
-}
-
-#[derive(Resource, Default)]
-pub struct IntermediateTextures(HashMap<TextureCacheInfo, ColorAttachment>);
-
-pub fn prepare_intermediate_texture(
-    render_device: Res<RenderDevice>,
-    mut texture_cache: ResMut<TextureCache>,
-    mut intermediate_textures: ResMut<IntermediateTextures>,
-    query: Query<(MainEntity, &IntermediateTexture)>,
+pub fn prepare_view_attachments(
+    images: Res<RenderAssets<GpuImage>>,
+    intermediate_textures: Query<&ExtractedIntermediateTexture>,
+    mut view_target_attachments: ResMut<ViewTargetAttachments>,
 ) {
-    for (entity, intermediate_texture) in query.iter() {
-        let descriptor = TextureDescriptor {
-            label: Some("intermediate_texture_id:"),
-            size: Extent3d {
-                width: intermediate_texture.filter_rect.x,
-                height: intermediate_texture.filter_rect.y,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: Msaa::default().samples(),
-            dimension: TextureDimension::D2,
-            format: TextureFormat::bevy_default(),
-            usage: TextureUsages::RENDER_ATTACHMENT
-                | TextureUsages::COPY_SRC
-                | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
+    for intermediate_texture in intermediate_textures.iter() {
+        let Some(target) = &intermediate_texture.target else {
+            continue;
         };
-        let cache_texture = texture_cache.get(&render_device, descriptor);
-
-        intermediate_textures
-            .0
-            .entry(TextureCacheInfo {
-                filter_rect: intermediate_texture.filter_rect,
-                main_entity: entity.into(),
-            })
-            .or_insert(ColorAttachment::new(
-                cache_texture,
-                None,
-                Some(LinearRgba::NONE),
-            ));
+        match view_target_attachments.entry(target.clone()) {
+            Entry::Occupied(_) => {}
+            Entry::Vacant(entry) => {
+                if let (Some(texture_view), Some(texture_format)) = match target {
+                    bevy::render::camera::NormalizedRenderTarget::Window(_) => {
+                        unreachable!("请使用Image作为中间纹理引用")
+                    }
+                    bevy::render::camera::NormalizedRenderTarget::Image(image_target) => {
+                        let gpu_image = images.get(&image_target.handle);
+                        (
+                            gpu_image.map(|image| &image.texture_view),
+                            gpu_image.map(|image| image.texture_format),
+                        )
+                    }
+                    bevy::render::camera::NormalizedRenderTarget::TextureView(_) => {
+                        unreachable!("请使用Image作为中间纹理引用")
+                    }
+                } {
+                    entry.insert(OutputColorAttachment::new(
+                        texture_view.clone(),
+                        texture_format.add_srgb_suffix(),
+                    ));
+                } else {
+                    continue;
+                }
+            }
+        }
     }
 }
 
-#[derive(Component, ExtractComponent, Clone, Default)]
+pub fn prepare_intermediate_texture_view_targets(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    mut texture_cache: ResMut<TextureCache>,
+    query: Query<(Entity, &ExtractedIntermediateTexture)>,
+    view_target_attachments: Res<ViewTargetAttachments>,
+) {
+    let mut textures = <HashMap<_, _>>::default();
+    for (entity, intermediate_texture) in query.iter() {
+        let Some(target) = &intermediate_texture.target else {
+            continue;
+        };
+        let Some(out_attachment) = view_target_attachments.get(target) else {
+            continue;
+        };
+        let size = Extent3d {
+            width: intermediate_texture.filter_size.x,
+            height: intermediate_texture.filter_size.y,
+            depth_or_array_layers: 1,
+        };
+        let main_texture_format = TextureFormat::bevy_default();
+        let (a, b, sampled, main_texture) = textures
+            .entry((intermediate_texture.filter_size, entity))
+            .or_insert_with(|| {
+                let descriptor = TextureDescriptor {
+                    label: Some("intermediate_texture_id:"),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: main_texture_format,
+                    usage: TextureUsages::RENDER_ATTACHMENT
+                        | TextureUsages::COPY_SRC
+                        | TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                };
+
+                let a = texture_cache.get(
+                    &render_device,
+                    TextureDescriptor {
+                        label: Some("main_texture_a"),
+                        ..descriptor
+                    },
+                );
+                let b = texture_cache.get(
+                    &render_device,
+                    TextureDescriptor {
+                        label: Some("main_texture_b"),
+                        ..descriptor
+                    },
+                );
+                let sampled = if Msaa::default().samples() > 1 {
+                    let sampled = texture_cache.get(
+                        &render_device,
+                        TextureDescriptor {
+                            label: Some("main_texture_sampled"),
+                            size,
+                            mip_level_count: 1,
+                            sample_count: Msaa::default().samples(),
+                            dimension: TextureDimension::D2,
+                            format: main_texture_format,
+                            usage: TextureUsages::RENDER_ATTACHMENT,
+                            view_formats: descriptor.view_formats,
+                        },
+                    );
+                    Some(sampled)
+                } else {
+                    None
+                };
+                let main_texture = Arc::new(AtomicUsize::new(0));
+                (a, b, sampled, main_texture)
+            });
+        let main_textures = MainTargetTextures {
+            a: ColorAttachment::new(a.clone(), sampled.clone(), Some(LinearRgba::NONE)),
+            b: ColorAttachment::new(b.clone(), sampled.clone(), Some(LinearRgba::NONE)),
+            main_texture: main_texture.clone(),
+        };
+        commands.entity(entity).insert(ViewTarget {
+            main_texture: main_textures.main_texture.clone(),
+            main_textures,
+            main_texture_format,
+            out_texture: out_attachment.clone(),
+        });
+    }
+}
+
+pub fn extract_intermediate_texture(
+    mut commands: Commands,
+    intermediate_textures: Extract<
+        Query<(RenderEntity, &IntermediateTexture, &FlashFilterRenderGraph)>,
+    >,
+) {
+    for (render_entity, intermediate_texture, render_graph) in intermediate_textures.iter() {
+        if !intermediate_texture.is_active {
+            commands
+                .entity(render_entity)
+                .remove::<ExtractedIntermediateTexture>();
+            continue;
+        }
+        commands
+            .entity(render_entity)
+            .insert(ExtractedIntermediateTexture {
+                target: intermediate_texture.target.normalize(None),
+                scale: intermediate_texture.scale,
+                size: intermediate_texture.size,
+                filter_size: intermediate_texture.filter_size,
+                view_entities: intermediate_texture.view_entities.clone(),
+                world_transform: intermediate_texture.world_transform,
+                render_graph: render_graph.0,
+            });
+    }
+}
+
+#[derive(Clone)]
 pub struct SwfVertex {
     pub indices: Vec<u32>,
     pub mesh_draw_type: MeshDrawType,
+    pub pipeline_id: CachedRenderPipelineId,
 }
 
 #[derive(Clone, Default)]
@@ -355,12 +551,6 @@ pub struct Gradient {
     pub texture: Handle<Image>,
     pub texture_transform: Mat4,
 }
-// #[derive(Clone, Default)]
-// pub struct Bitmap {
-//     pub vertex: Vec<Vertex>,
-//     pub texture: Handle<Image>,
-//     pub texture_transform: Mat4,
-// }
 
 #[derive(Clone)]
 pub enum MeshDrawType {
@@ -405,19 +595,27 @@ fn shape_to_intermediate_texture_draw_type(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn exec_render_list(
+fn exec_render_list(
     parent_entity: Entity,
     global_transform: &GlobalTransform,
     graphic_query: &mut Query<
         '_,
         '_,
-        (Entity, &Children, Option<&mut IntermediateTexture>),
-        With<SwfGraph>,
+        (
+            Entity,
+            Option<&Children>,
+            Option<&mut IntermediateTexture>,
+            Option<&mut FlashFilters>,
+            Option<&MeshMaterial2d<BitmapMaterial>>,
+            &mut Transform,
+        ),
+        (With<SwfGraph>, Without<SwfShapeMesh>),
     >,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     images: &mut ResMut<Assets<Image>>,
-    color_materials: &mut ResMut<Assets<SwfColorMaterial>>,
+    color_materials: &mut ResMut<'_, Assets<ColorMaterial>>,
+    swf_color_materials: &mut ResMut<Assets<SwfColorMaterial>>,
     gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
     bitmap_materials: &mut ResMut<Assets<BitmapMaterial>>,
     entities_material_query: &mut Query<'_, '_, SwfShapeMeshQuery>,
@@ -457,53 +655,126 @@ pub fn exec_render_list(
                     *z_index += graphic.depth() as f32 / 100.0;
                     if let Some(&existing_entity) = shape_mark_entities.entity(&shape_mark) {
                         // 如果存在缓存实体
-                        if let Some((_, graphic_children, intermediate_texture)) = graphic_query
+                        if let Some((
+                            _,
+                            graphic_children,
+                            intermediate_texture,
+                            flash_filters,
+                            bitmap_material,
+                            mut transform,
+                        )) = graphic_query
                             .iter_mut()
-                            .find(|(entity, _, _)| *entity == existing_entity)
+                            .find(|(entity, _, _, _, _, _)| *entity == existing_entity)
                         {
+                            // 更新中间纹理变换
                             if let Some(mut intermediate_texture) = intermediate_texture {
-                                intermediate_texture.is_draw = true;
-                            }
-                            graphic_children.iter().for_each(|child| {
-                                for (
-                                    material_entity,
-                                    mut transform,
-                                    swf_color_material_handle,
-                                    swf_gradient_material_handle,
-                                    swf_bitmap_material_handle,
-                                    mut swf_shape_mesh,
-                                ) in entities_material_query.iter_mut()
-                                {
-                                    if material_entity == *child {
-                                        *z_index += 0.001;
-                                        transform.translation.z = *z_index;
-                                        if let Some(handle) = swf_color_material_handle {
-                                            update_swf_material(
-                                                (handle, swf_shape_mesh.as_mut()),
-                                                color_materials,
-                                                swf_transform.clone(),
-                                            );
-                                            break;
-                                        }
-                                        if let Some(handle) = swf_gradient_material_handle {
-                                            update_swf_material(
-                                                (handle, swf_shape_mesh.as_mut()),
-                                                gradient_materials,
-                                                swf_transform.clone(),
-                                            );
-                                            break;
-                                        }
-                                        if let Some(handle) = swf_bitmap_material_handle {
-                                            update_swf_material(
-                                                (handle, swf_shape_mesh.as_mut()),
-                                                bitmap_materials,
-                                                swf_transform.clone(),
-                                            );
-                                            break;
+                                let Some(bitmap_material) = bitmap_material else {
+                                    continue;
+                                };
+                                let Some(bitmap_material) =
+                                    bitmap_materials.get_mut(bitmap_material.id())
+                                else {
+                                    continue;
+                                };
+                                let Some(mut flash_filters) = flash_filters else {
+                                    continue;
+                                };
+                                filters.retain(|f| !f.impotent());
+                                let scale = global_transform.scale();
+                                let bounds = matrix * graphic.bounds.clone();
+                                let size = get_graphic_raw_size(&bounds, scale);
+                                let filter_rect = get_filter_rect(&bounds, &mut filters, scale);
+                                let width = filter_rect.width() as f32;
+                                let height = filter_rect.height() as f32;
+                                let filter_size =
+                                    UVec2::new((width * scale.x) as u32, (height * scale.y) as u32);
+                                let tx = matrix.tx.to_pixels() as f32;
+                                let ty = matrix.ty.to_pixels() as f32;
+                                let offset_x = bounds.x_min.to_pixels() as f32 - tx;
+                                let offset_y = bounds.y_min.to_pixels() as f32 - ty;
+                                let world_transform = Mat4::from_cols_array_2d(&[
+                                    [matrix.a, matrix.b, 0.0, 0.0],
+                                    [matrix.c, matrix.d, 0.0, 0.0],
+                                    [0.0, 0.0, 1.0, 0.0],
+                                    [-offset_x, -offset_y, 0.0, 1.0],
+                                ]);
+                                let image = get_target_image(&filter_size);
+                                let image_handle = images.add(image);
+
+                                flash_filters.clear();
+                                flash_filters.append(&mut filters);
+                                intermediate_texture.is_active = true;
+                                intermediate_texture.target = image_handle.clone().into();
+                                intermediate_texture.filter_size = filter_size;
+                                intermediate_texture.world_transform = world_transform;
+                                intermediate_texture.size = size;
+                                intermediate_texture.scale = global_transform.scale();
+
+                                let draw_offset =
+                                    Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
+                                let world_transform = Mat4::from_cols_array_2d(&[
+                                    [width, 0.0, 0.0, 0.0],
+                                    [0.0, height, 0.0, 0.0],
+                                    [0.0, 0.0, 1.0, 0.0],
+                                    [
+                                        tx + offset_x + draw_offset.x,
+                                        ty + offset_y + draw_offset.y,
+                                        0.0,
+                                        1.0,
+                                    ],
+                                ]);
+                                let swf_transform = SwfTransform {
+                                    world_transform,
+                                    ..swf_transform
+                                };
+                                bitmap_material.texture = image_handle;
+                                bitmap_material.update_swf_material(swf_transform);
+                                transform.translation.z = *z_index;
+                            } else {
+                                let Some(graphic_children) = graphic_children else {
+                                    continue;
+                                };
+                                graphic_children.iter().for_each(|child| {
+                                    for (
+                                        material_entity,
+                                        mut transform,
+                                        swf_color_material_handle,
+                                        swf_gradient_material_handle,
+                                        swf_bitmap_material_handle,
+                                        mut swf_shape_mesh,
+                                    ) in entities_material_query.iter_mut()
+                                    {
+                                        if material_entity == *child {
+                                            *z_index += 0.001;
+                                            transform.translation.z = *z_index;
+                                            if let Some(handle) = swf_color_material_handle {
+                                                update_swf_material(
+                                                    (handle, swf_shape_mesh.as_mut()),
+                                                    swf_color_materials,
+                                                    swf_transform.clone(),
+                                                );
+                                                break;
+                                            }
+                                            if let Some(handle) = swf_gradient_material_handle {
+                                                update_swf_material(
+                                                    (handle, swf_shape_mesh.as_mut()),
+                                                    gradient_materials,
+                                                    swf_transform.clone(),
+                                                );
+                                                break;
+                                            }
+                                            if let Some(handle) = swf_bitmap_material_handle {
+                                                update_swf_material(
+                                                    (handle, swf_shape_mesh.as_mut()),
+                                                    bitmap_materials,
+                                                    swf_transform.clone(),
+                                                );
+                                                break;
+                                            }
                                         }
                                     }
-                                }
-                            });
+                                });
+                            }
                         }
                     } else {
                         // 不存在缓存实体
@@ -512,42 +783,83 @@ pub fn exec_render_list(
                         shape_mark_entities.add_entities_pool(shape_mark, graphic_entity);
 
                         if !filters.is_empty() {
+                            // 用于渲染出中间纹理的数据
+                            let mut view_entities = Vec::new();
+                            graphic.shape_mesh().iter().for_each(|shape| {
+                                let mesh = shape.mesh.clone();
+                                view_entities.push(SwfVertex {
+                                    indices: mesh.indices,
+                                    pipeline_id: CachedRenderPipelineId::INVALID,
+                                    mesh_draw_type: shape_to_intermediate_texture_draw_type(
+                                        &shape.draw_type,
+                                        &mesh.positions,
+                                        &mesh.colors,
+                                    ),
+                                });
+                            });
+
                             let scale = global_transform.scale();
-
                             let bounds = matrix * graphic.bounds.clone();
+                            let size = get_graphic_raw_size(&bounds, scale);
                             let filter_rect = get_filter_rect(&bounds, &mut filters, scale);
+                            let width = filter_rect.width() as f32;
+                            let height = filter_rect.height() as f32;
+                            let filter_size =
+                                UVec2::new((width * scale.x) as u32, (height * scale.y) as u32);
 
-                            let offset_x =
-                                bounds.x_min.to_pixels() as f32 - matrix.tx.to_pixels() as f32;
-                            let offset_y =
-                                bounds.y_min.to_pixels() as f32 - matrix.ty.to_pixels() as f32;
+                            let tx = matrix.tx.to_pixels() as f32;
+                            let ty = matrix.ty.to_pixels() as f32;
+                            let offset_x = bounds.x_min.to_pixels() as f32 - tx;
+                            let offset_y = bounds.y_min.to_pixels() as f32 - ty;
                             let world_transform = Mat4::from_cols_array_2d(&[
                                 [matrix.a, matrix.b, 0.0, 0.0],
                                 [matrix.c, matrix.d, 0.0, 0.0],
                                 [0.0, 0.0, 1.0, 0.0],
                                 [-offset_x, -offset_y, 0.0, 1.0],
                             ]);
-                            graphic_entity_command.insert(IntermediateTexture {
-                                is_draw: true,
-                                scale: Vec2::new(scale.x, scale.y),
-                                size: get_graphic_raw_size(&bounds, scale),
-                                filter_rect,
-                                children: vec![],
+                            let image = get_target_image(&filter_size);
+                            let image_handle = images.add(image);
+                            graphic_entity_command.insert((
+                                IntermediateTexture {
+                                    target: image_handle.clone().into(),
+                                    is_active: true,
+                                    scale,
+                                    size,
+                                    filter_size,
+                                    view_entities,
+                                    world_transform,
+                                },
+                                FlashFilters(filters.clone()),
+                            ));
+                            let draw_offset =
+                                Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
+                            let world_transform = Mat4::from_cols_array_2d(&[
+                                [width, 0.0, 0.0, 0.0],
+                                [0.0, height, 0.0, 0.0],
+                                [0.0, 0.0, 1.0, 0.0],
+                                [
+                                    tx + offset_x + draw_offset.x,
+                                    ty + offset_y + draw_offset.y,
+                                    0.0,
+                                    1.0,
+                                ],
+                            ]);
+                            let swf_transform = SwfTransform {
                                 world_transform,
-                            });
-                            graphic.shape_mesh().iter().for_each(|shape| {
-                                let mesh = shape.mesh.clone();
-                                graphic_entity_command.with_children(|parent| {
-                                    parent.spawn(SwfVertex {
-                                        indices: mesh.indices,
-                                        mesh_draw_type: shape_to_intermediate_texture_draw_type(
-                                            &shape.draw_type,
-                                            &mesh.positions,
-                                            &mesh.colors,
-                                        ),
-                                    });
-                                });
-                            });
+                                ..swf_transform
+                            };
+                            let (mesh, texture_transform) =
+                                generate_rectangle_mesh_and_texture_transform();
+                            graphic_entity_command.insert((
+                                Mesh2d(meshes.add(mesh)),
+                                MeshMaterial2d(bitmap_materials.add(BitmapMaterial {
+                                    alpha_mode2d: blend_type.clone().into(),
+                                    texture: image_handle.clone(),
+                                    texture_transform,
+                                    transform: swf_transform.clone(),
+                                })),
+                                Transform::from_translation(Vec3::new(0.0, 0.0, *z_index)),
+                            ));
                         } else {
                             graphic.shape_mesh().iter().for_each(|shape| {
                                 let swf_mesh = shape.mesh.clone();
@@ -569,7 +881,7 @@ pub fn exec_render_list(
                                         spawn_mesh(
                                             &mut graphic_entity_command,
                                             swf_color_material.clone(),
-                                            color_materials,
+                                            swf_color_materials,
                                             swf_transform.clone(),
                                             transform,
                                             meshes.add(mesh),
@@ -621,6 +933,7 @@ pub fn exec_render_list(
                         meshes,
                         images,
                         color_materials,
+                        swf_color_materials,
                         gradient_materials,
                         bitmap_materials,
                         entities_material_query,
@@ -681,16 +994,16 @@ fn spawn_mesh<T: SwfMaterial>(
 fn get_graphic_raw_size(bounds: &SwfRectangle<Twips>, global_scale: Vec3) -> UVec2 {
     let width = bounds.width().to_pixels().ceil().max(0.0) as f32;
     let height = bounds.height().to_pixels().ceil().max(0.0) as f32;
-    let width = width * global_scale.x;
-    let height = height * global_scale.y;
-    UVec2::new(width as u32, height as u32)
+    let width = (width * global_scale.x) as u32;
+    let height = (height * global_scale.y) as u32;
+    UVec2::new(width, height)
 }
 
 fn get_filter_rect(
     bounds: &SwfRectangle<Twips>,
     filters: &mut Vec<Filter>,
     global_scale: Vec3,
-) -> UVec2 {
+) -> SwfRectangle<i32> {
     let scale_x = global_scale.x;
     let scale_y = global_scale.y;
 
@@ -702,7 +1015,6 @@ fn get_filter_rect(
         y_min: Twips::ZERO,
         y_max: Twips::from_pixels_i32(height as i32),
     };
-
     for filter in filters {
         filter.scale(scale_x, scale_y);
         filter_rect = filter.calculate_dest_rect(filter_rect);
@@ -714,9 +1026,50 @@ fn get_filter_rect(
         y_min: filter_rect.y_min.to_pixels().floor() as i32,
         y_max: filter_rect.y_max.to_pixels().ceil() as i32,
     };
-    let width = filter_rect.width() as f32 * scale_x;
-    let height = filter_rect.height() as f32 * scale_y;
-    UVec2::new(width as u32, height as u32)
+
+    filter_rect
+}
+
+fn get_target_image(filter_rect: &UVec2) -> Image {
+    let size = Extent3d {
+        width: filter_rect.x,
+        height: filter_rect.y,
+        depth_or_array_layers: 1,
+    };
+
+    let mut image = Image::new_uninit(
+        size,
+        TextureDimension::D2,
+        TextureFormat::bevy_default(),
+        RenderAssetUsages::default(),
+    );
+    image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    image
+}
+
+fn generate_rectangle_mesh_and_texture_transform() -> (Mesh, Mat4) {
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+    );
+    mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+    let texture_transform = Mat4::from_cols_array_2d(&[
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]);
+    (mesh, texture_transform)
 }
 
 pub fn calculate_shape_bounds(
