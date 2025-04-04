@@ -4,7 +4,6 @@ use bevy::{
         diagnostic::RecordDiagnostics,
         render_asset::RenderAssets,
         render_graph::ViewNode,
-        render_phase::TrackedRenderPass,
         render_resource::{
             BindGroupEntries, BufferInitDescriptor, BufferUsages, CommandEncoderDescriptor,
             IndexFormat, PipelineCache, RenderPassDescriptor,

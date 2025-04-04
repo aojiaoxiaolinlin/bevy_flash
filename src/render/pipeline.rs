@@ -28,7 +28,7 @@ use bevy::{
 
 use super::{
     ExtractedIntermediateTexture, MeshDrawType,
-    graph::filter::{BlurUniform, ColorMatrixUniform, GlowFilterUniform},
+    graph::filter::{BevelUniform, BlurUniform, ColorMatrixUniform, GlowFilterUniform},
     material::GradientUniforms,
 };
 
@@ -224,6 +224,9 @@ pub const COLOR_MATRIX_FILTER_SHADER_HANDLE: Handle<Shader> =
 
 pub const GLOW_FILTER_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("c1d2e3f4-a5b6-4789-0123-456789abcdef");
+
+pub const BEVEL_FILTER_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("e2f8a9d6-3c7b-42f1-8e9d-5a6b4c3d2e1f");
 #[derive(Resource)]
 pub struct BlurFilterPipeline {
     pub layout: BindGroupLayout,
@@ -369,6 +372,75 @@ impl FromWorld for GlowFilterPipeline {
             multisample: MultisampleState::default(),
             fragment: Some(FragmentState {
                 shader: GLOW_FILTER_SHADER_HANDLE,
+                shader_defs: vec![],
+                entry_point: "fragment".into(),
+                targets: vec![Some(ColorTargetState {
+                    format: TextureFormat::bevy_default(),
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            zero_initialize_workgroup_memory: false,
+        };
+
+        let pipeline_id = pipeline_cache.queue_render_pipeline(descriptor);
+
+        Self {
+            layout,
+            sampler,
+            pipeline_id,
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct BevelFilterPipeline {
+    pub layout: BindGroupLayout,
+    pub sampler: Sampler,
+    pub pipeline_id: CachedRenderPipelineId,
+}
+
+impl FromWorld for BevelFilterPipeline {
+    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let layout = render_device.create_bind_group_layout(
+            "glow_filter_bind_group_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    uniform_buffer::<BevelUniform>(false),
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                ),
+            ),
+        );
+        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
+
+        let descriptor = RenderPipelineDescriptor {
+            label: Some(Cow::from("bevel_filter_render_pipeline")),
+            layout: vec![layout.clone()],
+            push_constant_ranges: vec![],
+            vertex: VertexState {
+                shader: BEVEL_FILTER_SHADER_HANDLE,
+                shader_defs: vec![],
+                entry_point: "vertex".into(),
+                buffers: vec![VertexBufferLayout::from_vertex_formats(
+                    VertexStepMode::Vertex,
+                    vec![
+                        VertexFormat::Float32x2,
+                        VertexFormat::Float32x2,
+                        VertexFormat::Float32x2,
+                        VertexFormat::Float32x2,
+                    ],
+                )],
+            },
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            fragment: Some(FragmentState {
+                shader: BEVEL_FILTER_SHADER_HANDLE,
                 shader_defs: vec![],
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {

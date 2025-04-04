@@ -20,7 +20,9 @@ use upscaling::SingleTextureMultiPassPostProcessingNode;
 
 use super::{
     SwfVertex,
-    pipeline::{BlurFilterPipeline, ColorMatrixFilterPipeline, GlowFilterPipeline},
+    pipeline::{
+        BevelFilterPipeline, BlurFilterPipeline, ColorMatrixFilterPipeline, GlowFilterPipeline,
+    },
 };
 
 pub(crate) mod filter;
@@ -90,7 +92,9 @@ impl Plugin for FlashFilterRenderPlugin {
         render_app
             .init_resource::<BlurFilterPipeline>()
             .init_resource::<ColorMatrixFilterPipeline>()
-            .init_resource::<GlowFilterPipeline>();
+            .init_resource::<GlowFilterPipeline>()
+            .init_resource::<BlurFilterPipeline>()
+            .init_resource::<BevelFilterPipeline>();
     }
 }
 

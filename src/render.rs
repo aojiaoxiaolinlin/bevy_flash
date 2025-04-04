@@ -47,9 +47,9 @@ use material::{
     BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial, SwfMaterial, SwfTransform,
 };
 use pipeline::{
-    BLUR_FILTER_SHADER_HANDLE, COLOR_MATRIX_FILTER_SHADER_HANDLE, GLOW_FILTER_SHADER_HANDLE,
-    INTERMEDIATE_TEXTURE_GRADIENT, INTERMEDIATE_TEXTURE_MESH, IntermediateTexturePipeline,
-    specialize_meshes,
+    BEVEL_FILTER_SHADER_HANDLE, BLUR_FILTER_SHADER_HANDLE, COLOR_MATRIX_FILTER_SHADER_HANDLE,
+    GLOW_FILTER_SHADER_HANDLE, INTERMEDIATE_TEXTURE_GRADIENT, INTERMEDIATE_TEXTURE_MESH,
+    IntermediateTexturePipeline, specialize_meshes,
 };
 use raw_vertex::{Vertex, VertexColor};
 use ruffle_render::transform::Transform as RuffleTransform;
@@ -146,6 +146,12 @@ impl Plugin for FlashRenderPlugin {
             "render/shaders/filters/glow.wgsl",
             Shader::from_wgsl
         );
+        load_internal_asset!(
+            app,
+            BEVEL_FILTER_SHADER_HANDLE,
+            "render/shaders/filters/bevel.wgsl",
+            Shader::from_wgsl
+        );
 
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
             .add_plugins(Material2dPlugin::<SwfColorMaterial>::default())
@@ -216,7 +222,7 @@ impl FlashFilterRenderGraph {
 
 /// 用于需要进行滤镜处理得到中间纹理
 #[derive(Component, Default, Clone)]
-#[require(SyncToRenderWorld, FlashFilterRenderGraph(||FlashFilterRenderGraph::new(FlashFilterSubGraph)))]
+#[require(SyncToRenderWorld, FlashFilterRenderGraph::new(FlashFilterSubGraph))]
 pub struct IntermediateTexture {
     /// target
     target: RenderTarget,
