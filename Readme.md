@@ -34,6 +34,8 @@ cargo run --example sample
 
     ![bevy_flash_sample](https://github.com/user-attachments/assets/8bf354d0-0c7b-4bce-bd2f-65fb0fcbc590)
 
+    ![effect](./docs/Readme/filter_effect.gif)
+
 > [!TIP]
 > The filter effects are currently available in the `filter_render_dev` branch. Since I've modified some of the source code, you'll need to pull my [branch](https://github.com/aojiaoxiaolinlin/bevy/tree/bevy_flash_modify).
 
@@ -42,6 +44,32 @@ cargo run --example sample
 
 > [!WARNING]
 > This project is still in the early stages of development.
+
+## Getting Started
+
+
+```rust
+fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
+    commands.spawn(Camera2d::default());
+    commands.spawn((
+        FlashAnimation {
+            name: Some(String::from("name")),
+            swf_movie: assert_server.load("spirit2724src.swf"),
+            ..Default::default()
+        },
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
+    ));
+
+    commands.spawn((
+        FlashAnimation {
+            name: Some(String::from("another name")),
+            swf_movie: assert_server.load("131381-idle.swf"),
+            ..Default::default()
+        },
+        Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
+    ));
+}
+```
 
 ## Contributing
 If you also want to complete this plugin, you are welcome to submit a Pull Request (PR) or raise an issue.  
