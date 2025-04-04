@@ -34,6 +34,8 @@ cargo run --example sample
 
     ![bevy_flash_sample](https://github.com/user-attachments/assets/8bf354d0-0c7b-4bce-bd2f-65fb0fcbc590)
 
+- filter effect example
+
     ![effect](./docs/Readme/filter_effect.gif)
 
 > [!TIP]
