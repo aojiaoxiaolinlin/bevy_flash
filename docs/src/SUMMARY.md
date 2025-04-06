@@ -1,42 +1,11 @@
 # Summary
-
-- [Bevy Flash 插件文档](README.md)
-- **核心功能**
-  - [快速入门]()
-    - [5分钟集成指南](getting-started/quickstart.md)
-    - [示例项目解析](examples/basic-demo.md)
-  - [架构设计]()
-    - [插件系统集成](architecture/plugin-integration.md)
-    - [ECS 实现原理](architecture/ecs-design.md)
-- **功能模块**
-  - [动画系统]()
-    - [时间轴控制](features/timeline-control.md)
-    - [补间动画实现](features/tween-animation.md)
-  - [资源管理]()
-    - [SWF 文件加载](features/swf-loader.md)
-    - [纹理资源处理](features/texture-handling.md)
-    - [音频事件绑定](features/audio-binding.md)
-  - [交互系统]()
-    - [按钮状态机](features/button-states.md)
-    - [事件回调机制](features/event-callbacks.md)
-    - [HitTest 实现](features/hit-detection.md)
-- **高级开发**
-  - [自定义扩展]()
-    - [Shader 特效集成](advanced/custom-shaders.md)
-    - [原生组件扩展](advanced/native-components.md)
-  - [性能优化]()
-    - [批处理渲染](advanced/batch-rendering.md)
-    - [内存管理策略](advanced/memory-management.md)
-- **API 参考**
-  - [FlashPlayer 组件](api/flash-player-component.md)
-  - [AnimationController 系统](api/animation-controller.md)
-  - [SWF 解析器](api/swf-parser.md)
-- **开发指南**
-  - [贡献指南](CONTRIBUTING.md)
+- [Chapter 1](./chapter_1.md)
+- [快速开始]()
+    - [快速集成指南](section_1_1.md)
+    - [示例swf文件](section_1_2.md)
+- [开发指南]()
   - [调试技巧](development/debugging.md)
   - [性能分析](development/profiling.md)
-- **附录**
+- [附录]()
   - [常见问题](appendix/faq.md)
   - [术语对照表](appendix/glossary.md)
-  - [版本迁移指南](appendix/migration.md)
-  - [CHANGELOG](CHANGELOG.md)
