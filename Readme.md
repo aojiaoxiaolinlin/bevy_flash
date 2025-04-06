@@ -1,3 +1,7 @@
+# docs
+
+访问 [GitHub](/docs "中文文档") 
+
 # bevy_flash
 
 Rendering flash animation in Bevy.WASM compatible!
