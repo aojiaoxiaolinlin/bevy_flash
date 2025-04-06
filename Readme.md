@@ -1,6 +1,6 @@
 # docs
 
-访问 [GitHub](/docs "中文文档") 
+访问 [中文文档](/docs "中文文档") 
 
 # bevy_flash
 
