@@ -146,7 +146,6 @@ impl MovieClip {
         let mut reader = Reader::new(swf.data(), swf.version());
         let tag_callback = |reader: &mut SwfStream<'_>, tag_code, tag_len| {
             match tag_code {
-                // TagCode::SetBackgroundColor => self.set_background_color(library, reader),
                 TagCode::DefineBitsJpeg3 => self.define_bits_jpeg_3_or_4(library, reader, 3),
                 TagCode::DefineBitsJpeg4 => self.define_bits_jpeg_3_or_4(library, reader, 4),
                 TagCode::DefineShape => self.define_shape(library, reader, 1),
@@ -253,7 +252,6 @@ impl MovieClip {
         match next_frame {
             NextFrame::Next => {}
             NextFrame::First => {
-                // dbg!(self.name(), "end");
                 return self.run_goto(library, 1, true);
             }
             NextFrame::Same => {}
@@ -298,7 +296,6 @@ impl MovieClip {
                 TagCode::RemoveObject2 if run_display_actions && is_action_script_3 => {
                     self.queue_remove_object(reader, 2)
                 }
-                // TagCode::SetBackgroundColor => self.set_background_color(library, reader),
                 TagCode::ShowFrame => return Ok(ControlFlow::Exit),
                 _ => Ok(()),
             }?;
