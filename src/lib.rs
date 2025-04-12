@@ -31,14 +31,14 @@ impl Plugin for FlashPlugin {
         app.add_plugins(FlashRenderPlugin)
             .init_asset::<FlashAnimationSwfData>()
             .init_asset_loader::<SwfLoader>()
-            .add_systems(Update, (update, flash_animation).chain());
+            .add_systems(Update, (flash_update, flash_animation).chain());
     }
 }
 
 #[derive(Default, Component, Deref, DerefMut)]
 pub struct FlashAnimationActiveInstance(Vec<RuntimeInstance>);
 
-fn update(
+fn flash_update(
     mut commands: Commands,
     mut query: Query<(
         Entity,

@@ -51,6 +51,7 @@
     "uninit",
     "Unorm",
     "unqueue",
+    "Vsync",
     "Wgpu",
     "wgsl",
     "Winit",

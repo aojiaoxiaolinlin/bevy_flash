@@ -1,5 +1,4 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
-#import bevy_flash::common
 #import bevy_flash::common::{view_matrix, left_top_translate_matrix}
 
 struct SwfTransform {
@@ -25,7 +24,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         world_from_local,
         position
     );
-    out.position = common::align_webGpu_ndc(mesh_functions::mesh2d_position_world_to_clip(out.world_position));
+    out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
     let color = saturate(vertex.color * swf_transform.mult_color + swf_transform.add_color);
     out.color = vec4<f32>(color.rgb * color.a, color.a);
     return out;

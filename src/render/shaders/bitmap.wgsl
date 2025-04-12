@@ -1,5 +1,4 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
-#import bevy_flash::common
 #import bevy_flash::common::{view_matrix, left_top_translate_matrix}
 
 
@@ -29,7 +28,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         world_from_local,
         position
     );
-    out.position = common::align_webGpu_ndc(mesh_functions::mesh2d_position_world_to_clip(out.world_position));
+    out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
     return out;
 }
 

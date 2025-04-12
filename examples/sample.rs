@@ -20,7 +20,7 @@ fn main() {
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
-                    // present_mode: bevy::window::PresentMode::AutoNoVsync,
+                    present_mode: bevy::window::PresentMode::AutoNoVsync,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -34,15 +34,15 @@ fn main() {
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((Camera2d, Msaa::Sample8));
-    // commands.spawn((
-    //     FlashAnimation {
-    //         name: Some(String::from("mc")),
-    //         swf_asset: assert_server.load("spirit2159src.swf"),
-    //         ignore_root_swf_transform: false,
-    //         ..Default::default()
-    //     },
-    //     Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
-    // ));
+    commands.spawn((
+        FlashAnimation {
+            name: Some(String::from("mc")),
+            swf_asset: assert_server.load("spirit2159src.swf"),
+            ignore_root_swf_transform: true,
+            ..Default::default()
+        },
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
+    ));
 
     // commands.spawn((
     //     FlashAnimation {
@@ -62,29 +62,4 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         },
         Transform::from_translation(Vec3::new(300.0, -240.0, 0.0)).with_scale(Vec3::splat(2.0)),
     ));
-
-    // commands.spawn(FlashAnimation {
-    //     name: Some(String::from("blend_add")),
-    //     swf_movie: assert_server.load("blend_add.swf"),
-    //     ignore_root_swf_transform: false,
-    //     ..Default::default()
-    // });
-    // commands.spawn((
-    //     FlashAnimation {
-    //         name: Some(String::from("blend_sub")),
-    //         swf_movie: assert_server.load("blend_sub.swf"),
-    //         ignore_root_swf_transform: false,
-    //         ..Default::default()
-    //     },
-    //     Transform::from_translation(Vec3::new(-400.0, 0.0, 0.0)),
-    // ));
-    // commands.spawn((
-    //     FlashAnimation {
-    //         name: Some(String::from("blend_screen")),
-    //         swf_movie: assert_server.load("blend_screen.swf"),
-    //         ignore_root_swf_transform: false,
-    //         ..Default::default()
-    //     },
-    //     Transform::from_translation(Vec3::new(-800.0, 0.0, 0.0)),
-    // ));
 }

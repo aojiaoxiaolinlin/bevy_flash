@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicUsize;
 use bevy::asset::{RenderAssetUsages, weak_handle};
 use bevy::color::LinearRgba;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{EntityCommands, Local};
+use bevy::ecs::system::{EntityCommands, Local, Single};
 use bevy::image::{BevyDefault, Image};
 use bevy::math::{UVec2, Vec2, Vec4};
 use bevy::platform_support::collections::hash_map::Entry;
@@ -52,12 +52,12 @@ use pipeline::{
     IntermediateTexturePipeline, specialize_meshes,
 };
 use raw_vertex::{Vertex, VertexColor};
-use swf::{Rectangle as SwfRectangle, Twips};
+use swf::{CharacterId, Rectangle as SwfRectangle, Twips};
 
 use crate::assets::FlashAnimationSwfData;
 use crate::bundle::{FlashAnimation, FlashShapeSpawnRecord, SwfGraph};
 use crate::swf::filter::Filter;
-use crate::{FlashAnimationActiveInstance, ShapeDrawType, update};
+use crate::{FlashAnimationActiveInstance, ShapeDrawType, flash_update};
 
 pub(crate) mod blend_pipeline;
 mod graph;
@@ -153,7 +153,7 @@ impl Plugin for FlashRenderPlugin {
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
             .add_plugins(FlashFilterRenderPlugin)
             .add_plugins(ExtractComponentPlugin::<FlashFilters>::default())
-            .add_systems(Update, generate_swf_mesh.after(update))
+            .add_systems(Update, generate_swf_mesh.after(flash_update))
             .add_systems(
                 PostUpdate,
                 calculate_shape_bounds.in_set(VisibilitySystems::CalculateBounds),
@@ -310,6 +310,8 @@ pub fn generate_swf_mesh(
         (With<SwfGraph>, Without<SwfShapeMesh>),
     >,
     mut current_shape_entities: Local<Vec<Entity>>,
+    mut marker_shape_ref: Local<HashMap<CharacterId, usize>>,
+    window: Single<&Window>,
 ) {
     for (
         entity,
@@ -321,6 +323,7 @@ pub fn generate_swf_mesh(
     ) in query.iter_mut()
     {
         current_shape_entities.clear();
+        marker_shape_ref.clear();
         // 中间纹理标记为不可见
         if let Some(children) = children {
             shape_query
@@ -332,10 +335,14 @@ pub fn generate_swf_mesh(
                     }
                 });
         }
+        let scale = global_transform.scale();
         if let Some(flash_asset) = flash_assets.get_mut(flash_animation.swf_asset.id()) {
             let mut current_entity = Vec::new();
             let mut z_index = 1e-3;
             for active_instance in active_instances.iter() {
+                // 记录同一个实体的引用计数
+                let ref_count = marker_shape_ref.entry(active_instance.id()).or_default();
+                *ref_count += 1;
                 // 每个 shape 提升一个数量级
                 z_index += 2e-2;
                 // 记录当前生成的实体
@@ -353,13 +360,20 @@ pub fn generate_swf_mesh(
                 // flash 混合模式
                 let blend: AlphaMode2d = BlendType::from(active_instance.blend()).into();
                 let current_shape_entity;
-                if let Some(entity) = flash_shape_record.get_entity(active_instance.id()) {
+                if let Some(entity) =
+                    flash_shape_record.get_entity(active_instance.id(), *ref_count)
+                {
                     // shape实体已经生成。只需要更新其Mesh2d
-                    let (shape_entity, shape_children, _, _, _, transform) = shape_query
+                    let (shape_entity, shape_children, _, _, _, mut transform) = shape_query
                         .iter_mut()
                         .find(|(shape_entity, _, _, _, _, _)| shape_entity == entity)
                         .expect("找不到有鬼");
                     current_shape_entity = shape_entity;
+                    transform.translation = Vec3::new(
+                        -window.width() / (scale.x * 2.0),
+                        window.height() / (scale.y * 2.0),
+                        0.0,
+                    );
                     let Some(shape_children) = shape_children else {
                         continue;
                     };
@@ -408,12 +422,20 @@ pub fn generate_swf_mesh(
                     });
                 } else {
                     // 不存在缓存实体
-                    let mut shape_entity_command = commands.spawn(SwfGraph);
+                    let mut shape_entity_command = commands.spawn((
+                        SwfGraph,
+                        // 将flash的画布原点移动到WebGPU原点
+                        Transform::from_translation(Vec3::new(
+                            -window.width() / (scale.x * 2.0),
+                            window.height() / (scale.y * 2.0),
+                            0.0,
+                        )),
+                    ));
                     let shape_entity = shape_entity_command.id();
                     // 生成网格实体
                     let (shape_meshes, _) = flash_asset
                         .shape_meshes
-                        .get(&active_instance.resource_id())
+                        .get(&active_instance.id())
                         .expect("没有就是有Bug");
                     shape_meshes.iter().for_each(|shape_mesh| {
                         // 防止Shape中的绘制z冲突
@@ -465,7 +487,11 @@ pub fn generate_swf_mesh(
                         }
                     });
                     current_shape_entity = shape_entity;
-                    flash_shape_record.mark_cached_shape(active_instance.id(), shape_entity);
+                    flash_shape_record.mark_cached_shape(
+                        active_instance.id(),
+                        *ref_count,
+                        shape_entity,
+                    );
                     commands.entity(entity).add_child(shape_entity);
                 }
                 current_shape_entities.push(current_shape_entity);
@@ -1088,40 +1114,22 @@ fn generate_rectangle_mesh_and_texture_transform() -> (Mesh, Mat4) {
 pub fn calculate_shape_bounds(
     mut commands: Commands,
     meshes: Res<Assets<Mesh>>,
-    shape_meshes: Query<
-        (Entity, &Mesh2d, &SwfShapeMesh, &GlobalTransform),
-        Without<NoFrustumCulling>,
-    >,
-    query_window: Query<&Window>,
+    shape_meshes: Query<(Entity, &Mesh2d, &SwfShapeMesh), Without<NoFrustumCulling>>,
 ) {
-    let mut calculate = |(entity, mesh_handle, swf_shape_mesh, global_transform): (
-        Entity,
-        &Mesh2d,
-        &SwfShapeMesh,
-        &GlobalTransform,
-    ),
-                         size: Vec2| {
-        if let Some(mesh) = meshes.get(&mesh_handle.0) {
-            if let Some(mut aabb) = mesh.compute_aabb() {
-                let swf_transform = Mat4::from_cols_array_2d(&[
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, -1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                    [
-                        size.x / (-2.0 * global_transform.scale().x.abs()),
-                        size.y / (2.0 * global_transform.scale().x.abs()),
-                        0.0,
-                        1.0,
-                    ],
-                ]) * swf_shape_mesh.transform;
-                aabb.center = swf_transform.transform_point3a(aabb.center);
-                commands.entity(entity).try_insert(aabb);
+    shape_meshes
+        .iter()
+        .for_each(|(entity, mesh_handle, swf_shape_mesh)| {
+            if let Some(mesh) = meshes.get(&mesh_handle.0) {
+                if let Some(mut aabb) = mesh.compute_aabb() {
+                    let swf_transform = Mat4::from_cols_array_2d(&[
+                        [1.0, 0.0, 0.0, 0.0],
+                        [0.0, -1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [1.0, 1.0, 0.0, 1.0],
+                    ]) * swf_shape_mesh.transform;
+                    aabb.center = swf_transform.transform_point3a(aabb.center);
+                    commands.entity(entity).try_insert(aabb);
+                }
             }
-        }
-    };
-    shape_meshes.iter().for_each(|item| {
-        if let Ok(window) = query_window.single() {
-            calculate(item, window.size());
-        }
-    });
+        });
 }

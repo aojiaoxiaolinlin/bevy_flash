@@ -6,29 +6,30 @@ use bevy::{
     },
     reflect::Reflect,
 };
+use swf::CharacterId;
 
 use crate::assets::FlashAnimationSwfData;
 
 /// 用于记录以及生成的Shape，缓存起来，某一帧需要时再显示
 #[derive(Component, Debug, Clone, Default, Reflect, DerefMut, Deref)]
 #[reflect(Component, Default, Debug)]
-pub struct FlashShapeSpawnRecord(HashMap<String, Entity>);
+pub struct FlashShapeSpawnRecord(HashMap<(CharacterId, usize), Entity>);
 
 impl FlashShapeSpawnRecord {
-    pub fn is_generate(&self, id: &String) -> bool {
-        self.contains_key(id)
+    pub fn is_generate(&self, id: CharacterId, ref_count: usize) -> bool {
+        self.contains_key(&(id, ref_count))
     }
 
-    pub fn cache_entities(&self) -> &HashMap<String, Entity> {
+    pub fn cache_entities(&self) -> &HashMap<(CharacterId, usize), Entity> {
         &self
     }
 
-    pub fn get_entity(&self, key: &String) -> Option<&Entity> {
-        self.get(key)
+    pub fn get_entity(&self, key: CharacterId, ref_count: usize) -> Option<&Entity> {
+        self.get(&(key, ref_count))
     }
 
-    pub fn mark_cached_shape(&mut self, id: &String, entity: Entity) {
-        self.insert(id.clone(), entity);
+    pub fn mark_cached_shape(&mut self, id: CharacterId, ref_count: usize, entity: Entity) {
+        self.insert((id, ref_count), entity);
     }
 }
 
