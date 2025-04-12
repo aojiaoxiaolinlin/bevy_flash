@@ -1,6 +1,6 @@
 use bevy::sprite::AlphaMode2d;
 use enum_map::Enum;
-use ruffle_render::blend::ExtendedBlendMode;
+use flash_an_runtime::parser::types::BlendMode;
 
 #[derive(Enum, Debug, Copy, Clone)]
 pub enum TrivialBlend {
@@ -32,23 +32,22 @@ pub enum BlendType {
 }
 
 impl BlendType {
-    pub fn from(mode: ExtendedBlendMode) -> BlendType {
+    pub fn from(mode: BlendMode) -> BlendType {
         match mode {
-            ExtendedBlendMode::Normal => BlendType::Trivial(TrivialBlend::Normal),
-            ExtendedBlendMode::Layer => BlendType::Trivial(TrivialBlend::Normal),
-            ExtendedBlendMode::Add => BlendType::Trivial(TrivialBlend::Add),
-            ExtendedBlendMode::Subtract => BlendType::Trivial(TrivialBlend::Subtract),
-            ExtendedBlendMode::Screen => BlendType::Trivial(TrivialBlend::Screen),
-            ExtendedBlendMode::Lighten => BlendType::Trivial(TrivialBlend::Lighten),
-            ExtendedBlendMode::Darken => BlendType::Trivial(TrivialBlend::Darken),
-            ExtendedBlendMode::Multiply => BlendType::Trivial(TrivialBlend::Multiply),
-            ExtendedBlendMode::Alpha => BlendType::Complex(ComplexBlend::Alpha),
-            ExtendedBlendMode::Difference => BlendType::Complex(ComplexBlend::Difference),
-            ExtendedBlendMode::Invert => BlendType::Complex(ComplexBlend::Invert),
-            ExtendedBlendMode::Erase => BlendType::Complex(ComplexBlend::Erase),
-            ExtendedBlendMode::Overlay => BlendType::Complex(ComplexBlend::Overlay),
-            ExtendedBlendMode::HardLight => BlendType::Complex(ComplexBlend::HardLight),
-            ExtendedBlendMode::Shader => unreachable!(),
+            BlendMode::Normal => BlendType::Trivial(TrivialBlend::Normal),
+            BlendMode::Layer => BlendType::Trivial(TrivialBlend::Normal),
+            BlendMode::Add => BlendType::Trivial(TrivialBlend::Add),
+            BlendMode::Subtract => BlendType::Trivial(TrivialBlend::Subtract),
+            BlendMode::Screen => BlendType::Trivial(TrivialBlend::Screen),
+            BlendMode::Lighten => BlendType::Trivial(TrivialBlend::Lighten),
+            BlendMode::Darken => BlendType::Trivial(TrivialBlend::Darken),
+            BlendMode::Multiply => BlendType::Trivial(TrivialBlend::Multiply),
+            BlendMode::Alpha => BlendType::Complex(ComplexBlend::Alpha),
+            BlendMode::Difference => BlendType::Complex(ComplexBlend::Difference),
+            BlendMode::Invert => BlendType::Complex(ComplexBlend::Invert),
+            BlendMode::Erase => BlendType::Complex(ComplexBlend::Erase),
+            BlendMode::Overlay => BlendType::Complex(ComplexBlend::Overlay),
+            BlendMode::HardLight => BlendType::Complex(ComplexBlend::HardLight),
         }
     }
 }

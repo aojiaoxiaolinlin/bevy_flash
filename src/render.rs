@@ -1,12 +1,12 @@
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
-use std::{collections::BTreeMap, sync::Arc};
 
 use bevy::asset::{RenderAssetUsages, weak_handle};
 use bevy::color::LinearRgba;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{EntityCommands, Local};
 use bevy::image::{BevyDefault, Image};
-use bevy::math::{UVec2, Vec2};
+use bevy::math::{UVec2, Vec2, Vec4};
 use bevy::platform_support::collections::hash_map::Entry;
 use bevy::platform_support::collections::{HashMap, HashSet};
 use bevy::reflect::Reflect;
@@ -24,7 +24,7 @@ use bevy::render::sync_world::{MainEntity, RenderEntity, SyncToRenderWorld};
 use bevy::render::texture::{ColorAttachment, GpuImage, OutputColorAttachment, TextureCache};
 use bevy::render::view::{MainTargetTextures, Msaa, ViewTarget, ViewTargetAttachments};
 use bevy::render::{Extract, ExtractSchedule, Render, RenderSet};
-use bevy::sprite::{AlphaMode2d, ColorMaterial};
+use bevy::sprite::AlphaMode2d;
 use bevy::transform::components::GlobalTransform;
 use bevy::window::Window;
 use bevy::{
@@ -41,7 +41,7 @@ use bevy::{
     },
     sprite::{Material2dPlugin, MeshMaterial2d},
 };
-use blend_pipeline::{BlendType, TrivialBlend};
+use blend_pipeline::BlendType;
 use graph::{FlashFilterRenderPlugin, FlashFilterSubGraph, RenderPhases};
 use material::{
     BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial, SwfMaterial, SwfTransform,
@@ -52,23 +52,18 @@ use pipeline::{
     IntermediateTexturePipeline, specialize_meshes,
 };
 use raw_vertex::{Vertex, VertexColor};
-use ruffle_render::transform::Transform as RuffleTransform;
 use swf::{Rectangle as SwfRectangle, Twips};
 
-use crate::ShapeDrawType;
-use crate::assets::SwfMovie;
+use crate::assets::FlashAnimationSwfData;
+use crate::bundle::{FlashAnimation, FlashShapeSpawnRecord, SwfGraph};
 use crate::swf::filter::Filter;
-use crate::{
-    bundle::{FlashAnimation, ShapeMark, ShapeMarkEntities, SwfGraph, SwfState},
-    swf::display_object::{DisplayObject, TDisplayObject},
-};
+use crate::{FlashAnimationActiveInstance, ShapeDrawType, update};
 
 pub(crate) mod blend_pipeline;
 mod graph;
 pub(crate) mod material;
 mod pipeline;
 mod raw_vertex;
-pub(crate) mod tessellator;
 
 pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("8c2a5b0f-3e6d-4f8a-b217-84d2f5e1c9b3");
@@ -158,7 +153,7 @@ impl Plugin for FlashRenderPlugin {
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
             .add_plugins(FlashFilterRenderPlugin)
             .add_plugins(ExtractComponentPlugin::<FlashFilters>::default())
-            .add_systems(Update, generate_swf_mesh)
+            .add_systems(Update, generate_swf_mesh.after(update))
             .add_systems(
                 PostUpdate,
                 calculate_shape_bounds.in_set(VisibilitySystems::CalculateBounds),
@@ -290,20 +285,20 @@ pub fn queue_swf_vertex(
 pub fn generate_swf_mesh(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut images: ResMut<Assets<Image>>,
-    mut color_materials: ResMut<Assets<ColorMaterial>>,
-    mut swf_movies: ResMut<Assets<SwfMovie>>,
+    mut flash_assets: ResMut<Assets<FlashAnimationSwfData>>,
     mut swf_color_materials: ResMut<Assets<SwfColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
     mut query: Query<(
         Entity,
-        &mut FlashAnimation,
+        &FlashAnimation,
+        &mut FlashShapeSpawnRecord,
+        &FlashAnimationActiveInstance,
         &GlobalTransform,
         Option<&Children>,
     )>,
-    mut entities_material_query: Query<SwfShapeMeshQuery>,
-    mut graphic_query: Query<
+    mut flash_material_query: Query<SwfShapeMeshQuery>,
+    mut shape_query: Query<
         (
             Entity,
             Option<&Children>,
@@ -314,79 +309,179 @@ pub fn generate_swf_mesh(
         ),
         (With<SwfGraph>, Without<SwfShapeMesh>),
     >,
+    mut current_shape_entities: Local<Vec<Entity>>,
 ) {
-    for (entity, mut flash_animation, global_transform, children) in query.iter_mut() {
-        match flash_animation.status {
-            SwfState::Loading => {
-                continue;
-            }
-            SwfState::Ready => {
-                flash_animation
-                    .shape_mark_entities
-                    .clear_current_frame_entity();
-                if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-                    let render_list = swf_movie.movie_clip.raw_container().render_list();
-                    let parent_clip_transform = swf_movie.movie_clip.base().transform().clone();
-                    let display_objects = swf_movie
-                        .movie_clip
-                        .raw_container_mut()
-                        .display_objects_mut();
-
-                    if let Some(children) = children {
-                        graphic_query
-                            .iter_mut()
-                            .filter(|(entity, _, _, _, _, _)| children.contains(entity))
-                            .for_each(|(_, _, intermediate_texture, _, _, _)| {
-                                if let Some(mut intermediate_texture) = intermediate_texture {
-                                    intermediate_texture.is_active = false;
-                                }
-                            });
+    for (
+        entity,
+        flash_animation,
+        mut flash_shape_record,
+        active_instances,
+        global_transform,
+        children,
+    ) in query.iter_mut()
+    {
+        current_shape_entities.clear();
+        // 中间纹理标记为不可见
+        if let Some(children) = children {
+            shape_query
+                .iter_mut()
+                .filter(|(entity, _, _, _, _, _)| children.contains(entity))
+                .for_each(|(_, _, intermediate_texture, _, _, _)| {
+                    if let Some(mut intermediate_texture) = intermediate_texture {
+                        intermediate_texture.is_active = false;
                     }
+                });
+        }
+        if let Some(flash_asset) = flash_assets.get_mut(flash_animation.swf_asset.id()) {
+            let mut current_entity = Vec::new();
+            let mut z_index = 1e-3;
+            for active_instance in active_instances.iter() {
+                // 每个 shape 提升一个数量级
+                z_index += 2e-2;
+                // 记录当前生成的实体
+                current_entity.push(active_instance.id().clone());
+                // flash 动画变换数据
+                let swf_transform = SwfTransform {
+                    world_transform: active_instance.transform(),
+                    mult_color: Vec4::from_array(
+                        active_instance.color_transform().mult_rgba_normalized(),
+                    ),
+                    add_color: Vec4::from_array(
+                        active_instance.color_transform().add_rgba_normalized(),
+                    ),
+                };
+                // flash 混合模式
+                let blend: AlphaMode2d = BlendType::from(active_instance.blend()).into();
+                let current_shape_entity;
+                if let Some(entity) = flash_shape_record.get_entity(active_instance.id()) {
+                    // shape实体已经生成。只需要更新其Mesh2d
+                    let (shape_entity, shape_children, _, _, _, transform) = shape_query
+                        .iter_mut()
+                        .find(|(shape_entity, _, _, _, _, _)| shape_entity == entity)
+                        .expect("找不到有鬼");
+                    current_shape_entity = shape_entity;
+                    let Some(shape_children) = shape_children else {
+                        continue;
+                    };
+                    shape_children.iter().for_each(|child| {
+                        for (
+                            material_entity,
+                            mut transform,
+                            swf_color_material_handle,
+                            swf_gradient_material_handle,
+                            swf_bitmap_material_handle,
+                            mut swf_shape_mesh,
+                        ) in flash_material_query.iter_mut()
+                        {
+                            z_index += 1.0e-3;
+                            if material_entity == *child {
+                                transform.translation.z = z_index;
+                                if let Some(handle) = swf_color_material_handle {
+                                    update_swf_material(
+                                        (handle, swf_shape_mesh.as_mut()),
+                                        &mut swf_color_materials,
+                                        swf_transform.clone(),
+                                        blend,
+                                    );
+                                    break;
+                                }
+                                if let Some(handle) = swf_gradient_material_handle {
+                                    update_swf_material(
+                                        (handle, swf_shape_mesh.as_mut()),
+                                        &mut gradient_materials,
+                                        swf_transform.clone(),
+                                        blend,
+                                    );
+                                    break;
+                                }
+                                if let Some(handle) = swf_bitmap_material_handle {
+                                    update_swf_material(
+                                        (handle, swf_shape_mesh.as_mut()),
+                                        &mut bitmap_materials,
+                                        swf_transform.clone(),
+                                        blend,
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                } else {
+                    // 不存在缓存实体
+                    let mut shape_entity_command = commands.spawn(SwfGraph);
+                    let shape_entity = shape_entity_command.id();
+                    // 生成网格实体
+                    let (shape_meshes, _) = flash_asset
+                        .shape_meshes
+                        .get(&active_instance.resource_id())
+                        .expect("没有就是有Bug");
+                    shape_meshes.iter().for_each(|shape_mesh| {
+                        // 防止Shape中的绘制z冲突
+                        z_index += 1e-3;
+                        let swf_mesh = shape_mesh.mesh.clone();
+                        let mut mesh = Mesh::new(
+                            PrimitiveTopology::TriangleList,
+                            RenderAssetUsages::default(),
+                        );
+                        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, swf_mesh.positions);
+                        mesh.insert_indices(Indices::U32(swf_mesh.indices));
 
-                    let mut z_index = 0.0;
-                    exec_render_list(
-                        entity,
-                        global_transform,
-                        &mut graphic_query,
-                        &mut commands,
-                        &mut meshes,
-                        &mut images,
-                        &mut color_materials,
-                        &mut swf_color_materials,
-                        &mut gradient_materials,
-                        &mut bitmap_materials,
-                        &mut entities_material_query,
-                        &mut flash_animation.shape_mark_entities,
-                        render_list,
-                        display_objects,
-                        &parent_clip_transform,
-                        &mut z_index,
-                        BlendType::Trivial(TrivialBlend::Normal),
-                        Vec::new(),
-                    );
-                    // 每帧隐藏所有实体
-                    flash_animation
-                        .shape_mark_entities
-                        .graphic_entities()
-                        .iter()
-                        .for_each(|(_, entity)| {
-                            commands.entity(*entity).insert(Visibility::Hidden);
-                        });
-                    // 将当前帧所含有的实体设置为可见
-                    flash_animation
-                        .shape_mark_entities
-                        .current_frame_entities()
-                        .iter()
-                        .for_each(|shape_mark| {
-                            let entity = flash_animation
-                                .shape_mark_entities
-                                .entity(shape_mark)
-                                .unwrap();
-                            commands.entity(*entity).insert(Visibility::Inherited);
-                        });
-                    flash_animation.status = SwfState::Loading;
+                        let transform = Transform::from_translation(Vec3::new(0.0, 0.0, z_index));
+                        match &shape_mesh.draw_type {
+                            ShapeDrawType::Color(swf_color_material) => {
+                                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, swf_mesh.colors);
+                                spawn_mesh(
+                                    &mut shape_entity_command,
+                                    swf_color_material.clone(),
+                                    &mut swf_color_materials,
+                                    swf_transform.clone(),
+                                    transform,
+                                    meshes.add(mesh),
+                                    blend,
+                                );
+                            }
+                            ShapeDrawType::Gradient(gradient_material) => {
+                                spawn_mesh(
+                                    &mut shape_entity_command,
+                                    gradient_material.clone(),
+                                    &mut gradient_materials,
+                                    swf_transform.clone(),
+                                    transform,
+                                    meshes.add(mesh),
+                                    blend,
+                                );
+                            }
+                            ShapeDrawType::Bitmap(bitmap_material) => {
+                                spawn_mesh(
+                                    &mut shape_entity_command,
+                                    bitmap_material.clone(),
+                                    &mut bitmap_materials,
+                                    swf_transform.clone(),
+                                    transform,
+                                    meshes.add(mesh),
+                                    blend,
+                                );
+                            }
+                        }
+                    });
+                    current_shape_entity = shape_entity;
+                    flash_shape_record.mark_cached_shape(active_instance.id(), shape_entity);
+                    commands.entity(entity).add_child(shape_entity);
                 }
+                current_shape_entities.push(current_shape_entity);
             }
+
+            // 每帧隐藏所有实体
+            flash_shape_record
+                .cache_entities()
+                .iter()
+                .for_each(|(_, entity)| {
+                    commands.entity(*entity).insert(Visibility::Hidden);
+                });
+            // 将当前帧所含有的实体设置为可见
+            current_shape_entities.iter().for_each(|entity| {
+                commands.entity(*entity).insert(Visibility::Inherited);
+            });
         }
     }
 }
@@ -600,374 +695,286 @@ fn shape_to_intermediate_texture_draw_type(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn exec_render_list(
-    parent_entity: Entity,
-    global_transform: &GlobalTransform,
-    graphic_query: &mut Query<
-        '_,
-        '_,
-        (
-            Entity,
-            Option<&Children>,
-            Option<&mut IntermediateTexture>,
-            Option<&mut FlashFilters>,
-            Option<&MeshMaterial2d<BitmapMaterial>>,
-            &mut Transform,
-        ),
-        (With<SwfGraph>, Without<SwfShapeMesh>),
-    >,
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    images: &mut ResMut<Assets<Image>>,
-    color_materials: &mut ResMut<'_, Assets<ColorMaterial>>,
-    swf_color_materials: &mut ResMut<Assets<SwfColorMaterial>>,
-    gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
-    bitmap_materials: &mut ResMut<Assets<BitmapMaterial>>,
-    entities_material_query: &mut Query<'_, '_, SwfShapeMeshQuery>,
-    shape_mark_entities: &mut ShapeMarkEntities,
-    render_list: Arc<Vec<u128>>,
-    display_objects: &BTreeMap<u128, DisplayObject>,
-    parent_clip_transform: &RuffleTransform,
-    z_index: &mut f32,
-    blend_type: BlendType,
-    mut filters: Vec<Filter>,
-) {
-    for display_object in render_list.iter() {
-        if let Some(display_object) = display_objects.get(display_object) {
-            match display_object {
-                DisplayObject::Graphic(graphic) => {
-                    let current_transform = graphic.base().transform();
-                    let matrix = parent_clip_transform.matrix * current_transform.matrix;
-                    let swf_transform: SwfTransform = RuffleTransform {
-                        matrix,
-                        color_transform: parent_clip_transform.color_transform
-                            * current_transform.color_transform,
-                    }
-                    .into();
-                    // 记录当前帧生成的graphic实体
-                    let mut shape_mark = ShapeMark {
-                        graphic_ref_count: 1,
-                        depth: graphic.depth(),
-                        id: graphic.character_id(),
-                    };
-                    while shape_mark_entities
-                        .current_frame_entities()
-                        .iter()
-                        .any(|x| *x == shape_mark)
-                    {
-                        shape_mark.graphic_ref_count += 1;
-                    }
-                    *z_index += graphic.depth() as f32 / 100.0;
-                    if let Some(&existing_entity) = shape_mark_entities.entity(&shape_mark) {
-                        // 如果存在缓存实体
-                        if let Some((
-                            _,
-                            graphic_children,
-                            intermediate_texture,
-                            flash_filters,
-                            bitmap_material,
-                            mut transform,
-                        )) = graphic_query
-                            .iter_mut()
-                            .find(|(entity, _, _, _, _, _)| *entity == existing_entity)
-                        {
-                            // 更新中间纹理变换
-                            if let Some(mut intermediate_texture) = intermediate_texture {
-                                let Some(bitmap_material) = bitmap_material else {
-                                    continue;
-                                };
-                                let Some(bitmap_material) =
-                                    bitmap_materials.get_mut(bitmap_material.id())
-                                else {
-                                    continue;
-                                };
-                                let Some(mut flash_filters) = flash_filters else {
-                                    continue;
-                                };
-                                filters.retain(|f| !f.impotent());
-                                let scale = global_transform.scale();
-                                let bounds = matrix * graphic.bounds.clone();
-                                let size = get_graphic_raw_size(&bounds, scale);
-                                let filter_rect = get_filter_rect(&bounds, &mut filters, scale);
-                                let width = filter_rect.width() as f32;
-                                let height = filter_rect.height() as f32;
-                                let filter_size =
-                                    UVec2::new((width * scale.x) as u32, (height * scale.y) as u32);
-                                let tx = matrix.tx.to_pixels() as f32;
-                                let ty = matrix.ty.to_pixels() as f32;
-                                let offset_x = bounds.x_min.to_pixels() as f32 - tx;
-                                let offset_y = bounds.y_min.to_pixels() as f32 - ty;
-                                let world_transform = Mat4::from_cols_array_2d(&[
-                                    [matrix.a, matrix.b, 0.0, 0.0],
-                                    [matrix.c, matrix.d, 0.0, 0.0],
-                                    [0.0, 0.0, 1.0, 0.0],
-                                    [-offset_x, -offset_y, 0.0, 1.0],
-                                ]);
-                                let image = get_target_image(&filter_size);
-                                let image_handle = images.add(image);
+// #[allow(clippy::too_many_arguments)]
+// fn exec_render_list(
+//     parent_entity: Entity,
+//     global_transform: &GlobalTransform,
+//     graphic_query: &mut Query<
+//         '_,
+//         '_,
+//         (
+//             Entity,
+//             Option<&Children>,
+//             Option<&mut IntermediateTexture>,
+//             Option<&mut FlashFilters>,
+//             Option<&MeshMaterial2d<BitmapMaterial>>,
+//             &mut Transform,
+//         ),
+//         (With<SwfGraph>, Without<SwfShapeMesh>),
+//     >,
+//     commands: &mut Commands,
+//     meshes: &mut ResMut<Assets<Mesh>>,
+//     images: &mut ResMut<Assets<Image>>,
+//     color_materials: &mut ResMut<'_, Assets<ColorMaterial>>,
+//     swf_color_materials: &mut ResMut<Assets<SwfColorMaterial>>,
+//     gradient_materials: &mut ResMut<Assets<GradientMaterial>>,
+//     bitmap_materials: &mut ResMut<Assets<BitmapMaterial>>,
+//     entities_material_query: &mut Query<'_, '_, SwfShapeMeshQuery>,
+//     shape_mark_entities: &mut ShapeMarkEntities,
+//     render_list: Arc<Vec<u128>>,
+//     display_objects: &BTreeMap<u128, DisplayObject>,
+//     parent_clip_transform: &RuffleTransform,
+//     z_index: &mut f32,
+//     blend_type: BlendType,
+//     mut filters: Vec<Filter>,
+// ) {
+//     for display_object in render_list.iter() {
+//         if let Some(display_object) = display_objects.get(display_object) {
+//             match display_object {
+//                 DisplayObject::Graphic(graphic) => {
+//                     let current_transform = graphic.base().transform();
+//                     let matrix = parent_clip_transform.matrix * current_transform.matrix;
+//                     let swf_transform: SwfTransform = RuffleTransform {
+//                         matrix,
+//                         color_transform: parent_clip_transform.color_transform
+//                             * current_transform.color_transform,
+//                     }
+//                     .into();
+//                     // 记录当前帧生成的graphic实体
+//                     *z_index += graphic.depth() as f32 / 100.0;
+//                     if let Some(&existing_entity) = shape_mark_entities.entity(&shape_mark) {
+//                         // 如果存在缓存实体
+//                         if let Some((
+//                             _,
+//                             graphic_children,
+//                             intermediate_texture,
+//                             flash_filters,
+//                             bitmap_material,
+//                             mut transform,
+//                         )) = graphic_query
+//                             .iter_mut()
+//                             .find(|(entity, _, _, _, _, _)| *entity == existing_entity)
+//                         {
+//                             // 更新中间纹理变换
+//                             if let Some(mut intermediate_texture) = intermediate_texture {
+//                                 let Some(bitmap_material) = bitmap_material else {
+//                                     continue;
+//                                 };
+//                                 let Some(bitmap_material) =
+//                                     bitmap_materials.get_mut(bitmap_material.id())
+//                                 else {
+//                                     continue;
+//                                 };
+//                                 let Some(mut flash_filters) = flash_filters else {
+//                                     continue;
+//                                 };
+//                                 filters.retain(|f| !f.impotent());
+//                                 let scale = global_transform.scale();
+//                                 let bounds = matrix * graphic.bounds.clone();
+//                                 let size = get_graphic_raw_size(&bounds, scale);
+//                                 let filter_rect = get_filter_rect(&bounds, &mut filters, scale);
+//                                 let width = filter_rect.width() as f32;
+//                                 let height = filter_rect.height() as f32;
+//                                 let filter_size =
+//                                     UVec2::new((width * scale.x) as u32, (height * scale.y) as u32);
+//                                 let tx = matrix.tx.to_pixels() as f32;
+//                                 let ty = matrix.ty.to_pixels() as f32;
+//                                 let offset_x = bounds.x_min.to_pixels() as f32 - tx;
+//                                 let offset_y = bounds.y_min.to_pixels() as f32 - ty;
+//                                 let world_transform = Mat4::from_cols_array_2d(&[
+//                                     [matrix.a, matrix.b, 0.0, 0.0],
+//                                     [matrix.c, matrix.d, 0.0, 0.0],
+//                                     [0.0, 0.0, 1.0, 0.0],
+//                                     [-offset_x, -offset_y, 0.0, 1.0],
+//                                 ]);
+//                                 let image = get_target_image(&filter_size);
+//                                 let image_handle = images.add(image);
 
-                                flash_filters.clear();
-                                flash_filters.append(&mut filters);
-                                intermediate_texture.is_active = true;
-                                intermediate_texture.target = image_handle.clone().into();
-                                intermediate_texture.filter_size = filter_size;
-                                intermediate_texture.world_transform = world_transform;
-                                intermediate_texture.size = size;
-                                intermediate_texture.scale = global_transform.scale();
+//                                 flash_filters.clear();
+//                                 flash_filters.append(&mut filters);
+//                                 intermediate_texture.is_active = true;
+//                                 intermediate_texture.target = image_handle.clone().into();
+//                                 intermediate_texture.filter_size = filter_size;
+//                                 intermediate_texture.world_transform = world_transform;
+//                                 intermediate_texture.size = size;
+//                                 intermediate_texture.scale = global_transform.scale();
 
-                                let draw_offset =
-                                    Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
-                                let world_transform = Mat4::from_cols_array_2d(&[
-                                    [width, 0.0, 0.0, 0.0],
-                                    [0.0, height, 0.0, 0.0],
-                                    [0.0, 0.0, 1.0, 0.0],
-                                    [
-                                        tx + offset_x + draw_offset.x,
-                                        ty + offset_y + draw_offset.y,
-                                        0.0,
-                                        1.0,
-                                    ],
-                                ]);
-                                let swf_transform = SwfTransform {
-                                    world_transform,
-                                    ..swf_transform
-                                };
-                                bitmap_material.texture = image_handle;
-                                bitmap_material.update_swf_material(swf_transform);
-                                transform.translation.z = *z_index;
-                            } else {
-                                let Some(graphic_children) = graphic_children else {
-                                    continue;
-                                };
-                                graphic_children.iter().for_each(|child| {
-                                    for (
-                                        material_entity,
-                                        mut transform,
-                                        swf_color_material_handle,
-                                        swf_gradient_material_handle,
-                                        swf_bitmap_material_handle,
-                                        mut swf_shape_mesh,
-                                    ) in entities_material_query.iter_mut()
-                                    {
-                                        if material_entity == *child {
-                                            *z_index += 0.001;
-                                            transform.translation.z = *z_index;
-                                            if let Some(handle) = swf_color_material_handle {
-                                                update_swf_material(
-                                                    (handle, swf_shape_mesh.as_mut()),
-                                                    swf_color_materials,
-                                                    swf_transform.clone(),
-                                                );
-                                                break;
-                                            }
-                                            if let Some(handle) = swf_gradient_material_handle {
-                                                update_swf_material(
-                                                    (handle, swf_shape_mesh.as_mut()),
-                                                    gradient_materials,
-                                                    swf_transform.clone(),
-                                                );
-                                                break;
-                                            }
-                                            if let Some(handle) = swf_bitmap_material_handle {
-                                                update_swf_material(
-                                                    (handle, swf_shape_mesh.as_mut()),
-                                                    bitmap_materials,
-                                                    swf_transform.clone(),
-                                                );
-                                                break;
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-                        }
-                    } else {
-                        // 不存在缓存实体
-                        let mut graphic_entity_command = commands.spawn(SwfGraph);
-                        let graphic_entity = graphic_entity_command.id();
-                        shape_mark_entities.add_entities_pool(shape_mark, graphic_entity);
+//                                 let draw_offset =
+//                                     Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
+//                                 let world_transform = Mat4::from_cols_array_2d(&[
+//                                     [width, 0.0, 0.0, 0.0],
+//                                     [0.0, height, 0.0, 0.0],
+//                                     [0.0, 0.0, 1.0, 0.0],
+//                                     [
+//                                         tx + offset_x + draw_offset.x,
+//                                         ty + offset_y + draw_offset.y,
+//                                         0.0,
+//                                         1.0,
+//                                     ],
+//                                 ]);
+//                                 let swf_transform = SwfTransform {
+//                                     world_transform,
+//                                     ..swf_transform
+//                                 };
+//                                 bitmap_material.texture = image_handle;
+//                                 bitmap_material.update_swf_material(swf_transform);
+//                                 transform.translation.z = *z_index;
+//                             } else {
+//                                 let Some(graphic_children) = graphic_children else {
+//                                     continue;
+//                                 };
+//                                 graphic_children.iter().for_each(|child| {
+//                                     for (
+//                                         material_entity,
+//                                         mut transform,
+//                                         swf_color_material_handle,
+//                                         swf_gradient_material_handle,
+//                                         swf_bitmap_material_handle,
+//                                         mut swf_shape_mesh,
+//                                     ) in entities_material_query.iter_mut()
+//                                     {
+//                                         if material_entity == *child {
+//                                             *z_index += 0.001;
+//                                             transform.translation.z = *z_index;
+//                                             if let Some(handle) = swf_color_material_handle {
+//                                                 update_swf_material(
+//                                                     (handle, swf_shape_mesh.as_mut()),
+//                                                     swf_color_materials,
+//                                                     swf_transform.clone(),
+//                                                 );
+//                                                 break;
+//                                             }
+//                                             if let Some(handle) = swf_gradient_material_handle {
+//                                                 update_swf_material(
+//                                                     (handle, swf_shape_mesh.as_mut()),
+//                                                     gradient_materials,
+//                                                     swf_transform.clone(),
+//                                                 );
+//                                                 break;
+//                                             }
+//                                             if let Some(handle) = swf_bitmap_material_handle {
+//                                                 update_swf_material(
+//                                                     (handle, swf_shape_mesh.as_mut()),
+//                                                     bitmap_materials,
+//                                                     swf_transform.clone(),
+//                                                 );
+//                                                 break;
+//                                             }
+//                                         }
+//                                     }
+//                                 });
+//                             }
+//                         }
+//                     } else {
+//                         shape_mark_entities.add_entities_pool(shape_mark, graphic_entity);
 
-                        if !filters.is_empty() {
-                            // 用于渲染出中间纹理的数据
-                            let mut view_entities = Vec::new();
-                            graphic.shape_mesh().iter().for_each(|shape| {
-                                let mesh = shape.mesh.clone();
-                                view_entities.push(SwfVertex {
-                                    indices: mesh.indices,
-                                    pipeline_id: CachedRenderPipelineId::INVALID,
-                                    mesh_draw_type: shape_to_intermediate_texture_draw_type(
-                                        &shape.draw_type,
-                                        &mesh.positions,
-                                        &mesh.colors,
-                                    ),
-                                });
-                            });
+//                         if !filters.is_empty() {
+//                             // 用于渲染出中间纹理的数据
+//                             let mut view_entities = Vec::new();
+//                             graphic.shape_mesh().iter().for_each(|shape| {
+//                                 let mesh = shape.mesh.clone();
+//                                 view_entities.push(SwfVertex {
+//                                     indices: mesh.indices,
+//                                     pipeline_id: CachedRenderPipelineId::INVALID,
+//                                     mesh_draw_type: shape_to_intermediate_texture_draw_type(
+//                                         &shape.draw_type,
+//                                         &mesh.positions,
+//                                         &mesh.colors,
+//                                     ),
+//                                 });
+//                             });
 
-                            let scale = global_transform.scale();
-                            let bounds = matrix * graphic.bounds.clone();
-                            let size = get_graphic_raw_size(&bounds, scale);
-                            let filter_rect = get_filter_rect(&bounds, &mut filters, scale);
-                            let width = filter_rect.width() as f32;
-                            let height = filter_rect.height() as f32;
-                            let filter_size =
-                                UVec2::new((width * scale.x) as u32, (height * scale.y) as u32);
+//                             let scale = global_transform.scale();
+//                             let bounds = matrix * graphic.bounds.clone();
+//                             let size = get_graphic_raw_size(&bounds, scale);
+//                             let filter_rect = get_filter_rect(&bounds, &mut filters, scale);
+//                             let width = filter_rect.width() as f32;
+//                             let height = filter_rect.height() as f32;
+//                             let filter_size =
+//                                 UVec2::new((width * scale.x) as u32, (height * scale.y) as u32);
 
-                            let tx = matrix.tx.to_pixels() as f32;
-                            let ty = matrix.ty.to_pixels() as f32;
-                            let offset_x = bounds.x_min.to_pixels() as f32 - tx;
-                            let offset_y = bounds.y_min.to_pixels() as f32 - ty;
-                            let world_transform = Mat4::from_cols_array_2d(&[
-                                [matrix.a, matrix.b, 0.0, 0.0],
-                                [matrix.c, matrix.d, 0.0, 0.0],
-                                [0.0, 0.0, 1.0, 0.0],
-                                [-offset_x, -offset_y, 0.0, 1.0],
-                            ]);
-                            let image = get_target_image(&filter_size);
-                            let image_handle = images.add(image);
-                            graphic_entity_command.insert((
-                                IntermediateTexture {
-                                    target: image_handle.clone().into(),
-                                    is_active: true,
-                                    scale,
-                                    size,
-                                    filter_size,
-                                    view_entities,
-                                    world_transform,
-                                },
-                                FlashFilters(filters.clone()),
-                            ));
-                            let draw_offset =
-                                Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
-                            let world_transform = Mat4::from_cols_array_2d(&[
-                                [width, 0.0, 0.0, 0.0],
-                                [0.0, height, 0.0, 0.0],
-                                [0.0, 0.0, 1.0, 0.0],
-                                [
-                                    tx + offset_x + draw_offset.x,
-                                    ty + offset_y + draw_offset.y,
-                                    0.0,
-                                    1.0,
-                                ],
-                            ]);
-                            let swf_transform = SwfTransform {
-                                world_transform,
-                                ..swf_transform
-                            };
-                            let (mesh, texture_transform) =
-                                generate_rectangle_mesh_and_texture_transform();
-                            graphic_entity_command.insert((
-                                Mesh2d(meshes.add(mesh)),
-                                MeshMaterial2d(bitmap_materials.add(BitmapMaterial {
-                                    alpha_mode2d: blend_type.clone().into(),
-                                    texture: image_handle.clone(),
-                                    texture_transform,
-                                    transform: swf_transform.clone(),
-                                })),
-                                Transform::from_translation(Vec3::new(0.0, 0.0, *z_index)),
-                            ));
-                        } else {
-                            graphic.shape_mesh().iter().for_each(|shape| {
-                                let swf_mesh = shape.mesh.clone();
-                                let mut mesh = Mesh::new(
-                                    PrimitiveTopology::TriangleList,
-                                    RenderAssetUsages::default(),
-                                );
-                                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, swf_mesh.positions);
-                                mesh.insert_indices(Indices::U32(swf_mesh.indices));
-                                *z_index += 0.001;
-                                let transform =
-                                    Transform::from_translation(Vec3::new(0.0, 0.0, *z_index));
-                                match &shape.draw_type {
-                                    ShapeDrawType::Color(swf_color_material) => {
-                                        mesh.insert_attribute(
-                                            Mesh::ATTRIBUTE_COLOR,
-                                            swf_mesh.colors,
-                                        );
-                                        spawn_mesh(
-                                            &mut graphic_entity_command,
-                                            swf_color_material.clone(),
-                                            swf_color_materials,
-                                            swf_transform.clone(),
-                                            transform,
-                                            meshes.add(mesh),
-                                            blend_type.clone().into(),
-                                        );
-                                    }
-                                    ShapeDrawType::Gradient(gradient_material) => {
-                                        spawn_mesh(
-                                            &mut graphic_entity_command,
-                                            gradient_material.clone(),
-                                            gradient_materials,
-                                            swf_transform.clone(),
-                                            transform,
-                                            meshes.add(mesh),
-                                            blend_type.clone().into(),
-                                        );
-                                    }
-                                    ShapeDrawType::Bitmap(bitmap_material) => {
-                                        spawn_mesh(
-                                            &mut graphic_entity_command,
-                                            bitmap_material.clone(),
-                                            bitmap_materials,
-                                            swf_transform.clone(),
-                                            transform,
-                                            meshes.add(mesh),
-                                            blend_type.clone().into(),
-                                        );
-                                    }
-                                }
-                            });
-                        }
-                        commands.entity(parent_entity).add_child(graphic_entity);
-                    }
-                    shape_mark_entities.record_current_frame_entity(shape_mark);
-                }
-                DisplayObject::MovieClip(movie_clip) => {
-                    let current_transform = RuffleTransform {
-                        matrix: parent_clip_transform.matrix * movie_clip.base().transform().matrix,
-                        color_transform: parent_clip_transform.color_transform
-                            * movie_clip.base().transform().color_transform,
-                    };
-                    let blend_type = BlendType::from(movie_clip.blend_mode());
-                    let filters = movie_clip.filters();
-                    exec_render_list(
-                        parent_entity,
-                        global_transform,
-                        graphic_query,
-                        commands,
-                        meshes,
-                        images,
-                        color_materials,
-                        swf_color_materials,
-                        gradient_materials,
-                        bitmap_materials,
-                        entities_material_query,
-                        shape_mark_entities,
-                        movie_clip.raw_container().render_list(),
-                        movie_clip.raw_container().display_objects(),
-                        &current_transform,
-                        z_index,
-                        blend_type,
-                        filters,
-                    );
-                }
-            }
-        }
-    }
-}
+//                             let tx = matrix.tx.to_pixels() as f32;
+//                             let ty = matrix.ty.to_pixels() as f32;
+//                             let offset_x = bounds.x_min.to_pixels() as f32 - tx;
+//                             let offset_y = bounds.y_min.to_pixels() as f32 - ty;
+//                             let world_transform = Mat4::from_cols_array_2d(&[
+//                                 [matrix.a, matrix.b, 0.0, 0.0],
+//                                 [matrix.c, matrix.d, 0.0, 0.0],
+//                                 [0.0, 0.0, 1.0, 0.0],
+//                                 [-offset_x, -offset_y, 0.0, 1.0],
+//                             ]);
+//                             let image = get_target_image(&filter_size);
+//                             let image_handle = images.add(image);
+//                             graphic_entity_command.insert((
+//                                 IntermediateTexture {
+//                                     target: image_handle.clone().into(),
+//                                     is_active: true,
+//                                     scale,
+//                                     size,
+//                                     filter_size,
+//                                     view_entities,
+//                                     world_transform,
+//                                 },
+//                                 FlashFilters(filters.clone()),
+//                             ));
+//                             let draw_offset =
+//                                 Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
+//                             let world_transform = Mat4::from_cols_array_2d(&[
+//                                 [width, 0.0, 0.0, 0.0],
+//                                 [0.0, height, 0.0, 0.0],
+//                                 [0.0, 0.0, 1.0, 0.0],
+//                                 [
+//                                     tx + offset_x + draw_offset.x,
+//                                     ty + offset_y + draw_offset.y,
+//                                     0.0,
+//                                     1.0,
+//                                 ],
+//                             ]);
+//                             let swf_transform = SwfTransform {
+//                                 world_transform,
+//                                 ..swf_transform
+//                             };
+//                             let (mesh, texture_transform) =
+//                                 generate_rectangle_mesh_and_texture_transform();
+//                             graphic_entity_command.insert((
+//                                 Mesh2d(meshes.add(mesh)),
+//                                 MeshMaterial2d(bitmap_materials.add(BitmapMaterial {
+//                                     alpha_mode2d: blend_type.clone().into(),
+//                                     texture: image_handle.clone(),
+//                                     texture_transform,
+//                                     transform: swf_transform.clone(),
+//                                 })),
+//                                 Transform::from_translation(Vec3::new(0.0, 0.0, *z_index)),
+//                             ));
+//                         } else {
+//                             graphic.shape_mesh().iter().for_each(|shape| {
+//                                 let swf_mesh = shape.mesh.clone();
+
+//                                 *z_index += 0.001;
+//                             });
+//                         }
+//                         commands.entity(parent_entity).add_child(graphic_entity);
+//                     }
+//                     shape_mark_entities.record_current_frame_entity(shape_mark);
+//                 }
+//             }
+//         }
+//     }
+// }
 
 #[inline]
 fn update_swf_material<T: SwfMaterial>(
     exists_material: (&Handle<T>, &mut SwfShapeMesh),
     swf_materials: &mut ResMut<Assets<T>>,
     swf_transform: SwfTransform,
+    alpha_mode2d: AlphaMode2d,
 ) {
     // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质。
     if let Some(swf_material) = swf_materials.get_mut(exists_material.0) {
         let swf_shape_mesh = exists_material.1;
         swf_shape_mesh.transform = swf_transform.world_transform;
         swf_material.update_swf_material(swf_transform);
+        swf_material.set_alpha_mode2d(alpha_mode2d);
     }
 }
 

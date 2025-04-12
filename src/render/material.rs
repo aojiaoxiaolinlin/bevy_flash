@@ -7,9 +7,8 @@ use bevy::{
     sprite::{AlphaMode2d, Material2d},
 };
 use bytemuck::{Pod, Zeroable};
-use ruffle_render::{
-    shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
-};
+
+use flash_an_runtime::parser::parse_shape::{shape_utils::GradientType, tessellator::Gradient};
 use swf::GradientSpread;
 use swf_macro::SwfMaterial;
 
@@ -134,27 +133,5 @@ impl SwfTransform {
             self.world_transform.y_axis.y,
             1.0,
         )
-    }
-}
-
-impl From<RuffleTransform> for SwfTransform {
-    fn from(transform: RuffleTransform) -> Self {
-        let matrix = transform.matrix;
-        let color_transform = transform.color_transform;
-        SwfTransform {
-            world_transform: Mat4::from_cols_array_2d(&[
-                [matrix.a, matrix.b, 0.0, 0.0],
-                [matrix.c, matrix.d, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [
-                    matrix.tx.to_pixels() as f32,
-                    matrix.ty.to_pixels() as f32,
-                    0.0,
-                    1.0,
-                ],
-            ]),
-            mult_color: Vec4::from_array(color_transform.mult_rgba_normalized()),
-            add_color: Vec4::from_array(color_transform.add_rgba_normalized()),
-        }
     }
 }
