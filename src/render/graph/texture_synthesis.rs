@@ -78,7 +78,7 @@ impl ViewNode for TextureSynthesisNode {
                     };
                     let index_buffer =
                         render_device.create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some("索引缓冲"),
+                            label: Some("index_buffer"),
                             contents: bytemuck::cast_slice(indices),
                             usage: BufferUsages::INDEX,
                         });

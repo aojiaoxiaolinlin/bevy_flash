@@ -1,14 +1,19 @@
 use bevy::{
     DefaultPlugins,
-    app::{App, Startup},
-    asset::AssetServer,
+    app::{App, Startup, Update},
+    asset::{AssetEvent, AssetServer, Assets},
     color::Color,
     dev_tools::fps_overlay::FpsOverlayPlugin,
+    ecs::{
+        entity::Entity,
+        event::EventReader,
+        system::{Query, ResMut},
+    },
     math::Vec3,
     prelude::{Camera2d, ClearColor, Commands, Msaa, PluginGroup, Res, Transform},
     window::{Window, WindowPlugin},
 };
-use bevy_flash::{FlashPlugin, bundle::FlashAnimation};
+use bevy_flash::{FlashPlugin, assets::FlashAnimationSwfData, bundle::FlashAnimation};
 
 fn main() {
     App::new()
@@ -29,6 +34,7 @@ fn main() {
             FpsOverlayPlugin::default(),
         ))
         .add_systems(Startup, setup)
+        .add_systems(Update, flash_animation)
         .run();
 }
 
@@ -62,4 +68,26 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         },
         Transform::from_translation(Vec3::new(300.0, -240.0, 0.0)).with_scale(Vec3::splat(2.0)),
     ));
+}
+
+fn flash_animation(
+    mut query: Query<(Entity, &mut FlashAnimation)>,
+    mut flash_assets: ResMut<Assets<FlashAnimationSwfData>>,
+    mut flash_swf_data_events: EventReader<AssetEvent<FlashAnimationSwfData>>,
+) {
+    for event in flash_swf_data_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = event {
+            if let Some((entity, mut flash_animation)) = query
+                .iter_mut()
+                .find(|(_, flash_animation)| flash_animation.swf_asset.id() == *id)
+            {
+                let flash_asset = flash_assets.get_mut(*id).unwrap();
+                flash_asset
+                    .player
+                    .set_play_animation("default", true, None)
+                    .unwrap();
+                // flash_asset.player.set_skin("head", "4").unwrap();
+            }
+        }
+    }
 }

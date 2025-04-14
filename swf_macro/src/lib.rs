@@ -31,9 +31,6 @@ pub fn swf_material_derive(input: TokenStream) -> TokenStream {
             fn update_swf_material(&mut self, swf_transform: SwfTransform) {
                 self.transform = swf_transform
             }
-            fn world_transform(&self) -> Mat4 {
-                self.transform.world_transform
-            }
             fn set_alpha_mode2d(&mut self, alpha_mode2d: AlphaMode2d) {
                 self.alpha_mode2d = alpha_mode2d;
             }

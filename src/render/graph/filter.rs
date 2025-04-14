@@ -2,7 +2,6 @@ use crate::render::pipeline::{
     BevelFilterPipeline, BlurFilterPipeline, ColorMatrixFilterPipeline, GlowFilterPipeline,
 };
 use crate::render::{ExtractedIntermediateTexture, FlashFilters};
-use crate::swf::filter::Filter::{BevelFilter, BlurFilter, ColorMatrixFilter, GlowFilter};
 use bevy::math::UVec2;
 use bevy::render::render_phase::TrackedRenderPass;
 use bevy::render::render_resource::{
@@ -14,7 +13,9 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::RenderContext;
 use bevy::render::{render_graph::ViewNode, view::ViewTarget};
 use bytemuck::{Pod, Zeroable};
-
+use flash_an_runtime::core::filter::Filter::{
+    BevelFilter, BlurFilter, ColorMatrixFilter, GlowFilter,
+};
 #[derive(Default)]
 pub struct FlashFilterNode;
 

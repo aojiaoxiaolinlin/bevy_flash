@@ -19,7 +19,6 @@ use super::{
 
 pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {
     fn update_swf_material(&mut self, swf_transform: SwfTransform);
-    fn world_transform(&self) -> Mat4;
     fn set_alpha_mode2d(&mut self, alpha_mode2d: AlphaMode2d);
 }
 

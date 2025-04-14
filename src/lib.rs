@@ -7,7 +7,6 @@ use assets::FlashAnimationSwfData;
 use bevy::app::App;
 use bevy::asset::AssetEvent;
 use bevy::ecs::component::Component;
-use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::Commands;
 use bevy::prelude::{Deref, DerefMut, Entity, EventReader, Query};
 
@@ -31,7 +30,7 @@ impl Plugin for FlashPlugin {
         app.add_plugins(FlashRenderPlugin)
             .init_asset::<FlashAnimationSwfData>()
             .init_asset_loader::<SwfLoader>()
-            .add_systems(Update, (flash_update, flash_animation).chain());
+            .add_systems(Update, flash_update);
     }
 }
 
@@ -87,26 +86,4 @@ pub struct SwfMesh {
 pub struct ShapeMesh {
     pub mesh: SwfMesh,
     pub draw_type: ShapeDrawType,
-}
-
-fn flash_animation(
-    mut query: Query<(Entity, &mut FlashAnimation)>,
-    mut flash_assets: ResMut<Assets<FlashAnimationSwfData>>,
-    mut flash_swf_data_events: EventReader<AssetEvent<FlashAnimationSwfData>>,
-) {
-    for event in flash_swf_data_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = event {
-            if let Some((entity, mut flash_animation)) = query
-                .iter_mut()
-                .find(|(_, flash_animation)| flash_animation.swf_asset.id() == *id)
-            {
-                let flash_asset = flash_assets.get_mut(*id).unwrap();
-                flash_asset
-                    .player
-                    .set_play_animation("default", true, None)
-                    .unwrap();
-                // flash_asset.player.set_skin("head", "4").unwrap();
-            }
-        }
-    }
 }
