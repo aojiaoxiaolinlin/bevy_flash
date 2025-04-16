@@ -366,6 +366,9 @@ pub fn generate_swf_mesh(
                             continue;
                         };
 
+                        // TODO: 暂时解决了示例滤镜的z轴问题。
+                        transform.translation.z += 0.2;
+
                         let (_, shape) = flash_asset.shape_meshes.get(&id).expect("没有就是有Bug");
                         let scale = global_transform.scale();
                         let bounds = matrix * shape.shape_bounds.clone();
@@ -442,7 +445,6 @@ pub fn generate_swf_mesh(
                                 swf_shape_mesh_aabb,
                             ) in flash_material_query.iter_mut()
                             {
-                                z_index += 1.0e-3;
                                 if material_entity == *child {
                                     //  更新AABB
                                     let aabb_transform = Mat4::from_cols_array_2d(&[
@@ -578,6 +580,11 @@ pub fn generate_swf_mesh(
                                 transform: swf_transform.clone(),
                             })),
                             SwfShapeMeshAabb(aabb),
+                            Transform::from_translation(Vec3::new(
+                                -window.width() / (scale.x * 2.0),
+                                window.height() / (scale.y * 2.0),
+                                z_index,
+                            )),
                         ));
                     } else {
                         // 生成网格实体
