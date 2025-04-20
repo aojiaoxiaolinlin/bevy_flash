@@ -12,7 +12,7 @@ use bevy::{
     },
 };
 
-use crate::render::ExtractedIntermediateTexture;
+use crate::render::intermediate_texture::ExtractedIntermediateTexture;
 
 #[derive(Default)]
 pub struct SingleTextureMultiPassPostProcessingNode {

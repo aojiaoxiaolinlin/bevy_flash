@@ -7,7 +7,10 @@ use bevy::{
     log::error,
     math::{Mat3, Mat4},
     reflect::TypePath,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    render::{
+        mesh::{Indices, Mesh, MeshAabb, PrimitiveTopology},
+        render_resource::{Extent3d, TextureDimension, TextureFormat},
+    },
 };
 use copyless::VecHelper;
 use flash_an_runtime::{
@@ -21,7 +24,7 @@ use flash_an_runtime::{
 use swf::{CharacterId, GradientInterpolation, Shape};
 
 use crate::{
-    ShapeDrawType, ShapeMesh, SwfMesh,
+    ShapeDrawType, ShapeMesh,
     render::material::{BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial},
 };
 
@@ -71,8 +74,6 @@ impl AssetLoader for SwfLoader {
                     v.shape,
                 ),
             );
-            i += 1;
-            j += 1;
         }
 
         let player = AnimationPlayer::new(
@@ -116,12 +117,19 @@ fn load_shape_mesh(
                     colors.alloc().init(linear_color.to_f32_array());
                 }
 
+                let mesh = Mesh::new(
+                    PrimitiveTopology::TriangleList,
+                    RenderAssetUsages::default(),
+                )
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+                .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
+                let aabb = mesh.compute_aabb().unwrap_or_default();
+                let mesh = load_context.add_labeled_asset(format!("mesh_{}", j), mesh);
+
                 render_shape.push(ShapeMesh {
-                    mesh: SwfMesh {
-                        positions,
-                        indices: draw.indices.clone(),
-                        colors,
-                    },
+                    mesh,
+                    aabb,
                     draw_type: ShapeDrawType::Color(SwfColorMaterial::default()),
                 });
             }
@@ -130,14 +138,19 @@ fn load_shape_mesh(
                 for vertex in &draw.vertices {
                     positions.alloc().init([vertex.x, vertex.y, 0.0]);
                 }
+                let mesh = Mesh::new(
+                    PrimitiveTopology::TriangleList,
+                    RenderAssetUsages::default(),
+                )
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
+                let aabb = mesh.compute_aabb().unwrap_or_default();
+                let mesh = load_context.add_labeled_asset(format!("mesh_{}", j), mesh);
 
                 let texture = gradient_textures.get(*gradient).unwrap();
                 render_shape.push(ShapeMesh {
-                    mesh: SwfMesh {
-                        positions,
-                        indices: draw.indices.clone(),
-                        colors: Vec::new(),
-                    },
+                    mesh,
+                    aabb,
                     draw_type: ShapeDrawType::Gradient(GradientMaterial {
                         gradient: GradientUniforms {
                             focal_point: texture.1.focal_point,
@@ -179,16 +192,20 @@ fn load_shape_mesh(
                     for vertex in draw.vertices.clone() {
                         positions.alloc().init([vertex.x, vertex.y, 0.0]);
                     }
+                    let mesh = Mesh::new(
+                        PrimitiveTopology::TriangleList,
+                        RenderAssetUsages::default(),
+                    )
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                    .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
+                    let aabb = mesh.compute_aabb().unwrap_or_default();
+                    let mesh = load_context.add_labeled_asset(format!("mesh_{}", j), mesh);
 
                     let handle =
                         load_context.add_labeled_asset(format!("bitmap_{}", j), bitmap_texture);
-                    *j += 1;
                     render_shape.push(ShapeMesh {
-                        mesh: SwfMesh {
-                            positions,
-                            indices: draw.indices.clone(),
-                            colors: Vec::new(),
-                        },
+                        mesh,
+                        aabb,
                         draw_type: ShapeDrawType::Bitmap(BitmapMaterial {
                             texture: handle,
                             texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(
@@ -200,6 +217,7 @@ fn load_shape_mesh(
                 }
             }
         }
+        *j += 1;
     }
     render_shape
 }

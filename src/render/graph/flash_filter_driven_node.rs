@@ -3,7 +3,7 @@ use bevy::{
     render::render_graph::{Node, RenderLabel},
 };
 
-use crate::render::ExtractedIntermediateTexture;
+use crate::render::intermediate_texture::ExtractedIntermediateTexture;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub struct SingleTextureMultiPassPostProcessingDriverLabel;

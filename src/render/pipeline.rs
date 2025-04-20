@@ -5,7 +5,7 @@ use bevy::{
     core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state,
     ecs::{
         resource::Resource,
-        system::{Query, Res, ResMut, SystemState},
+        system::{Res, SystemState},
         world::FromWorld,
     },
     image::BevyDefault,
@@ -16,8 +16,7 @@ use bevy::{
             BindGroupLayout, BindGroupLayoutEntries, BlendState, CachedRenderPipelineId,
             ColorTargetState, ColorWrites, FragmentState, FrontFace, MultisampleState,
             PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor, Sampler,
-            SamplerBindingType, SamplerDescriptor, Shader, ShaderStages, SpecializedRenderPipeline,
-            SpecializedRenderPipelines, TextureFormat, TextureSampleType, VertexFormat,
+            SamplerBindingType, SamplerDescriptor, Shader, ShaderStages, SpecializedRenderPipeline, TextureFormat, TextureSampleType, VertexFormat,
             VertexState, VertexStepMode,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
@@ -27,7 +26,6 @@ use bevy::{
 };
 
 use super::{
-    ExtractedIntermediateTexture, MeshDrawType,
     graph::filter::{BevelUniform, BlurUniform, ColorMatrixUniform, GlowFilterUniform},
     material::GradientUniforms,
 };
@@ -187,31 +185,6 @@ impl SpecializedRenderPipeline for IntermediateTexturePipeline {
                 })],
             }),
             zero_initialize_workgroup_memory: false,
-        }
-    }
-}
-
-pub fn specialize_meshes(
-    mut specialized_render_pipelines: ResMut<
-        SpecializedRenderPipelines<IntermediateTexturePipeline>,
-    >,
-    intermediate_texture_pipeline: Res<IntermediateTexturePipeline>,
-    pipeline_cache: Res<PipelineCache>,
-    mut query: Query<&mut ExtractedIntermediateTexture>,
-) {
-    for mut intermediate_texture in query.iter_mut() {
-        for swf_vertex in intermediate_texture.view_entities.iter_mut() {
-            let key = match swf_vertex.mesh_draw_type {
-                MeshDrawType::Color(_) => IntermediateTextureKey::COLOR,
-                MeshDrawType::Gradient(_) => IntermediateTextureKey::GRADIENT,
-                MeshDrawType::Bitmap => IntermediateTextureKey::BITMAP,
-            };
-            let pipeline_id = specialized_render_pipelines.specialize(
-                &pipeline_cache,
-                &intermediate_texture_pipeline,
-                key,
-            );
-            swf_vertex.pipeline_id = pipeline_id;
         }
     }
 }

@@ -1,7 +1,8 @@
+use crate::render::FlashFilters;
+use crate::render::intermediate_texture::ExtractedIntermediateTexture;
 use crate::render::pipeline::{
     BevelFilterPipeline, BlurFilterPipeline, ColorMatrixFilterPipeline, GlowFilterPipeline,
 };
-use crate::render::{ExtractedIntermediateTexture, FlashFilters};
 use bevy::math::UVec2;
 use bevy::render::render_phase::TrackedRenderPass;
 use bevy::render::render_resource::{
@@ -52,7 +53,7 @@ impl ViewNode for FlashFilterNode {
                         continue;
                     };
                     apply_blur(
-                        blur_filter,
+                        &blur_filter,
                         render_context,
                         pipeline,
                         blur_filter_pipeline,

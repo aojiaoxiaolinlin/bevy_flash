@@ -36,15 +36,15 @@ fn main() {
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((Camera2d, Msaa::Sample8));
-    commands.spawn((
-        FlashAnimation {
-            name: Some(String::from("mc")),
-            swf_asset: assert_server.load("spirit2159src.swf"),
-            ignore_root_swf_transform: true,
-            ..Default::default()
-        },
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
-    ));
+    // commands.spawn((
+    //     FlashAnimation {
+    //         name: Some(String::from("mc")),
+    //         swf_asset: assert_server.load("spirit2159src.swf"),
+    //         ignore_root_swf_transform: true,
+    //         ..Default::default()
+    //     },
+    //     Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
+    // ));
 
     // commands.spawn((
     //     FlashAnimation {
@@ -67,13 +67,13 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
 }
 
 fn flash_animation(
-    mut flash_assets: ResMut<Assets<FlashAnimationSwfData>>,
+    mut flashes: ResMut<Assets<FlashAnimationSwfData>>,
     mut flash_swf_data_events: EventReader<AssetEvent<FlashAnimationSwfData>>,
 ) {
     for event in flash_swf_data_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = event {
-            let flash_asset = flash_assets.get_mut(*id).unwrap();
-            flash_asset
+            let flash = flashes.get_mut(*id).unwrap();
+            flash
                 .player
                 .set_play_animation("default", true, None)
                 .unwrap();

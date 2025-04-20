@@ -5,11 +5,13 @@ use crate::render::material::{BitmapMaterial, GradientMaterial, SwfColorMaterial
 
 use assets::FlashAnimationSwfData;
 use bevy::app::App;
-use bevy::asset::AssetEvent;
+use bevy::asset::Handle;
 use bevy::ecs::component::Component;
 use bevy::ecs::system::Commands;
-use bevy::prelude::{Deref, DerefMut, Entity, EventReader, Query};
+use bevy::prelude::{Deref, DerefMut, Entity, Query};
 
+use bevy::render::mesh::Mesh;
+use bevy::render::primitives::Aabb;
 use bevy::time::Time;
 use bevy::{
     app::{Plugin, Update},
@@ -21,7 +23,6 @@ use flash_an_runtime::core::RuntimeInstance;
 pub mod assets;
 pub mod bundle;
 mod render;
-pub mod swf;
 
 pub struct FlashPlugin;
 
@@ -50,8 +51,8 @@ fn flash_update(
     query
         .iter_mut()
         .for_each(|(entity, flash_animation, active_instance)| {
-            if let Some(flash_asset) = swf_assets.get_mut(flash_animation.swf_asset.id()) {
-                let player = &mut flash_asset.player;
+            if let Some(flash) = swf_assets.get_mut(flash_animation.swf_asset.id()) {
+                let player = &mut flash.player;
                 if let Some(mut active_instance) = active_instance {
                     player
                         .update(&mut active_instance, time.delta_secs())
@@ -76,14 +77,8 @@ pub enum ShapeDrawType {
 }
 
 #[derive(Clone)]
-pub struct SwfMesh {
-    pub positions: Vec<[f32; 3]>,
-    pub indices: Vec<u32>,
-    pub colors: Vec<[f32; 4]>,
-}
-
-#[derive(Clone)]
 pub struct ShapeMesh {
-    pub mesh: SwfMesh,
+    pub mesh: Handle<Mesh>,
+    pub aabb: Aabb,
     pub draw_type: ShapeDrawType,
 }

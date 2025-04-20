@@ -118,14 +118,14 @@ fn flash_asset_event(
     assert_server: Res<AssetServer>,
     animation_ui: Single<Entity, With<AnimationCtrlRoot>>,
     skin_ui: Single<Entity, With<SkinCtrlRoot>>,
-    mut flash_assets: ResMut<Assets<FlashAnimationSwfData>>,
+    mut flashes: ResMut<Assets<FlashAnimationSwfData>>,
     mut flash_swf_data_events: EventReader<AssetEvent<FlashAnimationSwfData>>,
 ) {
     for event in flash_swf_data_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = event {
-            let flash_asset = flash_assets.get_mut(*id).unwrap();
-            let animation_names = flash_asset.player.animation_names();
-            let skins = flash_asset.player.get_skips();
+            let flash = flashes.get_mut(*id).unwrap();
+            let animation_names = flash.player.animation_names();
+            let skins = flash.player.get_skips();
 
             button(
                 &mut commands,
@@ -220,7 +220,7 @@ fn change_animation(
         (Changed<Interaction>, With<Button>),
     >,
     query: Query<&FlashAnimation>,
-    mut flash_assets: ResMut<Assets<FlashAnimationSwfData>>,
+    mut flashes: ResMut<Assets<FlashAnimationSwfData>>,
 ) {
     for (interaction, animation_name, mut color, mut border_color) in &mut interaction_query {
         match *interaction {
@@ -231,8 +231,8 @@ fn change_animation(
                     if flash_animation.name != Some("flash".to_string()) {
                         continue;
                     }
-                    if let Some(flash_asset) = flash_assets.get_mut(&flash_animation.swf_asset) {
-                        flash_asset
+                    if let Some(flash) = flashes.get_mut(&flash_animation.swf_asset) {
+                        flash
                             .player
                             .set_play_animation(&animation_name, true, None)
                             .unwrap();
@@ -335,7 +335,7 @@ fn update_skin(
         (Changed<Interaction>, With<Button>),
     >,
     query: Query<&FlashAnimation>,
-    mut flash_assets: ResMut<Assets<FlashAnimationSwfData>>,
+    mut flashes: ResMut<Assets<FlashAnimationSwfData>>,
 ) {
     for (interaction, skin_change, mut background_color, mut border_color) in &mut interaction_query
     {
@@ -348,7 +348,7 @@ fn update_skin(
                     if flash_animation.name != Some("flash".to_string()) {
                         continue;
                     }
-                    if let Some(flash) = flash_assets.get_mut(flash_animation.swf_asset.id()) {
+                    if let Some(flash) = flashes.get_mut(flash_animation.swf_asset.id()) {
                         flash
                             .player
                             .set_skin(&skin_change.name, &skin_change.skin)

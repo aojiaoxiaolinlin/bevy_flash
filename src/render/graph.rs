@@ -19,7 +19,7 @@ use texture_synthesis::TextureSynthesisNode;
 use upscaling::SingleTextureMultiPassPostProcessingNode;
 
 use super::{
-    SwfVertex,
+    intermediate_texture::SwfRawVertex,
     pipeline::{
         BevelFilterPipeline, BlurFilterPipeline, ColorMatrixFilterPipeline, GlowFilterPipeline,
     },
@@ -40,9 +40,9 @@ pub enum FlashFilter {
     Upscaling,
 }
 
-pub struct FlashFilterRenderPlugin;
+pub struct FlashFilterRenderGraphPlugin;
 
-impl Plugin for FlashFilterRenderPlugin {
+impl Plugin for FlashFilterRenderGraphPlugin {
     fn build(&self, app: &mut bevy::app::App) {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -99,7 +99,7 @@ impl Plugin for FlashFilterRenderPlugin {
 }
 
 #[derive(Resource, Deref, DerefMut, Default)]
-pub struct RenderPhases(pub MainEntityHashMap<Vec<SwfVertex>>);
+pub struct RenderPhases(pub MainEntityHashMap<Vec<SwfRawVertex>>);
 
 impl RenderPhases {
     pub fn insert_or_clear(&mut self, entity: MainEntity) {

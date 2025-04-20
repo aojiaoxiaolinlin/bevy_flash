@@ -2,11 +2,12 @@ use bevy::{
     log::warn,
     render::{
         diagnostic::RecordDiagnostics,
+        mesh::{RenderMesh, RenderMeshBufferInfo, allocator::MeshAllocator},
         render_asset::RenderAssets,
         render_graph::ViewNode,
         render_resource::{
             BindGroupEntries, BufferInitDescriptor, BufferUsages, CommandEncoderDescriptor,
-            IndexFormat, PipelineCache, RenderPassDescriptor,
+            PipelineCache, RenderPassDescriptor,
         },
         sync_world::MainEntity,
         texture::GpuImage,
@@ -15,7 +16,8 @@ use bevy::{
 };
 
 use crate::render::{
-    ExtractedIntermediateTexture, MeshDrawType, pipeline::IntermediateTexturePipeline,
+    RawVertexDrawType, intermediate_texture::ExtractedIntermediateTexture,
+    pipeline::IntermediateTexturePipeline,
 };
 
 use super::RenderPhases;
@@ -38,6 +40,9 @@ impl ViewNode for TextureSynthesisNode {
         };
         let pipeline_cache = world.resource::<PipelineCache>();
         let gpu_images = world.resource::<RenderAssets<GpuImage>>();
+
+        let mesh_allocator = world.resource::<MeshAllocator>();
+        let meshes = world.resource::<RenderAssets<RenderMesh>>();
 
         let view_entity: MainEntity = graph.view_entity().into();
         let Some(render_phase) = render_phases.get(&view_entity) else {
@@ -67,21 +72,22 @@ impl ViewNode for TextureSynthesisNode {
             // let mut render_pass = TrackedRenderPass::new(&render_device, render_pass);
             let pass_span = diagnostics.pass_span(&mut render_pass, "single_texture_multi_pass");
             if !render_phase.is_empty() {
-                for swf_vertex in render_phase.iter() {
-                    let (pipeline_id, mesh_draw_type, indices) = (
-                        swf_vertex.pipeline_id,
-                        &swf_vertex.mesh_draw_type,
-                        &swf_vertex.indices,
-                    );
+                for raw_vertex in render_phase.iter() {
+                    let (pipeline_id, mesh_draw_type) =
+                        (raw_vertex.pipeline_id, &raw_vertex.mesh_draw_type);
                     let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline_id) else {
                         continue;
                     };
-                    let index_buffer =
-                        render_device.create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some("index_buffer"),
-                            contents: bytemuck::cast_slice(indices),
-                            usage: BufferUsages::INDEX,
-                        });
+
+                    let Some(gpu_mesh) = meshes.get(raw_vertex.mesh.id()) else {
+                        continue;
+                    };
+                    let Some(vertex_buffer_slice) =
+                        mesh_allocator.mesh_vertex_slice(&raw_vertex.mesh.id())
+                    else {
+                        continue;
+                    };
+
                     let filter_size = intermediate_texture.filter_size;
                     let delta = filter_size - intermediate_texture.size;
                     let scale = intermediate_texture.scale;
@@ -98,13 +104,13 @@ impl ViewNode for TextureSynthesisNode {
                     ];
                     let view_buffer =
                         render_device.create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some("View Matrix Buffer"),
+                            label: Some("view_matrix_buffer"),
                             contents: bytemuck::cast_slice(&[view_matrix]),
                             usage: BufferUsages::UNIFORM,
                         });
                     let world_transform =
                         render_device.create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some("swf_world_transform"),
+                            label: Some("swf_world_transform_buffer"),
                             contents: bytemuck::cast_slice(&[intermediate_texture.world_transform]),
                             usage: BufferUsages::UNIFORM,
                         });
@@ -120,27 +126,10 @@ impl ViewNode for TextureSynthesisNode {
 
                     render_pass.set_pipeline(pipeline);
                     render_pass.set_bind_group(0, &view_bind_group, &[]);
-                    render_pass.set_index_buffer(*index_buffer.slice(..), IndexFormat::Uint32);
-
+                    render_pass.set_vertex_buffer(0, *vertex_buffer_slice.buffer.slice(..));
                     match mesh_draw_type {
-                        MeshDrawType::Color(swf_color) => {
-                            let vertex_buffer =
-                                render_device.create_buffer_with_data(&BufferInitDescriptor {
-                                    label: Some("带有颜色的顶点"),
-                                    contents: bytemuck::cast_slice(&swf_color),
-                                    usage: BufferUsages::VERTEX,
-                                });
-
-                            render_pass.set_vertex_buffer(0, *vertex_buffer.slice(..));
-                            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
-                        }
-                        MeshDrawType::Gradient(gradient) => {
-                            let vertex_buffer =
-                                render_device.create_buffer_with_data(&BufferInitDescriptor {
-                                    label: Some("仅有顶点"),
-                                    contents: bytemuck::cast_slice(&gradient.vertex),
-                                    usage: BufferUsages::VERTEX,
-                                });
+                        RawVertexDrawType::Color => {}
+                        RawVertexDrawType::Gradient(gradient) => {
                             let gradient_uniform_buffer =
                                 render_device.create_buffer_with_data(&BufferInitDescriptor {
                                     label: Some("渐变缓冲区"),
@@ -166,11 +155,35 @@ impl ViewNode for TextureSynthesisNode {
                                 )),
                             );
                             render_pass.set_bind_group(1, &bind_group, &[]);
-                            render_pass.set_vertex_buffer(0, *vertex_buffer.slice(..));
-                            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
                         }
                         _ => {
                             warn!("位图应该不会使用滤镜吧！😊，如果有再做吧！！！")
+                        }
+                    }
+                    match gpu_mesh.buffer_info {
+                        RenderMeshBufferInfo::Indexed {
+                            count,
+                            index_format,
+                        } => {
+                            let Some(index_buffer_slice) =
+                                mesh_allocator.mesh_index_slice(&raw_vertex.mesh.id())
+                            else {
+                                continue;
+                            };
+                            render_pass.set_index_buffer(
+                                *index_buffer_slice.buffer.slice(..),
+                                index_format,
+                            );
+
+                            render_pass.draw_indexed(
+                                index_buffer_slice.range.start
+                                    ..(index_buffer_slice.range.start + count),
+                                vertex_buffer_slice.range.start as i32,
+                                0..1,
+                            );
+                        }
+                        RenderMeshBufferInfo::NonIndexed => {
+                            render_pass.draw(0..gpu_mesh.vertex_count, 0..1);
                         }
                     }
                 }
