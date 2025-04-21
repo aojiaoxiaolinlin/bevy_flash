@@ -37,6 +37,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         position
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
+    out.position.x = out.position.x - out.position.w;
+    out.position.y = out.position.y + out.position.w;
     return out;
 }
 

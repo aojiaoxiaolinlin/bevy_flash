@@ -1,19 +1,18 @@
 use bevy::asset::{RenderAssetUsages, weak_handle};
 use bevy::ecs::entity::EntityHashMap;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{EntityCommands, Local, Single};
+use bevy::ecs::system::{EntityCommands, Local};
 use bevy::image::{BevyDefault, Image};
-use bevy::math::{UVec2, Vec2, Vec3A, Vec4};
+use bevy::math::{UVec2, Vec2, Vec4};
 use bevy::platform_support::collections::HashMap;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
-use bevy::render::mesh::{Indices, MeshAabb, PrimitiveTopology};
-use bevy::render::primitives::Aabb;
+use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::render::render_resource::{
     CachedRenderPipelineId, Extent3d, TextureDimension, TextureFormat, TextureUsages,
 };
+use bevy::render::view::NoFrustumCulling;
 use bevy::sprite::AlphaMode2d;
 use bevy::transform::components::GlobalTransform;
-use bevy::window::Window;
 use bevy::{
     app::{App, Plugin, Update},
     asset::{Assets, Handle, load_internal_asset},
@@ -56,11 +55,9 @@ pub const FLASH_COMMON_MATERIAL_SHADER_HANDLE: Handle<Shader> =
 
 type SwfShapeMeshQuery = (
     Entity,
-    &'static mut Aabb,
     Option<&'static MeshMaterial2d<SwfColorMaterial>>,
     Option<&'static MeshMaterial2d<GradientMaterial>>,
     Option<&'static MeshMaterial2d<BitmapMaterial>>,
-    &'static SwfShapeMeshAabb,
 );
 
 pub struct FlashRenderPlugin;
@@ -110,11 +107,6 @@ impl Plugin for FlashRenderPlugin {
 #[derive(Component, Default)]
 pub struct SwfShapeChildMesh;
 
-/// 用于记录网格的aabb，没帧不在重计算的Aabb。防止顶点动画实体被剔除
-/// 考虑使用 [`NoFrustumCulling`]
-#[derive(Component, Default, Deref, DerefMut)]
-pub struct SwfShapeMeshAabb(Aabb);
-
 /// flash 动画滤镜数据
 #[derive(Component, Clone, Debug, Default, ExtractComponent, DerefMut, Deref)]
 pub struct FlashFilters(Vec<Filter>);
@@ -150,8 +142,6 @@ fn generate_or_update_mesh(
             Entity,
             &mut IntermediateTexture,
             &mut FlashFilters,
-            &mut Aabb,
-            &SwfShapeMeshAabb,
             &MeshMaterial2d<BitmapMaterial>,
         ),
         Without<SwfShapeChildMesh>,
@@ -160,7 +150,6 @@ fn generate_or_update_mesh(
         (Entity, Option<&Children>, &mut Transform),
         (With<SwfGraph>, Without<SwfShapeChildMesh>),
     >,
-    window: Single<&Window>,
     mut current_shape_entities: Local<Vec<Entity>>,
     mut flash_shape_records: Local<EntityHashMap<FlashShapeSpawnRecord>>,
     mut cache_filter_image: Local<EntityHashMap<HashMap<ShapeFilterInfo, Handle<Image>>>>,
@@ -183,12 +172,11 @@ fn generate_or_update_mesh(
         if let Some(children) = children {
             intermediate_textures
                 .iter_mut()
-                .filter(|(entity, _, _, _, _, _)| children.contains(entity))
-                .for_each(|(_, mut intermediate_texture, _, _, _, _)| {
+                .filter(|(entity, _, _, _)| children.contains(entity))
+                .for_each(|(_, mut intermediate_texture, _, _)| {
                     intermediate_texture.is_active = false;
                 });
         }
-        let scale = global_transform.scale();
         if let Some(flash) = flashes.get_mut(flash_animation.swf_asset.id()) {
             let mut current_entity = Vec::new();
             let mut z_index = 1e-3;
@@ -228,22 +216,12 @@ fn generate_or_update_mesh(
                         .find(|(shape_entity, _, _)| shape_entity == entity)
                         .expect("找不到有鬼");
                     current_shape_entity = shape_entity;
-                    transform.translation = Vec3::new(
-                        -window.width() / (scale.x * 2.0),
-                        window.height() / (scale.y * 2.0),
-                        z_index,
-                    );
+                    transform.translation.z = z_index;
                     // 更新中间纹理变换
-                    if let Some((
-                        _,
-                        mut intermediate_texture,
-                        mut flash_filters,
-                        mut aabb,
-                        swf_shape_mesh_aabb,
-                        material_handle,
-                    )) = intermediate_textures
-                        .iter_mut()
-                        .find(|(entity, _, _, _, _, _)| *entity == shape_entity)
+                    if let Some((_, mut intermediate_texture, mut flash_filters, material_handle)) =
+                        intermediate_textures
+                            .iter_mut()
+                            .find(|(entity, _, _, _)| *entity == shape_entity)
                     {
                         let Some(bitmap_material) = bitmap_materials.get_mut(material_handle.id())
                         else {
@@ -327,13 +305,6 @@ fn generate_or_update_mesh(
                             ..swf_transform
                         };
 
-                        //  更新AABB
-                        let aabb_transform = Transform::from_scale(Vec3::new(1.0, -1.0, 1.0))
-                            .compute_matrix()
-                            * swf_transform.world_transform;
-                        aabb.center = aabb_transform.transform_point3a(swf_shape_mesh_aabb.center);
-                        aabb.half_extents = Vec3A::new(width / 2.0, height / 2.0, 0.0);
-
                         bitmap_material.update_swf_material(swf_transform);
                     } else {
                         let Some(shape_children) = shape_children else {
@@ -342,21 +313,12 @@ fn generate_or_update_mesh(
                         shape_children.iter().for_each(|child| {
                             for (
                                 material_entity,
-                                mut aabb,
                                 swf_color_material_handle,
                                 swf_gradient_material_handle,
                                 swf_bitmap_material_handle,
-                                swf_shape_mesh_aabb,
                             ) in flash_material_query.iter_mut()
                             {
                                 if material_entity == *child {
-                                    //  更新AABB
-                                    let aabb_transform =
-                                        Transform::from_scale(Vec3::new(1.0, -1.0, 1.0))
-                                            .compute_matrix()
-                                            * swf_transform.world_transform;
-                                    aabb.center = aabb_transform
-                                        .transform_point3a(swf_shape_mesh_aabb.center);
                                     if let Some(handle) = swf_color_material_handle {
                                         update_swf_material(
                                             handle,
@@ -393,11 +355,7 @@ fn generate_or_update_mesh(
                     let mut shape_entity_command = commands.spawn((
                         SwfGraph,
                         // 将flash的画布原点移动到WebGPU原点
-                        Transform::from_translation(Vec3::new(
-                            -window.width() / (scale.x * 2.0),
-                            window.height() / (scale.y * 2.0),
-                            z_index,
-                        )),
+                        Transform::from_translation(Vec3::new(0., 0., z_index)),
                     ));
                     let shape_entity = shape_entity_command.id();
 
@@ -470,7 +428,6 @@ fn generate_or_update_mesh(
                             ..swf_transform
                         };
                         let mesh = generate_rectangle_mesh_and_texture_transform();
-                        let aabb = mesh.compute_aabb().unwrap_or_default();
                         shape_entity_command.insert((
                             Mesh2d(meshes.add(mesh)),
                             MeshMaterial2d(bitmap_materials.add(BitmapMaterial {
@@ -479,20 +436,13 @@ fn generate_or_update_mesh(
                                 texture_transform: Mat4::IDENTITY,
                                 transform: swf_transform.clone(),
                             })),
-                            SwfShapeMeshAabb(aabb),
-                            Transform::from_translation(Vec3::new(
-                                -window.width() / (scale.x * 2.0),
-                                window.height() / (scale.y * 2.0),
-                                z_index,
-                            )),
+                            Transform::from_translation(Vec3::new(0., 0., z_index)),
                         ));
                     } else {
                         // 生成网格实体
                         shape_meshes.iter().for_each(|shape_mesh| {
                             // 防止Shape中的绘制z冲突
                             z_index += 1e-3;
-
-                            let swf_shape_mesh_aabb = SwfShapeMeshAabb(shape_mesh.aabb);
 
                             let transform =
                                 Transform::from_translation(Vec3::new(0.0, 0.0, z_index));
@@ -505,7 +455,6 @@ fn generate_or_update_mesh(
                                         swf_transform.clone(),
                                         transform,
                                         shape_mesh.mesh.clone(),
-                                        swf_shape_mesh_aabb,
                                         blend,
                                     );
                                 }
@@ -517,7 +466,6 @@ fn generate_or_update_mesh(
                                         swf_transform.clone(),
                                         transform,
                                         shape_mesh.mesh.clone(),
-                                        swf_shape_mesh_aabb,
                                         blend,
                                     );
                                 }
@@ -529,7 +477,6 @@ fn generate_or_update_mesh(
                                         swf_transform.clone(),
                                         transform,
                                         shape_mesh.mesh.clone(),
-                                        swf_shape_mesh_aabb,
                                         blend,
                                     );
                                 }
@@ -624,7 +571,6 @@ fn spawn_mesh<T: SwfMaterial>(
     swf_transform: SwfTransform,
     transform: Transform,
     handle: Handle<Mesh>,
-    swf_shape_mesh_aabb: SwfShapeMeshAabb,
     alpha_mode2d: AlphaMode2d,
 ) {
     swf_material.update_swf_material(swf_transform);
@@ -634,8 +580,9 @@ fn spawn_mesh<T: SwfMaterial>(
             Mesh2d(handle),
             MeshMaterial2d(swf_materials.add(swf_material)),
             transform,
-            swf_shape_mesh_aabb,
             SwfShapeChildMesh,
+            // 由于Flash顶点特殊性不应用剔除
+            NoFrustumCulling,
         ));
     });
 }
