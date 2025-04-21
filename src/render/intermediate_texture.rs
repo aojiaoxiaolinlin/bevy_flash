@@ -2,7 +2,7 @@ use std::sync::{Arc, atomic::AtomicUsize};
 
 use bevy::{
     app::Plugin,
-    asset::{Asset, Handle},
+    asset::{Asset, Handle, load_internal_asset},
     color::LinearRgba,
     ecs::{
         component::Component,
@@ -22,7 +22,7 @@ use bevy::{
         render_asset::{self, RenderAssets},
         render_graph::{InternedRenderSubGraph, RenderSubGraph},
         render_resource::{
-            CachedRenderPipelineId, Extent3d, PipelineCache, SpecializedRenderPipelines,
+            CachedRenderPipelineId, Extent3d, PipelineCache, Shader, SpecializedRenderPipelines,
             TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
         },
         renderer::RenderDevice,
@@ -30,6 +30,11 @@ use bevy::{
         texture::{ColorAttachment, GpuImage, OutputColorAttachment, TextureCache},
         view::{MainTargetTextures, Msaa, ViewTarget, ViewTargetAttachments},
     },
+};
+
+use crate::render::pipeline::{
+    BEVEL_FILTER_SHADER_HANDLE, BLUR_FILTER_SHADER_HANDLE, COLOR_MATRIX_FILTER_SHADER_HANDLE,
+    GLOW_FILTER_SHADER_HANDLE, INTERMEDIATE_TEXTURE_GRADIENT, INTERMEDIATE_TEXTURE_MESH,
 };
 
 use super::{
@@ -42,6 +47,43 @@ pub struct IntermediateTexturePlugin;
 
 impl Plugin for IntermediateTexturePlugin {
     fn build(&self, app: &mut bevy::app::App) {
+        load_internal_asset!(
+            app,
+            INTERMEDIATE_TEXTURE_MESH,
+            "shaders/intermediate_texture/color.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            INTERMEDIATE_TEXTURE_GRADIENT,
+            "shaders/intermediate_texture/gradient.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            BLUR_FILTER_SHADER_HANDLE,
+            "shaders/filters/blur.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            COLOR_MATRIX_FILTER_SHADER_HANDLE,
+            "shaders/filters/color_matrix.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            GLOW_FILTER_SHADER_HANDLE,
+            "shaders/filters/glow.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            BEVEL_FILTER_SHADER_HANDLE,
+            "shaders/filters/bevel.wgsl",
+            Shader::from_wgsl
+        );
+
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };

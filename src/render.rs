@@ -32,11 +32,7 @@ use intermediate_texture::{IntermediateTexture, IntermediateTexturePlugin, SwfRa
 use material::{
     BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial, SwfMaterial, SwfTransform,
 };
-use pipeline::{
-    BEVEL_FILTER_SHADER_HANDLE, BLUR_FILTER_SHADER_HANDLE, COLOR_MATRIX_FILTER_SHADER_HANDLE,
-    GLOW_FILTER_SHADER_HANDLE, INTERMEDIATE_TEXTURE_GRADIENT, INTERMEDIATE_TEXTURE_MESH,
-    IntermediateTexturePipeline,
-};
+use pipeline::IntermediateTexturePipeline;
 use swf::{CharacterId, Rectangle as SwfRectangle, Twips};
 
 use crate::assets::FlashAnimationSwfData;
@@ -93,42 +89,6 @@ impl Plugin for FlashRenderPlugin {
             app,
             BITMAP_MATERIAL_SHADER_HANDLE,
             "render/shaders/bitmap.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            INTERMEDIATE_TEXTURE_MESH,
-            "render/shaders/intermediate_texture/color.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            INTERMEDIATE_TEXTURE_GRADIENT,
-            "render/shaders/intermediate_texture/gradient.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            BLUR_FILTER_SHADER_HANDLE,
-            "render/shaders/filters/blur.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            COLOR_MATRIX_FILTER_SHADER_HANDLE,
-            "render/shaders/filters/color_matrix.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            GLOW_FILTER_SHADER_HANDLE,
-            "render/shaders/filters/glow.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            BEVEL_FILTER_SHADER_HANDLE,
-            "render/shaders/filters/bevel.wgsl",
             Shader::from_wgsl
         );
 
