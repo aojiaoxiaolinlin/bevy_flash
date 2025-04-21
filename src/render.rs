@@ -1,4 +1,5 @@
 use bevy::asset::{RenderAssetUsages, weak_handle};
+use bevy::ecs::entity::EntityHashMap;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{EntityCommands, Local, Single};
 use bevy::image::{BevyDefault, Image};
@@ -158,6 +159,14 @@ pub struct SwfShapeMeshAabb(Aabb);
 #[derive(Component, Clone, Debug, Default, ExtractComponent, DerefMut, Deref)]
 pub struct FlashFilters(Vec<Filter>);
 
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+pub struct ShapeFilterInfo {
+    pub matrix: swf::Matrix,
+    pub id: CharacterId,
+    pub shape_ref: usize,
+    pub filter_size: UVec2,
+}
+
 /// 每帧生成或更新`flash`动画的网格实体
 #[allow(clippy::too_many_arguments)]
 fn generate_or_update_mesh(
@@ -171,7 +180,6 @@ fn generate_or_update_mesh(
     mut query: Query<(
         Entity,
         &FlashAnimation,
-        &mut FlashShapeSpawnRecord,
         &mut FlashAnimationActiveInstance,
         &GlobalTransform,
         Option<&Children>,
@@ -192,21 +200,25 @@ fn generate_or_update_mesh(
         (Entity, Option<&Children>, &mut Transform),
         (With<SwfGraph>, Without<SwfShapeChildMesh>),
     >,
-    mut current_shape_entities: Local<Vec<Entity>>,
-    mut marker_shape_ref: Local<HashMap<CharacterId, usize>>,
     window: Single<&Window>,
+    mut current_shape_entities: Local<Vec<Entity>>,
+    mut flash_shape_records: Local<EntityHashMap<FlashShapeSpawnRecord>>,
+    mut cache_filter_image: Local<EntityHashMap<HashMap<ShapeFilterInfo, Handle<Image>>>>,
+    mut live_flash: Local<Vec<Entity>>,
 ) {
-    for (
-        entity,
-        flash_animation,
-        mut flash_shape_record,
-        mut active_instances,
-        global_transform,
-        children,
-    ) in query.iter_mut()
+    live_flash.clear();
+    for (flash_entity, flash_animation, mut active_instances, global_transform, children) in
+        query.iter_mut()
     {
+        // 标记当前帧的flash还在使用
+        live_flash.push(flash_entity);
+
+        let flash_shape_record = flash_shape_records.entry(flash_entity).or_default();
+
+        // 记录当前帧的flash动画
         current_shape_entities.clear();
-        marker_shape_ref.clear();
+        // 防止Shape被多次使用时，引用到同一个实体
+        let mut marker_shape_ref = HashMap::new();
         // 将当前flash动画下的中间纹理标记为不可见
         if let Some(children) = children {
             intermediate_textures
@@ -302,15 +314,39 @@ fn generate_or_update_mesh(
                         ]);
                         let image = get_target_image(&filter_size);
                         let image_handle = images.add(image);
+                        if let Some(shape_filters) = cache_filter_image.get_mut(&flash_entity) {
+                            // 如果当前实例的滤镜和上次的滤镜一样，不需要重新渲染
+                            if let Some(cache_image) = shape_filters.get(&ShapeFilterInfo {
+                                matrix: matrix.into(),
+                                id,
+                                shape_ref: *ref_count,
+                                filter_size,
+                            }) {
+                                intermediate_texture.is_active = false;
+                                bitmap_material.texture = cache_image.clone();
+                            } else {
+                                flash_filters.clear();
+                                flash_filters.append(filters);
+                                intermediate_texture.is_active = true;
+                                intermediate_texture.target = image_handle.clone().into();
+                                intermediate_texture.filter_size = filter_size;
+                                intermediate_texture.world_transform = world_transform;
+                                intermediate_texture.size = size;
+                                intermediate_texture.scale = global_transform.scale();
+                                bitmap_material.texture = image_handle.clone();
 
-                        flash_filters.clear();
-                        flash_filters.append(filters);
-                        intermediate_texture.is_active = true;
-                        intermediate_texture.target = image_handle.clone().into();
-                        intermediate_texture.filter_size = filter_size;
-                        intermediate_texture.world_transform = world_transform;
-                        intermediate_texture.size = size;
-                        intermediate_texture.scale = global_transform.scale();
+                                // 记录新的滤镜
+                                shape_filters.insert(
+                                    ShapeFilterInfo {
+                                        matrix: matrix.into(),
+                                        id: active_instance.id(),
+                                        shape_ref: *ref_count,
+                                        filter_size,
+                                    },
+                                    image_handle,
+                                );
+                            }
+                        }
 
                         let draw_offset =
                             Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
@@ -338,7 +374,6 @@ fn generate_or_update_mesh(
                         aabb.center = aabb_transform.transform_point3a(swf_shape_mesh_aabb.center);
                         aabb.half_extents = Vec3A::new(width / 2.0, height / 2.0, 0.0);
 
-                        bitmap_material.texture = image_handle;
                         bitmap_material.update_swf_material(swf_transform);
                     } else {
                         let Some(shape_children) = shape_children else {
@@ -453,6 +488,10 @@ fn generate_or_update_mesh(
                             },
                             FlashFilters(filters.clone()),
                         ));
+
+                        // 初始化当前动画的滤镜缓存
+                        cache_filter_image.entry(flash_entity).or_default();
+
                         let draw_offset =
                             Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
                         let world_transform = Mat4::from_cols_array_2d(&[
@@ -471,7 +510,6 @@ fn generate_or_update_mesh(
                             ..swf_transform
                         };
                         let mesh = generate_rectangle_mesh_and_texture_transform();
-
                         let aabb = mesh.compute_aabb().unwrap_or_default();
                         shape_entity_command.insert((
                             Mesh2d(meshes.add(mesh)),
@@ -545,7 +583,7 @@ fn generate_or_update_mesh(
                         *ref_count,
                         shape_entity,
                     );
-                    commands.entity(entity).add_child(shape_entity);
+                    commands.entity(flash_entity).add_child(shape_entity);
                 }
                 current_shape_entities.push(current_shape_entity);
             }
@@ -563,6 +601,9 @@ fn generate_or_update_mesh(
             });
         }
     }
+    // 仅保留还活跃的flash动画实体
+    cache_filter_image.retain(|entity, _| live_flash.contains(entity));
+    flash_shape_records.retain(|entity, _| live_flash.contains(entity));
 }
 
 #[derive(Clone, Default)]

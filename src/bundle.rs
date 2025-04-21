@@ -10,9 +10,8 @@ use swf::CharacterId;
 
 use crate::assets::FlashAnimationSwfData;
 
-/// 用于记录以及生成的Shape，缓存起来，某一帧需要时再显示
-#[derive(Component, Debug, Clone, Default, Reflect, DerefMut, Deref)]
-#[reflect(Component, Default, Debug)]
+///
+#[derive(Debug, Clone, Default, DerefMut, Deref)]
 pub struct FlashShapeSpawnRecord(HashMap<(CharacterId, usize), Entity>);
 
 impl FlashShapeSpawnRecord {
@@ -38,7 +37,7 @@ impl FlashShapeSpawnRecord {
 pub struct SwfGraph;
 
 #[derive(Component, Debug, Clone, Reflect)]
-#[require(Transform, Visibility, FlashShapeSpawnRecord)]
+#[require(Transform, Visibility)]
 #[reflect(Component, Default, Debug)]
 pub struct FlashAnimation {
     /// 要渲染的swf资源的引用计数句柄。
