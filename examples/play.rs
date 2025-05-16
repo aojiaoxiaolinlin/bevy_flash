@@ -25,7 +25,7 @@ const SWF_ASSET: [&str; 4] = [
     "spirit2159src.swf",
     "spirit2158src.swf",
     "wu_kong.swf",
-    "leiyi2.swf",
+    "leiyi.swf",
 ];
 
 fn main() {
@@ -53,12 +53,11 @@ pub struct SkinCtrlRoot;
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((Camera2d, Msaa::Sample8));
     commands.spawn((
+        Name::new("flash"),
         FlashAnimation {
-            name: Some(String::from("flash")),
-            swf_asset: assert_server.load("wu_kong.swf"),
-            ..Default::default()
+            swf: assert_server.load("PeaShooterSingle.swf"),
         },
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
+        Transform::from_translation(Vec3::new(200.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
     ));
 
     commands
@@ -219,7 +218,7 @@ fn change_animation(
         ),
         (Changed<Interaction>, With<Button>),
     >,
-    query: Query<&FlashAnimation>,
+    query: Query<(&FlashAnimation, &Name)>,
     mut flashes: ResMut<Assets<FlashAnimationSwfData>>,
 ) {
     for (interaction, animation_name, mut color, mut border_color) in &mut interaction_query {
@@ -227,11 +226,11 @@ fn change_animation(
             Interaction::Pressed => {
                 *color = PRESSED_BUTTON.into();
                 border_color.0 = RED.into();
-                for flash_animation in query.iter() {
-                    if flash_animation.name != Some("flash".to_string()) {
+                for (flash_animation, flash_name) in query.iter() {
+                    if flash_name.as_str().ne("flash") {
                         continue;
                     }
-                    if let Some(flash) = flashes.get_mut(&flash_animation.swf_asset) {
+                    if let Some(flash) = flashes.get_mut(&flash_animation.swf) {
                         flash
                             .player
                             .set_play_animation(&animation_name, true, None)
@@ -264,7 +263,7 @@ fn update_swf(
     >,
     animation_buttons: Query<Entity, With<AnimationName>>,
     skin_ui: Single<Entity, With<SkinCtrlRoot>>,
-    query: Query<(Entity, &FlashAnimation)>,
+    query: Query<(Entity, &Name), With<FlashAnimation>>,
     asset_server: Res<AssetServer>,
     mut index: Local<usize>,
 ) {
@@ -290,8 +289,8 @@ fn update_swf(
                     _ => {}
                 }
 
-                for (entity, flash_animation) in query.iter() {
-                    if flash_animation.name != Some("flash".to_string()) {
+                for (entity, flash_name) in query.iter() {
+                    if flash_name.as_str().ne("flash") {
                         continue;
                     }
                     commands.entity(entity).despawn();
@@ -302,9 +301,9 @@ fn update_swf(
                         .entity(skin_ui.entity())
                         .despawn_related::<Children>();
                     commands.spawn((
+                        Name::new("flash"),
                         FlashAnimation {
-                            name: Some("flash".to_string()),
-                            swf_asset: asset_server.load(SWF_ASSET[*index]),
+                            swf: asset_server.load(SWF_ASSET[*index]),
                             ..Default::default()
                         },
                         Transform::from_translation(Vec3::new(0.0, 0.0, 0.0))
@@ -334,9 +333,9 @@ fn update_skin(
         ),
         (Changed<Interaction>, With<Button>),
     >,
-    query: Query<&FlashAnimation>,
+    query: Query<(&FlashAnimation, &Name)>,
     mut flashes: ResMut<Assets<FlashAnimationSwfData>>,
-) {
+) -> Result {
     for (interaction, skin_change, mut background_color, mut border_color) in &mut interaction_query
     {
         match *interaction {
@@ -344,15 +343,14 @@ fn update_skin(
                 *background_color = PRESSED_BUTTON.into();
                 border_color.0 = RED.into();
 
-                for flash_animation in query.iter() {
-                    if flash_animation.name != Some("flash".to_string()) {
+                for (flash_animation, flash_name) in query.iter() {
+                    if flash_name.as_str().ne("flash") {
                         continue;
                     }
-                    if let Some(flash) = flashes.get_mut(flash_animation.swf_asset.id()) {
+                    if let Some(flash) = flashes.get_mut(flash_animation.swf.id()) {
                         flash
                             .player
-                            .set_skin(&skin_change.name, &skin_change.skin)
-                            .unwrap();
+                            .set_skin(&skin_change.name, &skin_change.skin)?;
                     }
                 }
             }
@@ -366,6 +364,7 @@ fn update_skin(
             }
         }
     }
+    Ok(())
 }
 
 fn button_node_template(name: &str, asset_server: &AssetServer) -> impl Bundle + use<> {

@@ -1,6 +1,7 @@
-use bevy::sprite::AlphaMode2d;
 use enum_map::Enum;
-use flash_an_runtime::parser::types::BlendMode;
+use flash_runtime::parser::types::BlendMode;
+
+use super::material::BlendMaterialKey;
 
 #[derive(Enum, Debug, Copy, Clone)]
 pub enum TrivialBlend {
@@ -52,18 +53,17 @@ impl BlendType {
     }
 }
 
-impl From<BlendType> for AlphaMode2d {
+impl From<BlendType> for BlendMaterialKey {
     fn from(value: BlendType) -> Self {
         match value {
-            BlendType::Trivial(TrivialBlend::Normal) => AlphaMode2d::Blend,
-            BlendType::Trivial(TrivialBlend::Add) => AlphaMode2d::Add,
-            BlendType::Trivial(TrivialBlend::Subtract) => AlphaMode2d::Subtract,
-            BlendType::Trivial(TrivialBlend::Screen) => AlphaMode2d::Screen,
-            BlendType::Trivial(TrivialBlend::Lighten) => AlphaMode2d::Lighten,
-            BlendType::Trivial(TrivialBlend::Multiply) => AlphaMode2d::Multiply,
-            BlendType::Trivial(TrivialBlend::Darken) => AlphaMode2d::Darken,
-            // TODO: Implement complex blend modes
-            _ => AlphaMode2d::Blend,
+            BlendType::Trivial(TrivialBlend::Normal) => BlendMaterialKey::NORMAL,
+            BlendType::Trivial(TrivialBlend::Add) => BlendMaterialKey::BLEND_ADD,
+            BlendType::Trivial(TrivialBlend::Subtract) => BlendMaterialKey::BLEND_SUBTRACT,
+            BlendType::Trivial(TrivialBlend::Screen) => BlendMaterialKey::BLEND_SCREEN,
+            BlendType::Trivial(TrivialBlend::Lighten) => BlendMaterialKey::BLEND_LIGHTEN,
+            BlendType::Trivial(TrivialBlend::Multiply) => BlendMaterialKey::BLEND_MULTIPLY,
+            BlendType::Trivial(TrivialBlend::Darken) => BlendMaterialKey::BLEND_DARKEN,
+            _ => BlendMaterialKey::NORMAL,
         }
     }
 }

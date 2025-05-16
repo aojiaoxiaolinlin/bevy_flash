@@ -13,7 +13,7 @@ use bevy::{
     },
 };
 use copyless::VecHelper;
-use flash_an_runtime::{
+use flash_runtime::{
     core::AnimationPlayer,
     parse_animation,
     parser::{
@@ -174,7 +174,7 @@ fn load_shape_mesh(
                             continue;
                         }
                     };
-                    let bitmap = decoded.to_rgba();
+                    let bitmap = decoded.into_rgba();
 
                     let bitmap_texture = Image::new(
                         Extent3d {
@@ -184,7 +184,7 @@ fn load_shape_mesh(
                         },
                         TextureDimension::D2,
                         bitmap.data().to_vec(),
-                        TextureFormat::Rgba8Unorm,
+                        TextureFormat::Rgba8UnormSrgb,
                         RenderAssetUsages::default(),
                     );
 
@@ -291,7 +291,7 @@ fn load_gradient_textures(
             },
             TextureDimension::D2,
             colors,
-            TextureFormat::Rgba8Unorm,
+            TextureFormat::Rgba8UnormSrgb,
             RenderAssetUsages::default(),
         );
         let gradient_uniforms = GradientUniforms::from(gradient);

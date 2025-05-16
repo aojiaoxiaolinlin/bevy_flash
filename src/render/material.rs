@@ -3,12 +3,14 @@ use bevy::{
     math::{Mat4, Vec3, Vec4},
     prelude::Image,
     reflect::TypePath,
-    render::render_resource::{AsBindGroup, ShaderType},
+    render::render_resource::{
+        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, ShaderType,
+    },
     sprite::{AlphaMode2d, Material2d},
 };
 use bytemuck::{Pod, Zeroable};
 
-use flash_an_runtime::parser::parse_shape::{shape_utils::GradientType, tessellator::Gradient};
+use flash_runtime::parser::parse_shape::{shape_utils::GradientType, tessellator::Gradient};
 use swf::GradientSpread;
 use swf_macro::SwfMaterial;
 
@@ -19,12 +21,139 @@ use super::{
 
 pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {
     fn update_swf_material(&mut self, swf_transform: SwfTransform);
-    fn set_alpha_mode2d(&mut self, alpha_mode2d: AlphaMode2d);
+    fn set_blend_key(&mut self, blend_key: BlendMaterialKey);
+}
+
+bitflags::bitflags! {
+    #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct BlendMaterialKey:u8 {
+        const NORMAL                            = 0;
+        const BLEND_ADD                         = 1 << 0;  // Additive blending
+        const BLEND_SUBTRACT                    = 1 << 1;  // Subtractive blending
+        const BLEND_SCREEN                      = 1 << 2;  // Screen blending
+        const BLEND_LIGHTEN                     = 1 << 3;  // Lighten blending
+        const BLEND_DARKEN                      = 1 << 4;  // Darken blending
+        const BLEND_MULTIPLY                    = 1 << 5;
+    }
+}
+
+impl From<&SwfColorMaterial> for BlendMaterialKey {
+    fn from(value: &SwfColorMaterial) -> Self {
+        value.blend_key
+    }
+}
+
+impl From<&GradientMaterial> for BlendMaterialKey {
+    fn from(value: &GradientMaterial) -> Self {
+        value.blend_key
+    }
+}
+
+impl From<&BitmapMaterial> for BlendMaterialKey {
+    fn from(value: &BitmapMaterial) -> Self {
+        value.blend_key
+    }
+}
+
+macro_rules! material2d {
+    ($name:ident, $shader:expr) => {
+        impl Material2d for $name {
+            fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
+                $shader.into()
+            }
+            fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
+                $shader.into()
+            }
+            fn alpha_mode(&self) -> AlphaMode2d {
+                AlphaMode2d::Blend
+            }
+
+            fn specialize(
+                descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
+                _layout: &bevy::render::mesh::MeshVertexBufferLayoutRef,
+                key: bevy::sprite::Material2dKey<Self>,
+            ) -> bevy::ecs::error::Result<
+                (),
+                bevy::render::render_resource::SpecializedMeshPipelineError,
+            > {
+                if let Some(fragment) = &mut descriptor.fragment {
+                    if let Some(target) = &mut fragment.targets[0] {
+                        if key.bind_group_data.contains(BlendMaterialKey::BLEND_ADD) {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::One,
+                                    operation: BlendOperation::Add,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key
+                            .bind_group_data
+                            .contains(BlendMaterialKey::BLEND_MULTIPLY)
+                        {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::Dst,
+                                    dst_factor: BlendFactor::OneMinusSrcAlpha,
+                                    operation: BlendOperation::Add,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key
+                            .bind_group_data
+                            .contains(BlendMaterialKey::BLEND_SUBTRACT)
+                        {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::One,
+                                    operation: BlendOperation::ReverseSubtract,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key.bind_group_data.contains(BlendMaterialKey::BLEND_SCREEN) {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::OneMinusSrc,
+                                    operation: BlendOperation::Add,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key
+                            .bind_group_data
+                            .contains(BlendMaterialKey::BLEND_LIGHTEN)
+                        {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::One,
+                                    operation: BlendOperation::Max,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key.bind_group_data.contains(BlendMaterialKey::BLEND_DARKEN) {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::One,
+                                    operation: BlendOperation::Min,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+        }
+    };
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
+#[bind_group_data(BlendMaterialKey)]
 pub struct GradientMaterial {
-    pub alpha_mode2d: AlphaMode2d,
     #[uniform(0)]
     pub gradient: GradientUniforms,
     #[texture(1)]
@@ -34,19 +163,10 @@ pub struct GradientMaterial {
     pub texture_transform: Mat4,
     #[uniform(4)]
     pub transform: SwfTransform,
+    pub blend_key: BlendMaterialKey,
 }
 
-impl Material2d for GradientMaterial {
-    fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        GRADIENT_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        GRADIENT_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn alpha_mode(&self) -> AlphaMode2d {
-        self.alpha_mode2d
-    }
-}
+material2d!(GradientMaterial, GRADIENT_MATERIAL_SHADER_HANDLE);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable)]
@@ -76,27 +196,18 @@ impl From<Gradient> for GradientUniforms {
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
+#[bind_group_data(BlendMaterialKey)]
 pub struct SwfColorMaterial {
-    pub alpha_mode2d: AlphaMode2d,
     #[uniform(0)]
     pub transform: SwfTransform,
+    pub blend_key: BlendMaterialKey,
 }
 
-impl Material2d for SwfColorMaterial {
-    fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn alpha_mode(&self) -> AlphaMode2d {
-        self.alpha_mode2d
-    }
-}
+material2d!(SwfColorMaterial, SWF_COLOR_MATERIAL_SHADER_HANDLE);
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
+#[bind_group_data(BlendMaterialKey)]
 pub struct BitmapMaterial {
-    pub alpha_mode2d: AlphaMode2d,
     #[texture(0)]
     #[sampler(1)]
     pub texture: Handle<Image>,
@@ -104,19 +215,10 @@ pub struct BitmapMaterial {
     pub texture_transform: Mat4,
     #[uniform(3)]
     pub transform: SwfTransform,
+    pub blend_key: BlendMaterialKey,
 }
 
-impl Material2d for BitmapMaterial {
-    fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        BITMAP_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        BITMAP_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn alpha_mode(&self) -> AlphaMode2d {
-        self.alpha_mode2d
-    }
-}
+material2d!(BitmapMaterial, BITMAP_MATERIAL_SHADER_HANDLE);
 
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct SwfTransform {

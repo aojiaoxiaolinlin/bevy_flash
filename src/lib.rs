@@ -18,7 +18,7 @@ use bevy::{
     asset::{AssetApp, Assets},
     prelude::{Res, ResMut},
 };
-use flash_an_runtime::core::RuntimeInstance;
+use flash_runtime::core::RuntimeInstance;
 
 pub mod assets;
 pub mod bundle;
@@ -51,18 +51,14 @@ fn flash_update(
     query
         .iter_mut()
         .for_each(|(entity, flash_animation, active_instance)| {
-            if let Some(flash) = swf_assets.get_mut(flash_animation.swf_asset.id()) {
+            if let Some(flash) = swf_assets.get_mut(flash_animation.swf.id()) {
                 let player = &mut flash.player;
                 if let Some(mut active_instance) = active_instance {
-                    player
-                        .update(&mut active_instance, time.delta_secs())
-                        .unwrap();
+                    player.update(&mut active_instance, time.delta_secs());
                 } else {
                     let mut active_instance = FlashAnimationActiveInstance::default();
                     // 驱动动画
-                    player
-                        .update(&mut active_instance, time.delta_secs())
-                        .unwrap();
+                    player.update(&mut active_instance, time.delta_secs());
                     commands.entity(entity).insert(active_instance);
                 }
             }

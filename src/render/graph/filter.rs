@@ -14,9 +14,7 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::RenderContext;
 use bevy::render::{render_graph::ViewNode, view::ViewTarget};
 use bytemuck::{Pod, Zeroable};
-use flash_an_runtime::core::filter::Filter::{
-    BevelFilter, BlurFilter, ColorMatrixFilter, GlowFilter,
-};
+use flash_runtime::core::filter::Filter::{BevelFilter, BlurFilter, ColorMatrixFilter, GlowFilter};
 #[derive(Default)]
 pub struct FlashFilterNode;
 
@@ -427,7 +425,7 @@ fn copy_source_texture<'a, 'w>(
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: view_target.main_texture_format,
+            format: view_target.main_texture_format(),
             usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });

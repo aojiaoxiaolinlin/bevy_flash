@@ -4,7 +4,7 @@ use bevy::{
     asset::{AssetEvent, AssetServer, Assets},
     color::Color,
     dev_tools::fps_overlay::FpsOverlayPlugin,
-    ecs::{event::EventReader, system::ResMut},
+    ecs::{error::Result, event::EventReader, system::ResMut},
     math::Vec3,
     prelude::{Camera2d, ClearColor, Commands, Msaa, PluginGroup, Res, Transform},
     window::{Window, WindowPlugin},
@@ -36,15 +36,12 @@ fn main() {
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((Camera2d, Msaa::Sample8));
-    // commands.spawn((
-    //     FlashAnimation {
-    //         name: Some(String::from("mc")),
-    //         swf_asset: assert_server.load("spirit2159src.swf"),
-    //         ignore_root_swf_transform: true,
-    //         ..Default::default()
-    //     },
-    //     Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
-    // ));
+    commands.spawn((
+        FlashAnimation {
+            swf: assert_server.load("spirit2159src.swf"),
+        },
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
+    ));
 
     // commands.spawn((
     //     FlashAnimation {
@@ -55,28 +52,25 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     //     Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(8.0)),
     // ));
 
-    commands.spawn((
-        FlashAnimation {
-            name: Some(String::from("m")),
-            swf_asset: assert_server.load("leiyi2.swf"),
-            ignore_root_swf_transform: false,
-            ..Default::default()
-        },
-        Transform::from_translation(Vec3::new(300.0, -240.0, 0.0)).with_scale(Vec3::splat(2.0)),
-    ));
+    // commands.spawn((
+    //     FlashAnimation {
+    //         name: Some(String::from("m")),
+    //         swf: assert_server.load("leiyi.swf"),
+    //         ..Default::default()
+    //     },
+    //     Transform::from_translation(Vec3::new(300.0, -240.0, 0.0)).with_scale(Vec3::splat(2.0)),
+    // ));
 }
 
 fn flash_animation(
     mut flashes: ResMut<Assets<FlashAnimationSwfData>>,
     mut flash_swf_data_events: EventReader<AssetEvent<FlashAnimationSwfData>>,
-) {
+) -> Result {
     for event in flash_swf_data_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = event {
             let flash = flashes.get_mut(*id).unwrap();
-            flash
-                .player
-                .set_play_animation("default", true, None)
-                .unwrap();
+            flash.player.set_play_animation("WAI", true, None)?;
         }
     }
+    Ok(())
 }

@@ -4,14 +4,13 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{EntityCommands, Local};
 use bevy::image::{BevyDefault, Image};
 use bevy::math::{UVec2, Vec2, Vec4};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::render::render_resource::{
     CachedRenderPipelineId, Extent3d, TextureDimension, TextureFormat, TextureUsages,
 };
 use bevy::render::view::NoFrustumCulling;
-use bevy::sprite::AlphaMode2d;
 use bevy::transform::components::GlobalTransform;
 use bevy::{
     app::{App, Plugin, Update},
@@ -25,11 +24,12 @@ use bevy::{
     sprite::{Material2dPlugin, MeshMaterial2d},
 };
 use blend_pipeline::BlendType;
-use flash_an_runtime::core::filter::Filter;
+use flash_runtime::core::filter::Filter;
 use graph::FlashFilterRenderGraphPlugin;
 use intermediate_texture::{IntermediateTexture, IntermediateTexturePlugin, SwfRawVertex};
 use material::{
-    BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial, SwfMaterial, SwfTransform,
+    BitmapMaterial, BlendMaterialKey, GradientMaterial, GradientUniforms, SwfColorMaterial,
+    SwfMaterial, SwfTransform,
 };
 use pipeline::IntermediateTexturePipeline;
 use swf::{CharacterId, Rectangle as SwfRectangle, Twips};
@@ -177,15 +177,14 @@ fn generate_or_update_mesh(
                     intermediate_texture.is_active = false;
                 });
         }
-        if let Some(flash) = flashes.get_mut(flash_animation.swf_asset.id()) {
+        if let Some(flash) = flashes.get_mut(flash_animation.swf.id()) {
             let mut current_entity = Vec::new();
-            let mut z_index = 1e-3;
+            let mut z_index = 0.0;
             for active_instance in active_instances.iter_mut() {
                 // 记录同一个实体的引用计数
                 let ref_count = marker_shape_ref.entry(active_instance.id()).or_default();
                 *ref_count += 1;
-                // 每个 shape 提升一个数量级
-                z_index += 2e-2;
+
                 // 记录当前生成的实体
                 current_entity.push(active_instance.id().clone());
                 // 指定的shape id
@@ -201,7 +200,7 @@ fn generate_or_update_mesh(
                     ),
                 };
                 // flash 混合模式
-                let blend: AlphaMode2d = BlendType::from(active_instance.blend()).into();
+                let blend_key: BlendMaterialKey = BlendType::from(active_instance.blend()).into();
                 // 获取当前实例的swf变换矩阵，用于计算filter_rect
                 let matrix = active_instance.transform_matrix();
                 // 提取当前实例的滤镜
@@ -217,6 +216,7 @@ fn generate_or_update_mesh(
                         .expect("找不到有鬼");
                     current_shape_entity = shape_entity;
                     transform.translation.z = z_index;
+                    z_index += 1e-3;
                     // 更新中间纹理变换
                     if let Some((_, mut intermediate_texture, mut flash_filters, material_handle)) =
                         intermediate_textures
@@ -227,9 +227,6 @@ fn generate_or_update_mesh(
                         else {
                             continue;
                         };
-
-                        // TODO: 暂时解决了示例滤镜的z轴问题。
-                        transform.translation.z += 0.2;
 
                         let (_, shape) = flash.shape_meshes.get(&id).expect("没有就是有Bug");
                         let scale = global_transform.scale();
@@ -286,6 +283,8 @@ fn generate_or_update_mesh(
                             }
                         }
 
+                        transform.translation.z += scale.y;
+
                         let draw_offset =
                             Vec2::new(filter_rect.x_min as f32, filter_rect.y_min as f32);
                         let world_transform = Mat4::from_cols_array_2d(&[
@@ -324,7 +323,7 @@ fn generate_or_update_mesh(
                                             handle,
                                             &mut swf_color_materials,
                                             swf_transform.clone(),
-                                            blend,
+                                            blend_key,
                                         );
                                         break;
                                     }
@@ -333,7 +332,7 @@ fn generate_or_update_mesh(
                                             handle,
                                             &mut gradient_materials,
                                             swf_transform.clone(),
-                                            blend,
+                                            blend_key,
                                         );
                                         break;
                                     }
@@ -342,7 +341,7 @@ fn generate_or_update_mesh(
                                             handle,
                                             &mut bitmap_materials,
                                             swf_transform.clone(),
-                                            blend,
+                                            blend_key,
                                         );
                                         break;
                                     }
@@ -352,11 +351,7 @@ fn generate_or_update_mesh(
                     }
                 } else {
                     // 不存在缓存实体
-                    let mut shape_entity_command = commands.spawn((
-                        SwfGraph,
-                        // 将flash的画布原点移动到WebGPU原点
-                        Transform::from_translation(Vec3::new(0., 0., z_index)),
-                    ));
+                    let mut shape_entity_command = commands.spawn(SwfGraph);
                     let shape_entity = shape_entity_command.id();
 
                     let (shape_meshes, shape) = flash.shape_meshes.get(&id).expect("没有就是有Bug");
@@ -431,19 +426,18 @@ fn generate_or_update_mesh(
                         shape_entity_command.insert((
                             Mesh2d(meshes.add(mesh)),
                             MeshMaterial2d(bitmap_materials.add(BitmapMaterial {
-                                alpha_mode2d: blend,
+                                blend_key,
                                 texture: image_handle.clone(),
                                 texture_transform: Mat4::IDENTITY,
                                 transform: swf_transform.clone(),
                             })),
-                            Transform::from_translation(Vec3::new(0., 0., z_index)),
+                            // Transform::from_translation(Vec3::new(0., 0., scale.y + z_index)),
                         ));
                     } else {
                         // 生成网格实体
                         shape_meshes.iter().for_each(|shape_mesh| {
                             // 防止Shape中的绘制z冲突
                             z_index += 1e-3;
-
                             let transform =
                                 Transform::from_translation(Vec3::new(0.0, 0.0, z_index));
                             match &shape_mesh.draw_type {
@@ -455,7 +449,7 @@ fn generate_or_update_mesh(
                                         swf_transform.clone(),
                                         transform,
                                         shape_mesh.mesh.clone(),
-                                        blend,
+                                        blend_key,
                                     );
                                 }
                                 ShapeDrawType::Gradient(gradient_material) => {
@@ -466,7 +460,7 @@ fn generate_or_update_mesh(
                                         swf_transform.clone(),
                                         transform,
                                         shape_mesh.mesh.clone(),
-                                        blend,
+                                        blend_key,
                                     );
                                 }
                                 ShapeDrawType::Bitmap(bitmap_material) => {
@@ -477,7 +471,7 @@ fn generate_or_update_mesh(
                                         swf_transform.clone(),
                                         transform,
                                         shape_mesh.mesh.clone(),
-                                        blend,
+                                        blend_key,
                                     );
                                 }
                             }
@@ -553,12 +547,12 @@ fn update_swf_material<T: SwfMaterial>(
     handle: &Handle<T>,
     swf_materials: &mut ResMut<Assets<T>>,
     swf_transform: SwfTransform,
-    alpha_mode2d: AlphaMode2d,
+    blend_key: BlendMaterialKey,
 ) {
     // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质。
     if let Some(swf_material) = swf_materials.get_mut(handle) {
         swf_material.update_swf_material(swf_transform);
-        swf_material.set_alpha_mode2d(alpha_mode2d);
+        swf_material.set_blend_key(blend_key);
     }
 }
 
@@ -571,10 +565,10 @@ fn spawn_mesh<T: SwfMaterial>(
     swf_transform: SwfTransform,
     transform: Transform,
     handle: Handle<Mesh>,
-    alpha_mode2d: AlphaMode2d,
+    blend_key: BlendMaterialKey,
 ) {
     swf_material.update_swf_material(swf_transform);
-    swf_material.set_alpha_mode2d(alpha_mode2d);
+    swf_material.set_blend_key(blend_key);
     commands.with_children(|parent| {
         parent.spawn((
             Mesh2d(handle),

@@ -1,6 +1,6 @@
 use bevy::{
     asset::Handle,
-    platform_support::collections::HashMap,
+    platform::collections::HashMap,
     prelude::{
         Component, Deref, DerefMut, Entity, ReflectComponent, ReflectDefault, Transform, Visibility,
     },
@@ -36,24 +36,10 @@ impl FlashShapeSpawnRecord {
 #[require(Transform, Visibility)]
 pub struct SwfGraph;
 
-#[derive(Component, Debug, Clone, Reflect)]
+#[derive(Component, Default, Debug, Clone, Reflect)]
 #[require(Transform, Visibility)]
 #[reflect(Component, Default, Debug)]
 pub struct FlashAnimation {
     /// 要渲染的swf资源的引用计数句柄。
-    pub swf_asset: Handle<FlashAnimationSwfData>,
-    /// 要渲染和控制的movie_clip，影片默认为根影片
-    pub name: Option<String>,
-    /// 是否应用根影片的变换 默认为true，不会应用根影片的变换; 若为false则会应用根影片的变换
-    pub ignore_root_swf_transform: bool,
-}
-
-impl Default for FlashAnimation {
-    fn default() -> Self {
-        Self {
-            swf_asset: Default::default(),
-            name: None,
-            ignore_root_swf_transform: true,
-        }
-    }
+    pub swf: Handle<FlashAnimationSwfData>,
 }

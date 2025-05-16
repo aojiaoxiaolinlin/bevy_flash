@@ -51,17 +51,3 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     return color;
 }
-
-
-
-/// Converts a color from sRGB to linear color space.
-fn common__srgb_to_linear(srgb: vec4<f32>) -> vec4<f32> {
-    var rgb: vec3<f32> = srgb.rgb;
-    if srgb.a > 0.0 {
-        rgb = rgb / srgb.a;
-    }
-    let a = rgb / 12.92;
-    let b = pow((rgb + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
-    let c = step(vec3<f32>(0.04045), rgb);
-    return vec4<f32>(mix(a, b, c) * srgb.a, srgb.a);
-}

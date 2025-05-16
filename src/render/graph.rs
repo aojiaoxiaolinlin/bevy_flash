@@ -1,7 +1,7 @@
 use bevy::{
     app::Plugin,
     ecs::resource::Resource,
-    platform_support::collections::hash_map::Entry,
+    platform::collections::hash_map::Entry,
     prelude::{Deref, DerefMut},
     render::{
         RenderApp,
