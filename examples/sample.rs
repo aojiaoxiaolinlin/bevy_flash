@@ -42,10 +42,11 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((
         FlashAnimation {
             name: Some(String::from("m")),
-            swf_movie: assert_server.load("131381-idle.swf"),
+            swf_movie: assert_server.load("v1.swf"),
+            ignore_root_swf_transform: false,
             ..Default::default()
         },
-        Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
+        Transform::from_translation(Vec3::new(-200.0, 500.0, 0.0)).with_scale(Vec3::splat(1.0)),
     ));
 }
 
@@ -59,12 +60,12 @@ fn control(
         query.iter_mut().for_each(|(flash_animation, entity)| {
             let name = flash_animation.name.clone();
             if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-                swf_movie.root_movie_clip.set_name(name);
-                if swf_init_event.0 == entity {
+                if swf_init_event.0 == entity && name.as_deref() == Some("mc") {
                     swf_movie
                         .root_movie_clip
                         .goto_frame(&mut swf_movie.movie_library, 0, true);
                 }
+                swf_movie.root_movie_clip.set_name(name);
             }
         });
     }
