@@ -55,7 +55,7 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((
         Name::new("flash"),
         FlashAnimation {
-            swf: assert_server.load("PeaShooterSingle.swf"),
+            swf: assert_server.load("spirit2159src.swf"),
         },
         Transform::from_translation(Vec3::new(200.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
     ));

@@ -196,6 +196,7 @@ pub const GLOW_FILTER_SHADER_HANDLE: Handle<Shader> =
 
 pub const BEVEL_FILTER_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("e2f8a9d6-3c7b-42f1-8e9d-5a6b4c3d2e1f");
+
 #[derive(Resource)]
 pub struct BlurFilterPipeline {
     pub layout: BindGroupLayout,

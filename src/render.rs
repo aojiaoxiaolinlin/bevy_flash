@@ -206,7 +206,6 @@ fn generate_or_update_mesh(
                 // 提取当前实例的滤镜
                 active_instance.filters_mut().retain(|f| !f.impotent());
                 let filters = active_instance.filters_mut();
-
                 let current_shape_entity;
                 if let Some(entity) = flash_shape_record.get_entity(id, *ref_count) {
                     // shape实体已经生成。只需要更新其Mesh2d
@@ -216,7 +215,6 @@ fn generate_or_update_mesh(
                         .expect("找不到有鬼");
                     current_shape_entity = shape_entity;
                     transform.translation.z = z_index;
-                    z_index += 1e-3;
                     // 更新中间纹理变换
                     if let Some((_, mut intermediate_texture, mut flash_filters, material_handle)) =
                         intermediate_textures
@@ -310,6 +308,8 @@ fn generate_or_update_mesh(
                             continue;
                         };
                         shape_children.iter().for_each(|child| {
+                            // 计算当前实例的z_index
+                            z_index += 1e-3;
                             for (
                                 material_entity,
                                 swf_color_material_handle,
@@ -353,7 +353,6 @@ fn generate_or_update_mesh(
                     // 不存在缓存实体
                     let mut shape_entity_command = commands.spawn(SwfGraph);
                     let shape_entity = shape_entity_command.id();
-
                     let (shape_meshes, shape) = flash.shape_meshes.get(&id).expect("没有就是有Bug");
                     // 是否含有滤镜效果
                     if !filters.is_empty() {
@@ -431,12 +430,10 @@ fn generate_or_update_mesh(
                                 texture_transform: Mat4::IDENTITY,
                                 transform: swf_transform.clone(),
                             })),
-                            // Transform::from_translation(Vec3::new(0., 0., scale.y + z_index)),
                         ));
                     } else {
                         // 生成网格实体
                         shape_meshes.iter().for_each(|shape_mesh| {
-                            // 防止Shape中的绘制z冲突
                             z_index += 1e-3;
                             let transform =
                                 Transform::from_translation(Vec3::new(0.0, 0.0, z_index));
