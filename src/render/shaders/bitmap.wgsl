@@ -1,5 +1,5 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
-#import bevy_flash::common::{view_matrix, left_top_translate_matrix}
+#import bevy_flash::common::{view_matrix}
 
 
 struct SwfTransform {

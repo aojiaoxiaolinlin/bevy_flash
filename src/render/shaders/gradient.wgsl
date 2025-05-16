@@ -1,5 +1,5 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
-#import bevy_flash::common::{view_matrix, left_top_translate_matrix}
+#import bevy_flash::common::{view_matrix}
 
 struct Gradient {
     focal_point: f32,
@@ -92,7 +92,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 /// Converts a color from linear to sRGB color space.
 fn common__linear_to_srgb(linear_: vec4<f32>) -> vec4<f32> {
     var rgb: vec3<f32> = linear_.rgb;
-    if( linear_.a > 0.0 ) {
+    if linear_.a > 0.0 {
         rgb = rgb / linear_.a;
     }
     let a = 12.92 * rgb;
