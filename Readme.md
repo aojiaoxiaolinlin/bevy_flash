@@ -1,8 +1,13 @@
+
+
 # bevy_flash
 
 Rendering flash animation in Bevy.WASM compatible!
 > Reference [Ruffle](https://github.com/ruffle-rs/ruffle/);
 
+## docs
+
+访问 [中文文档](http://49.232.132.44/bevy-flash2/ "中文文档") | [文档源码](/docs "文档源码") 
 
 ## Goals
 
