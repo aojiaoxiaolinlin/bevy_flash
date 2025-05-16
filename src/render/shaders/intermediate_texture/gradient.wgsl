@@ -29,8 +29,8 @@ struct TextureTransforms {
 @vertex
 fn vertex(in: VertexInput) -> VertexOutput {
     let matrix_ = texture_transforms.texture_matrix;
-    let uv = (mat3x3<f32>(matrix_[0].xyz, matrix_[1].xyz, matrix_[2].xyz) * vec3<f32>(in.position, 1.0)).xy;
-    let pos = view_matrix * world_matrix *vec4<f32>(in.position.x, in.position.y, 0.0, 1.0);
+    let uv = (mat3x3<f32>(matrix_[0].xyz, matrix_[1].xyz, matrix_[2].xyz) * vec3<f32>(in.position)).xy;
+    let pos = view_matrix * world_matrix * vec4<f32>(in.position.x, in.position.y, 0.0, 1.0);
     return VertexOutput(pos, uv);
 }
 

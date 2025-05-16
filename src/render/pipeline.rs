@@ -16,8 +16,8 @@ use bevy::{
             BindGroupLayout, BindGroupLayoutEntries, BlendState, CachedRenderPipelineId,
             ColorTargetState, ColorWrites, FragmentState, FrontFace, MultisampleState,
             PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor, Sampler,
-            SamplerBindingType, SamplerDescriptor, Shader, ShaderStages, SpecializedRenderPipeline, TextureFormat, TextureSampleType, VertexFormat,
-            VertexState, VertexStepMode,
+            SamplerBindingType, SamplerDescriptor, Shader, ShaderStages, SpecializedRenderPipeline,
+            TextureFormat, TextureSampleType, VertexFormat, VertexState, VertexStepMode,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::RenderDevice,
@@ -113,7 +113,6 @@ impl SpecializedRenderPipeline for IntermediateTexturePipeline {
     type Key = IntermediateTextureKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
-        let mut shader_defs = Vec::new();
         let vertex_buffer_layout = if key.contains(IntermediateTextureKey::COLOR) {
             VertexBufferLayout::from_vertex_formats(
                 VertexStepMode::Vertex,
@@ -125,9 +124,6 @@ impl SpecializedRenderPipeline for IntermediateTexturePipeline {
                 vec![VertexFormat::Float32x3],
             )
         };
-        if key.contains(IntermediateTextureKey::COLOR) {
-            shader_defs.push("VERTEX_COLORS".into());
-        }
 
         let bind_group_layout = if key.contains(IntermediateTextureKey::GRADIENT) {
             vec![
@@ -155,7 +151,7 @@ impl SpecializedRenderPipeline for IntermediateTexturePipeline {
             push_constant_ranges: vec![],
             vertex: VertexState {
                 shader: shader.clone(),
-                shader_defs: shader_defs.clone(),
+                shader_defs: vec![],
                 entry_point: "vertex".into(),
                 buffers: vec![vertex_buffer_layout],
             },
@@ -176,7 +172,7 @@ impl SpecializedRenderPipeline for IntermediateTexturePipeline {
             },
             fragment: Some(FragmentState {
                 shader,
-                shader_defs,
+                shader_defs: vec![],
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
