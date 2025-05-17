@@ -184,7 +184,7 @@ fn generate_or_update_mesh(
                 // 记录同一个实体的引用计数
                 let ref_count = marker_shape_ref.entry(active_instance.id()).or_default();
                 *ref_count += 1;
-
+                z_index += 1e-3;
                 // 记录当前生成的实体
                 current_entity.push(active_instance.id().clone());
                 // 指定的shape id

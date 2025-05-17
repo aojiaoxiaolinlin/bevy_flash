@@ -233,7 +233,7 @@ fn change_animation(
                     if let Some(flash) = flashes.get_mut(&flash_animation.swf) {
                         flash
                             .player
-                            .set_play_animation(&animation_name, true, None)
+                            .set_play_animation(&animation_name, true)
                             .unwrap();
                     }
                 }

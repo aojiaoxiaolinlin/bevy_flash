@@ -69,7 +69,10 @@ fn flash_animation(
     for event in flash_swf_data_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = event {
             let flash = flashes.get_mut(*id).unwrap();
-            flash.player.set_play_animation("WAI", true, None)?;
+            flash.player.set_on_completion(Box::new(|player| {
+                player.set_play_animation("WAI", true).unwrap();
+            }));
+            flash.player.set_play_animation("ATT", false)?;
         }
     }
     Ok(())

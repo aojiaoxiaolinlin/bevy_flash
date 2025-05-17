@@ -26,7 +26,7 @@ copyless = "0.1.5"
 uuid = "1.10"
 enum-map = "2.7.3"
 swf = "0.2"
-flash_runtime = "0.1.0"
+flash_runtime = { path = "../flash_runtime" }
 [dev-dependencies]
 bevy = { path = "../bevy", features = ["bevy_dev_tools"] }
 
