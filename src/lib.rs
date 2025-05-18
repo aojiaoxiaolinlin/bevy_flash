@@ -1,24 +1,28 @@
+use std::collections::BTreeMap;
+
 use crate::assets::SwfLoader;
-use crate::bundle::FlashAnimation;
 use crate::render::FlashRenderPlugin;
 use crate::render::material::{BitmapMaterial, GradientMaterial, SwfColorMaterial};
 
 use assets::FlashAnimationSwfData;
-use bevy::app::App;
-use bevy::asset::Handle;
+use bevy::app::{App, PostUpdate};
+use bevy::asset::{Asset, Handle};
 use bevy::ecs::component::Component;
 use bevy::ecs::system::Commands;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{Deref, DerefMut, Entity, Query};
 
-use bevy::render::mesh::Mesh;
-use bevy::render::primitives::Aabb;
+use bevy::reflect::TypePath;
 use bevy::time::Time;
 use bevy::{
-    app::{Plugin, Update},
+    app::Plugin,
     asset::{AssetApp, Assets},
     prelude::{Res, ResMut},
 };
+use bundle::FlashAnimation;
 use flash_runtime::core::RuntimeInstance;
+use flash_runtime::parser::DepthTimeline;
+use swf::Depth;
 
 pub mod assets;
 pub mod bundle;
@@ -31,27 +35,50 @@ impl Plugin for FlashPlugin {
         app.add_plugins(FlashRenderPlugin)
             .init_asset::<FlashAnimationSwfData>()
             .init_asset_loader::<SwfLoader>()
-            .add_systems(Update, flash_update);
+            .add_systems(PostUpdate, advance_flash_animation);
     }
 }
+
+#[derive(Default, Debug, Clone, Asset, TypePath)]
+pub struct Animation {
+    pub duration: f32,
+    pub timeline: BTreeMap<Depth, DepthTimeline>,
+}
+
+#[derive(Default, Debug, Clone, Asset, TypePath)]
+pub struct MovieClip {
+    pub duration: f32,
+    pub timeline: BTreeMap<Depth, DepthTimeline>,
+    pub skin_frames: HashMap<String, u32>,
+}
+
+#[derive(Clone)]
+pub struct FlashActiveAnimation {
+    pub frame_rate: f32,
+    pub animations: HashMap<String, Handle<Animation>>,
+    pub children_clip: HashMap<String, Handle<MovieClip>>,
+}
+
+#[derive(Clone, Component)]
+pub struct FlashAnimationPlayer(pub FlashActiveAnimation);
 
 #[derive(Default, Component, Deref, DerefMut)]
 pub struct FlashAnimationActiveInstance(Vec<RuntimeInstance>);
 
-fn flash_update(
+fn advance_flash_animation(
     mut commands: Commands,
     mut query: Query<(
         Entity,
         &FlashAnimation,
         Option<&mut FlashAnimationActiveInstance>,
     )>,
-    mut swf_assets: ResMut<Assets<FlashAnimationSwfData>>,
+    mut flash_asset: ResMut<Assets<FlashAnimationSwfData>>,
     time: Res<Time>,
 ) {
     query
         .iter_mut()
         .for_each(|(entity, flash_animation, active_instance)| {
-            if let Some(flash) = swf_assets.get_mut(flash_animation.swf.id()) {
+            if let Some(flash) = flash_asset.get_mut(flash_animation.swf.id()) {
                 let player = &mut flash.player;
                 if let Some(mut active_instance) = active_instance {
                     player.update(&mut active_instance, time.delta_secs());
@@ -70,11 +97,4 @@ pub enum ShapeDrawType {
     Color(SwfColorMaterial),
     Gradient(GradientMaterial),
     Bitmap(BitmapMaterial),
-}
-
-#[derive(Clone)]
-pub struct ShapeMesh {
-    pub mesh: Handle<Mesh>,
-    pub aabb: Aabb,
-    pub draw_type: ShapeDrawType,
 }

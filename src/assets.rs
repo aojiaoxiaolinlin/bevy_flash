@@ -8,7 +8,7 @@ use bevy::{
     math::{Mat3, Mat4},
     reflect::TypePath,
     render::{
-        mesh::{Indices, Mesh, MeshAabb, PrimitiveTopology},
+        mesh::{Indices, Mesh, PrimitiveTopology},
         render_resource::{Extent3d, TextureDimension, TextureFormat},
     },
 };
@@ -24,12 +24,18 @@ use flash_runtime::{
 use swf::{CharacterId, GradientInterpolation, Shape};
 
 use crate::{
-    ShapeDrawType, ShapeMesh,
+    ShapeDrawType,
     render::material::{BitmapMaterial, GradientMaterial, GradientUniforms, SwfColorMaterial},
 };
 
 /// 制作多大得渐变纹理，越大细节越丰富，但是内存占用也越大
 const GRADIENT_SIZE: usize = 256;
+
+#[derive(Clone)]
+pub struct ShapeMesh {
+    pub mesh: Handle<Mesh>,
+    pub draw_type: ShapeDrawType,
+}
 
 #[derive(Asset, TypePath)]
 pub struct FlashAnimationSwfData {
@@ -124,12 +130,10 @@ fn load_shape_mesh(
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
                 .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
-                let aabb = mesh.compute_aabb().unwrap_or_default();
                 let mesh = load_context.add_labeled_asset(format!("mesh_{}", j), mesh);
 
                 render_shape.push(ShapeMesh {
                     mesh,
-                    aabb,
                     draw_type: ShapeDrawType::Color(SwfColorMaterial::default()),
                 });
             }
@@ -144,13 +148,11 @@ fn load_shape_mesh(
                 )
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                 .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
-                let aabb = mesh.compute_aabb().unwrap_or_default();
                 let mesh = load_context.add_labeled_asset(format!("mesh_{}", j), mesh);
 
                 let texture = gradient_textures.get(*gradient).unwrap();
                 render_shape.push(ShapeMesh {
                     mesh,
-                    aabb,
                     draw_type: ShapeDrawType::Gradient(GradientMaterial {
                         gradient: GradientUniforms {
                             focal_point: texture.1.focal_point,
@@ -198,14 +200,12 @@ fn load_shape_mesh(
                     )
                     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                     .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
-                    let aabb = mesh.compute_aabb().unwrap_or_default();
                     let mesh = load_context.add_labeled_asset(format!("mesh_{}", j), mesh);
 
                     let handle =
                         load_context.add_labeled_asset(format!("bitmap_{}", j), bitmap_texture);
                     render_shape.push(ShapeMesh {
                         mesh,
-                        aabb,
                         draw_type: ShapeDrawType::Bitmap(BitmapMaterial {
                             texture: handle,
                             texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(
@@ -234,6 +234,7 @@ fn load_gradient_textures(
         } else {
             let mut colors = vec![0; GRADIENT_SIZE * 4];
             let convert = if gradient.interpolation == GradientInterpolation::LinearRgb {
+                println!("线性");
                 |color| color
             } else {
                 |color| color

@@ -13,11 +13,7 @@ use bevy_flash::{FlashPlugin, assets::FlashAnimationSwfData, bundle::FlashAnimat
 
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::srgb(
-            102.0 / 255.0,
-            102.0 / 255.0,
-            102.0 / 255.0,
-        )))
+        .insert_resource(ClearColor(Color::srgb_u8(153, 153, 153)))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
@@ -36,12 +32,14 @@ fn main() {
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((Camera2d, Msaa::Sample8));
-    commands.spawn((
-        FlashAnimation {
-            swf: assert_server.load("spirit2159src.swf"),
-        },
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
-    ));
+    for _ in 0..2 {
+        commands.spawn((
+            FlashAnimation {
+                swf: assert_server.load("filter_blend.swf"),
+            },
+            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(1.0)),
+        ));
+    }
 
     // commands.spawn((
     //     FlashAnimation {
@@ -68,11 +66,9 @@ fn flash_animation(
 ) -> Result {
     for event in flash_swf_data_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = event {
+            dbg!("Flash Animation Loaded: {:?}", id);
             let flash = flashes.get_mut(*id).unwrap();
-            flash.player.set_on_completion(Box::new(|player| {
-                player.set_play_animation("WAI", true).unwrap();
-            }));
-            flash.player.set_play_animation("ATT", false)?;
+            flash.player.set_play_animation("default", true)?;
         }
     }
     Ok(())

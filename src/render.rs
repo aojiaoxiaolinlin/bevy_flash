@@ -1,3 +1,4 @@
+use bevy::app::PostUpdate;
 use bevy::asset::{RenderAssetUsages, weak_handle};
 use bevy::ecs::entity::EntityHashMap;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -13,7 +14,7 @@ use bevy::render::render_resource::{
 use bevy::render::view::NoFrustumCulling;
 use bevy::transform::components::GlobalTransform;
 use bevy::{
-    app::{App, Plugin, Update},
+    app::{App, Plugin},
     asset::{Assets, Handle, load_internal_asset},
     math::{Mat4, Vec3},
     prelude::{
@@ -36,7 +37,7 @@ use swf::{CharacterId, Rectangle as SwfRectangle, Twips};
 
 use crate::assets::FlashAnimationSwfData;
 use crate::bundle::{FlashAnimation, FlashShapeSpawnRecord, SwfGraph};
-use crate::{FlashAnimationActiveInstance, ShapeDrawType, flash_update};
+use crate::{FlashAnimationActiveInstance, ShapeDrawType, advance_flash_animation};
 
 pub(crate) mod blend_pipeline;
 mod graph;
@@ -94,7 +95,10 @@ impl Plugin for FlashRenderPlugin {
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
             .add_plugins((IntermediateTexturePlugin, FlashFilterRenderGraphPlugin))
             .add_plugins(ExtractComponentPlugin::<FlashFilters>::default())
-            .add_systems(Update, generate_or_update_mesh.after(flash_update));
+            .add_systems(
+                PostUpdate,
+                generate_or_update_mesh.after(advance_flash_animation),
+            );
     }
 
     fn finish(&self, app: &mut App) {
@@ -184,7 +188,6 @@ fn generate_or_update_mesh(
                 // 记录同一个实体的引用计数
                 let ref_count = marker_shape_ref.entry(active_instance.id()).or_default();
                 *ref_count += 1;
-                z_index += 1e-3;
                 // 记录当前生成的实体
                 current_entity.push(active_instance.id().clone());
                 // 指定的shape id
