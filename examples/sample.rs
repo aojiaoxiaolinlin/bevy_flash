@@ -3,9 +3,7 @@ use bevy::{
     asset::{AssetServer, Assets},
     input::ButtonInput,
     math::Vec3,
-    prelude::{
-        Camera2d, Commands, Entity, EventReader, KeyCode, Msaa, Query, Res, ResMut, Transform,
-    },
+    prelude::{Camera2d, Commands, Entity, EventReader, KeyCode, Query, Res, ResMut, Transform},
     DefaultPlugins,
 };
 use bevy_flash::{
@@ -14,10 +12,7 @@ use bevy_flash::{
 };
 use bevy_flash::{
     bundle::FlashAnimation,
-    swf::display_object::{
-        movie_clip::{MovieClip, NextFrame},
-        DisplayObject, TDisplayObject,
-    },
+    swf::display_object::{movie_clip::NextFrame, TDisplayObject},
 };
 
 fn main() {
@@ -42,11 +37,10 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((
         FlashAnimation {
             name: Some(String::from("m")),
-            swf_movie: assert_server.load("v1.swf"),
-            ignore_root_swf_transform: false,
+            swf_movie: assert_server.load("131381-idle.swf"),
             ..Default::default()
         },
-        Transform::from_translation(Vec3::new(-200.0, 500.0, 0.0)).with_scale(Vec3::splat(1.0)),
+        Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
     ));
 }
 
@@ -159,32 +153,4 @@ fn control(
     // });
 
     // println!("-------------end----------------------");
-}
-
-fn show(movie_clip: &MovieClip, mut space: i32) {
-    space += 2;
-    let render_list = movie_clip.raw_container().render_list();
-    let display_objects = movie_clip.raw_container().display_objects();
-    render_list.iter().for_each(|display_id| {
-        let display_object = display_objects.get(&display_id).unwrap();
-        match display_object {
-            DisplayObject::MovieClip(movie_clip) => {
-                for _ in 0..space {
-                    print!(" ");
-                }
-                println!(
-                    "MovieClip:{} depth:{}",
-                    movie_clip.character_id(),
-                    movie_clip.depth()
-                );
-                show(movie_clip, space);
-            }
-            DisplayObject::Graphic(graphic) => {
-                for _ in 0..space {
-                    print!(" ");
-                }
-                println!("Graphic:{:?}", graphic.character_id());
-            }
-        }
-    });
 }
