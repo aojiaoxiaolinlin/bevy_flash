@@ -1,3 +1,12 @@
+// mac 专用测试
+//! ### 设备 2: Apple M4 Pro Mac mini (专业款)
+//! - **芯片**: Apple M4 Pro (12核 CPU + 16核 GPU)
+//! - **内存**: 24GB 统一内存
+//! - **存储**: 512GB SSD  
+//! - **图形表现**:
+//!   - 4K 分辨率下稳定 120fps（复杂粒子系统场景）
+//!   - 支持 MSAA 4x + FXAA 混合抗锯齿
+//!   - 最大建议实体数量：约 200 万（含 PBR 材质）
 use bevy::{
     app::{App, Startup, Update},
     asset::{AssetServer, Assets},
@@ -29,7 +38,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d::default(), Msaa::Sample4));
     commands.spawn((
         FlashAnimation {
             name: Some(String::from("mc")),
@@ -42,11 +51,10 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((
         FlashAnimation {
             name: Some(String::from("m")),
-            swf_movie: assert_server.load("v1.swf"),
-            ignore_root_swf_transform: false,
+            swf_movie: assert_server.load("131381-idle.swf"),
             ..Default::default()
         },
-        Transform::from_translation(Vec3::new(-200.0, 500.0, 0.0)).with_scale(Vec3::splat(1.0)),
+        Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
     ));
 }
 
@@ -60,12 +68,12 @@ fn control(
         query.iter_mut().for_each(|(flash_animation, entity)| {
             let name = flash_animation.name.clone();
             if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-                if swf_init_event.0 == entity && name.as_deref() == Some("mc") {
+                swf_movie.root_movie_clip.set_name(name);
+                if swf_init_event.0 == entity {
                     swf_movie
                         .root_movie_clip
                         .goto_frame(&mut swf_movie.movie_library, 0, true);
                 }
-                swf_movie.root_movie_clip.set_name(name);
             }
         });
     }
