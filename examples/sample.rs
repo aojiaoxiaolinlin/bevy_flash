@@ -59,12 +59,12 @@ fn control(
         query.iter_mut().for_each(|(flash_animation, entity)| {
             let name = flash_animation.name.clone();
             if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-                swf_movie.root_movie_clip.set_name(name);
-                if swf_init_event.0 == entity {
+                if swf_init_event.0 == entity && name.as_deref() == Some("mc") {
                     swf_movie
                         .root_movie_clip
                         .goto_frame(&mut swf_movie.movie_library, 0, true);
                 }
+                swf_movie.root_movie_clip.set_name(name);
             }
         });
     }
