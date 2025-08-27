@@ -1,23 +1,18 @@
-use bevy::{
-    DefaultPlugins,
-    app::{App, Startup, Update},
-    asset::{AssetEvent, AssetServer, Assets},
-    color::Color,
-    dev_tools::fps_overlay::FpsOverlayPlugin,
-    ecs::{error::Result, event::EventReader, system::ResMut},
-    math::Vec3,
-    prelude::{Camera2d, ClearColor, Commands, Msaa, PluginGroup, Res, Transform},
-    window::{Window, WindowPlugin},
+use bevy::{dev_tools::fps_overlay::FpsOverlayPlugin, prelude::*};
+use bevy_flash::{
+    FlashCompleteEvent, FlashPlugin,
+    assets::Swf,
+    player::{Flash, FlashPlayer},
+    swf_runtime::movie_clip::MovieClip,
 };
-use bevy_flash::{FlashPlugin, assets::FlashAnimationSwfData, bundle::FlashAnimation};
 
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::srgb_u8(153, 153, 153)))
+        .insert_resource(ClearColor(Color::srgb_u8(102, 102, 102)))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
-                    present_mode: bevy::window::PresentMode::AutoNoVsync,
+                    present_mode: bevy::window::PresentMode::AutoVsync,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -26,50 +21,55 @@ fn main() {
             FpsOverlayPlugin::default(),
         ))
         .add_systems(Startup, setup)
-        .add_systems(Update, flash_animation)
+        .add_systems(Update, animation_control)
+        .add_observer(flash_complete)
         .run();
 }
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((Camera2d, Msaa::Sample8));
-    for _ in 0..2 {
-        commands.spawn((
-            FlashAnimation {
-                swf: assert_server.load("filter_blend.swf"),
-            },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(1.0)),
-        ));
-    }
+    commands.spawn((
+        Name::new("冲霄"),
+        Flash(assert_server.load("spirit2159src.swf")),
+        FlashPlayer::from_animation_name("WAI"),
+        Transform::from_scale(Vec3::splat(2.0)),
+    ));
 
-    // commands.spawn((
-    //     FlashAnimation {
-    //         name: Some(String::from("m")),
-    //         swf_asset: assert_server.load("131381-idle.swf"),
-    //         ..Default::default()
-    //     },
-    //     Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(8.0)),
-    // ));
-
-    // commands.spawn((
-    //     FlashAnimation {
-    //         name: Some(String::from("m")),
-    //         swf: assert_server.load("leiyi.swf"),
-    //         ..Default::default()
-    //     },
-    //     Transform::from_translation(Vec3::new(300.0, -240.0, 0.0)).with_scale(Vec3::splat(2.0)),
-    // ));
+    commands.spawn((
+        Flash(assert_server.load("埃及太阳神.swf")),
+        Transform::from_scale(Vec3::splat(2.0)),
+    ));
 }
 
-fn flash_animation(
-    mut flashes: ResMut<Assets<FlashAnimationSwfData>>,
-    mut flash_swf_data_events: EventReader<AssetEvent<FlashAnimationSwfData>>,
-) -> Result {
-    for event in flash_swf_data_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = event {
-            dbg!("Flash Animation Loaded: {:?}", id);
-            let flash = flashes.get_mut(*id).unwrap();
-            flash.player.set_play_animation("default", true)?;
+/// 按下 Space 控制动画跳转
+fn animation_control(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut player: Query<(&Name, &mut FlashPlayer, &mut MovieClip, &Flash)>,
+    swf_res: Res<Assets<Swf>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        for (name, mut player, mut root, flash) in player.iter_mut() {
+            let Some(swf) = swf_res.get(flash.id()) else {
+                return;
+            };
+            // 控制动画跳转
+            if name.as_str() == "冲霄" {
+                player.set_play("WAI", &swf, root.as_mut());
+                player.set_looping(true);
+            }
         }
     }
-    Ok(())
+}
+
+fn flash_complete(trigger: Trigger<FlashCompleteEvent>, mut player: Query<&mut FlashPlayer>) {
+    let Ok(_player) = player.get_mut(trigger.target()) else {
+        return;
+    };
+    if let Some(animation_name) = &trigger.event().animation_name {
+        info!(
+            "实体: {}, 动画: {:?}, 播放完毕",
+            trigger.target(),
+            animation_name
+        );
+    }
 }

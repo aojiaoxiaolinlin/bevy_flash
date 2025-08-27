@@ -51,25 +51,25 @@ impl ViewNode for SingleTextureMultiPassPostProcessingNode {
                 bind_group
             }
         };
-        let Some(pipeline) = pipeline_cache.get_render_pipeline(upscaling_target.0) else {
-            return Ok(());
-        };
-        let pass_descriptor = RenderPassDescriptor {
-            label: Some("upscaling_pass"),
-            color_attachments: &[Some(
-                target.out_texture_color_attachment(Some(LinearRgba::NONE)),
-            )],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        };
-        let mut render_pass = render_context
-            .command_encoder()
-            .begin_render_pass(&pass_descriptor);
+        // let Some(pipeline) = pipeline_cache.get_render_pipeline(upscaling_target.0) else {
+        //     return Ok(());
+        // };
+        // let pass_descriptor = RenderPassDescriptor {
+        //     label: Some("upscaling_pass"),
+        //     color_attachments: &[Some(
+        //         target.out_texture_color_attachment(Some(LinearRgba::NONE)),
+        //     )],
+        //     depth_stencil_attachment: None,
+        //     timestamp_writes: None,
+        //     occlusion_query_set: None,
+        // };
+        // let mut render_pass = render_context
+        //     .command_encoder()
+        //     .begin_render_pass(&pass_descriptor);
 
-        render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, bind_group, &[]);
-        render_pass.draw(0..3, 0..1);
+        // render_pass.set_pipeline(pipeline);
+        // render_pass.set_bind_group(0, bind_group, &[]);
+        // render_pass.draw(0..3, 0..1);
         Ok(())
     }
 }

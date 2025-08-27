@@ -79,9 +79,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if gradient.interpolation != 0 {
         color = common__linear_to_srgb(color);
     }
-    // let out = color;
-    // let alpha = saturate(out.a);
-    // return vec4<f32>(out.rgb * alpha, alpha);
     return color;
 }
 

@@ -10,9 +10,10 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-use flash_runtime::parser::parse_shape::{shape_utils::GradientType, tessellator::Gradient};
 use swf::GradientSpread;
 use swf_macro::SwfMaterial;
+
+use crate::swf_runtime::{shape_utils::GradientType, tessellator::Gradient, transform::Transform};
 
 use super::{
     BITMAP_MATERIAL_SHADER_HANDLE, GRADIENT_MATERIAL_SHADER_HANDLE,
@@ -20,7 +21,7 @@ use super::{
 };
 
 pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {
-    fn update_swf_material(&mut self, swf_transform: SwfTransform);
+    fn update_swf_material(&mut self, swf_transform: MaterialTransform);
     fn set_blend_key(&mut self, blend_key: BlendMaterialKey);
 }
 
@@ -37,8 +38,8 @@ bitflags::bitflags! {
     }
 }
 
-impl From<&SwfColorMaterial> for BlendMaterialKey {
-    fn from(value: &SwfColorMaterial) -> Self {
+impl From<&ColorMaterial> for BlendMaterialKey {
+    fn from(value: &ColorMaterial) -> Self {
         value.blend_key
     }
 }
@@ -158,11 +159,11 @@ pub struct GradientMaterial {
     pub gradient: GradientUniforms,
     #[texture(1)]
     #[sampler(2)]
-    pub texture: Option<Handle<Image>>,
+    pub texture: Handle<Image>,
     #[uniform(3)]
     pub texture_transform: Mat4,
     #[uniform(4)]
-    pub transform: SwfTransform,
+    pub transform: MaterialTransform,
     pub blend_key: BlendMaterialKey,
 }
 
@@ -195,15 +196,15 @@ impl From<Gradient> for GradientUniforms {
     }
 }
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Copy, Default, SwfMaterial)]
 #[bind_group_data(BlendMaterialKey)]
-pub struct SwfColorMaterial {
+pub struct ColorMaterial {
     #[uniform(0)]
-    pub transform: SwfTransform,
+    pub transform: MaterialTransform,
     pub blend_key: BlendMaterialKey,
 }
 
-material2d!(SwfColorMaterial, SWF_COLOR_MATERIAL_SHADER_HANDLE);
+material2d!(ColorMaterial, SWF_COLOR_MATERIAL_SHADER_HANDLE);
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
 #[bind_group_data(BlendMaterialKey)]
@@ -214,25 +215,47 @@ pub struct BitmapMaterial {
     #[uniform(2)]
     pub texture_transform: Mat4,
     #[uniform(3)]
-    pub transform: SwfTransform,
+    pub transform: MaterialTransform,
     pub blend_key: BlendMaterialKey,
 }
 
 material2d!(BitmapMaterial, BITMAP_MATERIAL_SHADER_HANDLE);
 
-#[derive(Debug, Clone, Default, ShaderType)]
-pub struct SwfTransform {
+#[derive(Debug, Clone, Copy, Default, ShaderType)]
+pub struct MaterialTransform {
     pub world_transform: Mat4,
     pub mult_color: Vec4,
     pub add_color: Vec4,
 }
 
-impl SwfTransform {
+impl MaterialTransform {
     pub fn scale(&self) -> Vec3 {
         Vec3::new(
             self.world_transform.x_axis.x,
             self.world_transform.y_axis.y,
             1.0,
         )
+    }
+}
+
+impl From<Transform> for MaterialTransform {
+    fn from(transform: Transform) -> Self {
+        let matrix = transform.matrix;
+        let color_transform = transform.color_transform;
+        Self {
+            world_transform: Mat4::from_cols_array_2d(&[
+                [matrix.a, matrix.b, 0.0, 0.0],
+                [matrix.c, matrix.d, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [
+                    matrix.tx.to_pixels() as f32,
+                    matrix.ty.to_pixels() as f32,
+                    0.0,
+                    1.0,
+                ],
+            ]),
+            mult_color: Vec4::from_array(color_transform.mult_rgba_normalized()),
+            add_color: Vec4::from_array(color_transform.add_rgba_normalized()),
+        }
     }
 }

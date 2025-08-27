@@ -27,6 +27,7 @@
     "bytemuck",
     "copyless",
     "despawn",
+    "flate",
     "hashbrown",
     "ifdef",
     "indexmap",

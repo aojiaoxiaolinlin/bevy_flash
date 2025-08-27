@@ -28,7 +28,7 @@ pub fn swf_material_derive(input: TokenStream) -> TokenStream {
     }
     let gen = quote! {
         impl SwfMaterial for #name {
-            fn update_swf_material(&mut self, swf_transform: SwfTransform) {
+            fn update_swf_material(&mut self, swf_transform: MaterialTransform) {
                 self.transform = swf_transform
             }
             fn set_blend_key(&mut self,blend_key: BlendMaterialKey) {

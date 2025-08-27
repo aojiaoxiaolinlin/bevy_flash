@@ -28,7 +28,7 @@ use bevy::{
         renderer::RenderDevice,
         sync_world::{MainEntity, RenderEntity, SyncToRenderWorld},
         texture::{ColorAttachment, GpuImage, OutputColorAttachment, TextureCache},
-        view::{MainTargetTextures, Msaa, ViewTarget, ViewTargetAttachments},
+        view::{Msaa, ViewTarget, ViewTargetAttachments},
     },
 };
 
@@ -256,16 +256,16 @@ pub fn prepare_intermediate_texture_view_targets(
                 let main_texture = Arc::new(AtomicUsize::new(0));
                 (a, b, sampled, main_texture)
             });
-        let main_textures = MainTargetTextures::new(
-            ColorAttachment::new(a.clone(), sampled.clone(), Some(LinearRgba::NONE)),
-            ColorAttachment::new(b.clone(), sampled.clone(), Some(LinearRgba::NONE)),
-            main_texture.clone(),
-        );
-        commands.entity(entity).insert(ViewTarget::new(
-            main_textures,
-            main_texture_format,
-            out_attachment.clone(),
-        ));
+        // let main_textures = MainTargetTextures::new(
+        //     ColorAttachment::new(a.clone(), sampled.clone(), Some(LinearRgba::NONE)),
+        //     ColorAttachment::new(b.clone(), sampled.clone(), Some(LinearRgba::NONE)),
+        //     main_texture.clone(),
+        // );
+        // commands.entity(entity).insert(ViewTarget::new(
+        //     main_textures,
+        //     main_texture_format,
+        //     out_attachment.clone(),
+        // ));
     }
 }
 
