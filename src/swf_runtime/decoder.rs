@@ -38,32 +38,6 @@ impl Bitmap {
         }
     }
 
-    pub fn into_rgb(mut self) -> Self {
-        // Converts this bitmap to RGB, if it is not already.
-        match self.format {
-            BitmapFormat::Rgb => {} // no-op
-            BitmapFormat::Rgba => unreachable!("Can't convert RGBA Bitmap to RGB"),
-            BitmapFormat::Yuv420p => {
-                let luma_len = (self.width * self.height) as usize;
-                let chroma_len = (self.chroma_width() * self.chroma_height()) as usize;
-
-                let y = &self.data[0..luma_len];
-                let u = &self.data[luma_len..luma_len + chroma_len];
-                let v = &self.data[luma_len + chroma_len..luma_len + 2 * chroma_len];
-
-                self.data = yuv420_to_rgba(y, u, v, self.width as usize)
-                    .chunks_exact(4)
-                    .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
-                    .collect();
-            }
-            BitmapFormat::Yuva420p => unreachable!("Can't convert YUVA Bitmap to RGB"),
-        }
-
-        self.format = BitmapFormat::Rgb;
-
-        self
-    }
-
     pub fn into_rgba(mut self) -> Self {
         // Converts this bitmap to RGBA, if it is not already.
         match self.format {
@@ -135,35 +109,8 @@ impl Bitmap {
     }
 
     #[inline]
-    pub fn format(&self) -> BitmapFormat {
-        self.format
-    }
-
-    #[inline]
     pub fn data(&self) -> &[u8] {
         &self.data
-    }
-
-    #[inline]
-    pub fn data_mut(&mut self) -> &mut [u8] {
-        &mut self.data
-    }
-
-    pub fn as_colors(&self) -> impl Iterator<Item = u32> + '_ {
-        let chunks = match self.format {
-            BitmapFormat::Rgb => self.data.chunks_exact(3),
-            BitmapFormat::Rgba => self.data.chunks_exact(4),
-            _ => unimplemented!(
-                "Can't iterate over non-RGB(A) bitmaps as colors, convert with `to_rgba` first"
-            ),
-        };
-        chunks.map(|chunk| {
-            let red = chunk[0];
-            let green = chunk[1];
-            let blue = chunk[2];
-            let alpha = chunk.get(3).copied().unwrap_or(0xFF);
-            u32::from_le_bytes([blue, green, red, alpha])
-        })
     }
 }
 
@@ -177,9 +124,11 @@ pub enum BitmapFormat {
     Rgba,
 
     /// planar YUV 420
+    #[allow(unused)]
     Yuv420p,
 
     /// planar YUV 420, premultiplied with alpha (RGB channels are to be clamped after conversion)
+    #[allow(unused)]
     Yuva420p,
 }
 

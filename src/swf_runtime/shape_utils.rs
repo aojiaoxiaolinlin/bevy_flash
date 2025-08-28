@@ -119,22 +119,6 @@ pub enum DrawCommand {
         control: swf::Point<Twips>,
         anchor: swf::Point<Twips>,
     },
-    CubicCurveTo {
-        control_a: swf::Point<Twips>,
-        control_b: swf::Point<Twips>,
-        anchor: swf::Point<Twips>,
-    },
-}
-
-impl DrawCommand {
-    pub fn end_point(&self) -> swf::Point<Twips> {
-        match self {
-            DrawCommand::MoveTo(point)
-            | DrawCommand::LineTo(point)
-            | DrawCommand::QuadraticCurveTo { anchor: point, .. }
-            | DrawCommand::CubicCurveTo { anchor: point, .. } => *point,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]

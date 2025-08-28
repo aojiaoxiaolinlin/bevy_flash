@@ -254,6 +254,7 @@ pub struct Draw {
     pub draw_type: DrawType,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
+    #[allow(unused)]
     pub mask_index_count: u32,
 }
 
@@ -264,16 +265,6 @@ pub enum DrawType {
         gradient: usize,
     },
     Bitmap(Bitmap),
-}
-
-impl DrawType {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Color => "Color",
-            Self::Gradient { .. } => "Gradient",
-            Self::Bitmap { .. } => "Bitmap",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -296,7 +287,10 @@ pub struct Vertex {
 pub struct Bitmap {
     pub matrix: [[f32; 3]; 3],
     pub bitmap_id: u16,
+    /// 设置Sampler 为Repeat 或者 Clamp
+    #[allow(unused)]
     pub is_smoothed: bool,
+    #[allow(unused)]
     pub is_repeating: bool,
 }
 
@@ -326,16 +320,6 @@ fn ruffle_path_to_lyon_path(commands: &[DrawCommand], is_closed: bool) -> Path {
                     builder.begin(point(cursor));
                 }
                 builder.quadratic_bezier_to(point(*control), point(*anchor));
-            }
-            DrawCommand::CubicCurveTo {
-                control_a,
-                control_b,
-                anchor,
-            } => {
-                if let Some(cursor) = cursor.take() {
-                    builder.begin(point(cursor));
-                }
-                builder.cubic_bezier_to(point(*control_a), point(*control_b), point(*anchor));
             }
         }
     }
