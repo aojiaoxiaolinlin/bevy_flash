@@ -77,6 +77,8 @@ fn flash_complete(trigger: Trigger<FlashCompleteEvent>, mut player: Query<&mut F
     }
 }
 
+/// 需要在 Flash 动画中添加标签，标签名称为事件名称。
+/// 事件标签格式: `event_<EventName>`
 fn frame_event(trigger: Trigger<FlashFrameEvent>, mut player: Query<&mut FlashPlayer>) {
     let Ok(_player) = player.get_mut(trigger.target()) else {
         return;
