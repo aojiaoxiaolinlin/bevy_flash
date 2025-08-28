@@ -11,7 +11,6 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 use swf::GradientSpread;
-use swf_macro::SwfMaterial;
 
 use crate::swf_runtime::{shape_utils::GradientType, tessellator::Gradient, transform::Transform};
 
@@ -34,7 +33,7 @@ bitflags::bitflags! {
         const BLEND_SCREEN                      = 1 << 2;  // Screen blending
         const BLEND_LIGHTEN                     = 1 << 3;  // Lighten blending
         const BLEND_DARKEN                      = 1 << 4;  // Darken blending
-        const BLEND_MULTIPLY                    = 1 << 5;
+        const BLEND_MULTIPLY                    = 1 << 5;  // Multiply blending
     }
 }
 
@@ -54,6 +53,19 @@ impl From<&BitmapMaterial> for BlendMaterialKey {
     fn from(value: &BitmapMaterial) -> Self {
         value.blend_key
     }
+}
+
+macro_rules! swf_material {
+    ($name:ident) => {
+        impl SwfMaterial for $name {
+            fn update_swf_material(&mut self, swf_transform: MaterialTransform) {
+                self.transform = swf_transform;
+            }
+            fn set_blend_key(&mut self, blend_key: BlendMaterialKey) {
+                self.blend_key = blend_key;
+            }
+        }
+    };
 }
 
 macro_rules! material2d {
@@ -152,7 +164,7 @@ macro_rules! material2d {
     };
 }
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 #[bind_group_data(BlendMaterialKey)]
 pub struct GradientMaterial {
     #[uniform(0)]
@@ -168,6 +180,7 @@ pub struct GradientMaterial {
 }
 
 material2d!(GradientMaterial, GRADIENT_MATERIAL_SHADER_HANDLE);
+swf_material!(GradientMaterial);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable)]
@@ -196,7 +209,7 @@ impl From<Gradient> for GradientUniforms {
     }
 }
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Copy, Default, SwfMaterial)]
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Copy, Default)]
 #[bind_group_data(BlendMaterialKey)]
 pub struct ColorMaterial {
     #[uniform(0)]
@@ -205,8 +218,9 @@ pub struct ColorMaterial {
 }
 
 material2d!(ColorMaterial, SWF_COLOR_MATERIAL_SHADER_HANDLE);
+swf_material!(ColorMaterial);
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 #[bind_group_data(BlendMaterialKey)]
 pub struct BitmapMaterial {
     #[texture(0)]
@@ -220,6 +234,7 @@ pub struct BitmapMaterial {
 }
 
 material2d!(BitmapMaterial, BITMAP_MATERIAL_SHADER_HANDLE);
+swf_material!(BitmapMaterial);
 
 #[derive(Debug, Clone, Copy, Default, ShaderType)]
 pub struct MaterialTransform {

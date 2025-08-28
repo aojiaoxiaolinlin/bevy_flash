@@ -3,7 +3,6 @@ use std::sync::{Arc, atomic::AtomicUsize};
 use bevy::{
     app::Plugin,
     asset::{Asset, Handle, load_internal_asset},
-    color::LinearRgba,
     ecs::{
         component::Component,
         entity::Entity,

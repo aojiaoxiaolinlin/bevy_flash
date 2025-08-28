@@ -32,6 +32,18 @@ impl FlashPlayer {
         }
     }
 
+    pub fn with_looping(mut self, looping: bool) -> Self {
+        self.looping = looping;
+        self
+    }
+
+    pub fn from_looping(looping: bool) -> Self {
+        Self {
+            looping,
+            ..Default::default()
+        }
+    }
+
     pub fn reset(&mut self) {
         self.current_frame = 1;
         self.completed = false;
@@ -95,6 +107,7 @@ impl FlashPlayer {
                 }
             }
         } else {
+            self.reset();
             self.total_frames = root.total_frames();
         }
     }

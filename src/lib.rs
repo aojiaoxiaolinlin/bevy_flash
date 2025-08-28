@@ -517,12 +517,21 @@ fn spawn_or_update_shape(
     current_live_shape_entity: &mut Vec<Entity>,
 ) {
     // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
-    let mut current_shape_depth_layers = HashSet::new();
+    let mut current_shape_depth_layers: HashSet<String> = HashSet::new();
 
     // 1. 处理需要绘制中间纹理的Shape
     for cache_entity in cache_draw {
         // TODO:
     }
+    // 记录当前帧Shape Command 中使用到的Shape层级用于复用实体。
+    shape_commands.iter().for_each(|shape_command| {
+        if let ShapeCommand::RenderShape {
+            shape_depth_layer, ..
+        } = shape_command
+        {
+            current_shape_depth_layers.insert(shape_depth_layer.to_owned());
+        }
+    });
 
     // 2. 处理不需要缓存的Shape
     let mut z_index = 0.;
@@ -704,7 +713,7 @@ fn get_shape_material_handle_cache<'a>(
 ) -> Option<&'a Vec<(Entity, ShapeMaterialHandle)>> {
     // 如果当前id已经生成过，则根据深度层获取缓存
     if let Some(shape_material_handles_cache) = shape_material_cache.get(shape_depth_layer) {
-        current_shape_depth_layers.insert(shape_depth_layer.to_owned());
+        // current_shape_depth_layers.insert(shape_depth_layer.to_owned());
         Some(shape_material_handles_cache)
     } else {
         // 从shape_material_cache中获取key值最后一个“_"后的字符匹配id
