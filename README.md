@@ -20,10 +20,6 @@
 - 🟡 Blend rendering (partially supported, basic modes only)  
 - 🟡 Filter rendering (partially supported, available in `filter_render_dev` branch)
 
-## docs
-
-访问 [中文文档](http://49.232.132.44/bevy-flash2/ "中文文档") | [文档源码](/docs "文档源码") 
-
 ## Goals
 
 I want to bring Flash animations into the game engine to reuse old resources and thereby reconstruct Flash web games!
