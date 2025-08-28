@@ -1,161 +1,88 @@
-use bevy::{
-    app::{App, Startup, Update},
-    asset::{AssetServer, Assets},
-    input::ButtonInput,
-    math::Vec3,
-    prelude::{
-        Camera2d, Commands, Entity, EventReader, KeyCode, Msaa, Query, Res, ResMut, Transform,
-    },
-    DefaultPlugins,
-};
+use bevy::{dev_tools::fps_overlay::FpsOverlayPlugin, prelude::*};
 use bevy_flash::{
-    assets::SwfMovie,
-    plugin::{FlashPlugin, SwfInitEvent},
-};
-use bevy_flash::{
-    bundle::FlashAnimation,
-    swf::display_object::{
-        movie_clip::{MovieClip, NextFrame},
-        DisplayObject, TDisplayObject,
-    },
+    FlashCompleteEvent, FlashFrameEvent, FlashPlugin,
+    assets::Swf,
+    player::{Flash, FlashPlayer},
+    swf_runtime::movie_clip::MovieClip,
 };
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, FlashPlugin))
+        .insert_resource(ClearColor(Color::srgb_u8(102, 102, 102)))
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    present_mode: bevy::window::PresentMode::AutoVsync,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            FlashPlugin,
+            FpsOverlayPlugin::default(),
+        ))
         .add_systems(Startup, setup)
-        .add_systems(Update, control)
+        .add_systems(Update, animation_control)
+        .add_observer(flash_complete)
+        .add_observer(frame_event)
         .run();
 }
 
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
-    commands.spawn((Camera2d::default(), Msaa::Sample8));
+    commands.spawn((Camera2d, Msaa::Sample8));
     commands.spawn((
-        FlashAnimation {
-            name: Some(String::from("mc")),
-            swf_movie: assert_server.load("spirit2724src.swf"),
-            ..Default::default()
-        },
-        Transform::from_translation(Vec3::new(00.0, 00.0, 0.0)).with_scale(Vec3::splat(2.0)),
+        Name::new("冲霄"),
+        Flash(assert_server.load("spirit2159src.swf")),
+        FlashPlayer::from_animation_name("WAI"),
+        Transform::from_scale(Vec3::splat(2.0)),
     ));
 
     commands.spawn((
-        FlashAnimation {
-            name: Some(String::from("m")),
-            swf_movie: assert_server.load("131381-idle.swf"),
-            ..Default::default()
-        },
-        Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
+        Flash(assert_server.load("埃及太阳神.swf")),
+        Transform::from_scale(Vec3::splat(2.0)),
     ));
+
+    commands.spawn((Flash(assert_server.load("loading_event_test.swf")),));
 }
 
-fn control(
-    mut query: Query<(&mut FlashAnimation, Entity)>,
-    mut swf_movies: ResMut<Assets<SwfMovie>>,
+/// 按下 Space 控制动画跳转
+fn animation_control(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut swf_init_event: EventReader<SwfInitEvent>,
+    mut player: Query<(&Name, &mut FlashPlayer, &mut MovieClip, &Flash)>,
+    swf_res: Res<Assets<Swf>>,
 ) {
-    for swf_init_event in swf_init_event.read() {
-        query.iter_mut().for_each(|(flash_animation, entity)| {
-            let name = flash_animation.name.clone();
-            if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-                if swf_init_event.0 == entity && name.as_deref() == Some("mc") {
-                    swf_movie
-                        .root_movie_clip
-                        .goto_frame(&mut swf_movie.movie_library, 0, true);
-                }
-                swf_movie.root_movie_clip.set_name(name);
-            }
-        });
-    }
-
-    query.iter_mut().for_each(|(flash_animation, _)| {
-        if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-            if flash_animation.name.as_deref() == Some("mc") {
-                if let Some(first_child_movie_clip) =
-                    swf_movie.root_movie_clip.first_child_movie_clip()
-                {
-                    if matches!(
-                        first_child_movie_clip.determine_next_frame(),
-                        NextFrame::First
-                    ) {
-                        swf_movie.root_movie_clip.goto_frame(
-                            &mut swf_movie.movie_library,
-                            20,
-                            true,
-                        );
-                    }
-                }
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        for (name, mut player, mut root, flash) in player.iter_mut() {
+            let Some(swf) = swf_res.get(flash.id()) else {
+                return;
+            };
+            // 控制动画跳转
+            if name.as_str() == "冲霄" {
+                player.set_play("WAI", &swf, root.as_mut());
+                player.set_looping(true);
             }
         }
-    });
+    }
+}
 
-    let mut control = |query: &mut Query<'_, '_, (&mut FlashAnimation, Entity)>, frame: u16| {
-        query.iter_mut().for_each(|(flash_animation, _)| {
-            if let Some(swf_movie) = swf_movies.get_mut(flash_animation.swf_movie.id()) {
-                if flash_animation.name.as_deref() == Some("mc") {
-                    swf_movie
-                        .root_movie_clip
-                        .goto_frame(&mut swf_movie.movie_library, frame, true);
-                }
-            }
-        });
+fn flash_complete(trigger: Trigger<FlashCompleteEvent>, mut player: Query<&mut FlashPlayer>) {
+    let Ok(_player) = player.get_mut(trigger.target()) else {
+        return;
     };
-
-    if keyboard_input.just_released(KeyCode::KeyW) {
-        control(&mut query, 0);
+    if let Some(animation_name) = &trigger.event().animation_name {
+        info!(
+            "实体: {}, 动画: {:?}, 播放完毕",
+            trigger.target(),
+            animation_name
+        );
     }
+}
 
-    if keyboard_input.just_released(KeyCode::KeyA) {
-        control(&mut query, 10);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyS) {
-        control(&mut query, 20);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyD) {
-        control(&mut query, 30);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyF) {
-        control(&mut query, 40);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyH) {
-        control(&mut query, 50);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyJ) {
-        control(&mut query, 60);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyK) {
-        control(&mut query, 70);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyL) {
-        control(&mut query, 80);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyM) {
-        control(&mut query, 90);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyN) {
-        control(&mut query, 100);
-    }
-
-    if keyboard_input.just_released(KeyCode::KeyO) {
-        control(&mut query, 110);
-    }
-
-    // query.iter().for_each(|(swf, _)| {
-    //     let movie_clip = &swf.root_movie_clip;
-    //     println!("MovieClip:{}", movie_clip.character_id());
-    //     let space = 0;
-    //     show(movie_clip, space);
-    // });
-
-    // println!("-------------end----------------------");
+/// 需要在 Flash 动画中添加标签，标签名称为事件名称。
+/// 事件标签格式: `event_<EventName>`
+fn frame_event(trigger: Trigger<FlashFrameEvent>, mut player: Query<&mut FlashPlayer>) {
+    let Ok(_player) = player.get_mut(trigger.target()) else {
+        return;
+    };
+    let event_name = trigger.event().name();
+    info!("实体: {}, 触发帧事件: {:?}", trigger.target(), event_name);
 }

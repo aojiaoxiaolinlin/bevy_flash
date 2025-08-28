@@ -1,4 +1,5 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
+#import bevy_flash::common::{view_matrix}
 
 
 struct SwfTransform {
@@ -11,14 +12,6 @@ struct SwfTransform {
 @group(2) @binding(2) var<uniform> texture_transform: mat4x4<f32>;
 @group(2) @binding(3) var<uniform> swf_transform: SwfTransform;
 override late_saturate: bool = false;
-
-/// 暂时定为固定值
-const view_matrix: mat4x4<f32> = mat4x4<f32>(
-    vec4<f32>(1.0, 0.0, 0.0, 0.0),
-    vec4<f32>(0.0, -1.0, 0.0, 0.0),
-    vec4<f32>(0.0, 0.0, 1.0, 0.0),
-    vec4<f32>(0.0, 0.0, 0.0, 1.0)
-);
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -36,6 +29,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         position
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
+    out.position.x = out.position.x - out.position.w;
+    out.position.y = out.position.y + out.position.w;
     return out;
 }
 
@@ -54,19 +49,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             color = saturate(color);
         }
     }
-    return common__srgb_to_linear(color);
-}
-
-
-
-/// Converts a color from sRGB to linear color space.
-fn common__srgb_to_linear(srgb: vec4<f32>) -> vec4<f32> {
-    var rgb: vec3<f32> = srgb.rgb;
-    if srgb.a > 0.0 {
-        rgb = rgb / srgb.a;
-    }
-    let a = rgb / 12.92;
-    let b = pow((rgb + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
-    let c = step(vec3<f32>(0.04045), rgb);
-    return vec4<f32>(mix(a, b, c) * srgb.a, srgb.a);
+    return color;
 }

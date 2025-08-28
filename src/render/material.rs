@@ -1,16 +1,19 @@
 use bevy::{
     asset::{Asset, Handle},
-    math::{Mat4, Vec4},
+    math::{Mat4, Vec3, Vec4},
     prelude::Image,
     reflect::TypePath,
-    render::render_resource::{AsBindGroup, ShaderType},
+    render::render_resource::{
+        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, ShaderType,
+    },
     sprite::{AlphaMode2d, Material2d},
 };
-use ruffle_render::{
-    shape_utils::GradientType, tessellator::Gradient, transform::Transform as RuffleTransform,
-};
+use bytemuck::{Pod, Zeroable};
+
 use swf::GradientSpread;
 use swf_macro::SwfMaterial;
+
+use crate::swf_runtime::{shape_utils::GradientType, tessellator::Gradient, transform::Transform};
 
 use super::{
     BITMAP_MATERIAL_SHADER_HANDLE, GRADIENT_MATERIAL_SHADER_HANDLE,
@@ -18,36 +21,156 @@ use super::{
 };
 
 pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {
-    fn update_swf_material(&mut self, swf_transform: SwfTransform);
-    fn world_transform(&self) -> Mat4;
+    fn update_swf_material(&mut self, swf_transform: MaterialTransform);
+    fn set_blend_key(&mut self, blend_key: BlendMaterialKey);
+}
+
+bitflags::bitflags! {
+    #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct BlendMaterialKey:u8 {
+        const NORMAL                            = 0;
+        const BLEND_ADD                         = 1 << 0;  // Additive blending
+        const BLEND_SUBTRACT                    = 1 << 1;  // Subtractive blending
+        const BLEND_SCREEN                      = 1 << 2;  // Screen blending
+        const BLEND_LIGHTEN                     = 1 << 3;  // Lighten blending
+        const BLEND_DARKEN                      = 1 << 4;  // Darken blending
+        const BLEND_MULTIPLY                    = 1 << 5;
+    }
+}
+
+impl From<&ColorMaterial> for BlendMaterialKey {
+    fn from(value: &ColorMaterial) -> Self {
+        value.blend_key
+    }
+}
+
+impl From<&GradientMaterial> for BlendMaterialKey {
+    fn from(value: &GradientMaterial) -> Self {
+        value.blend_key
+    }
+}
+
+impl From<&BitmapMaterial> for BlendMaterialKey {
+    fn from(value: &BitmapMaterial) -> Self {
+        value.blend_key
+    }
+}
+
+macro_rules! material2d {
+    ($name:ident, $shader:expr) => {
+        impl Material2d for $name {
+            fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
+                $shader.into()
+            }
+            fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
+                $shader.into()
+            }
+            fn alpha_mode(&self) -> AlphaMode2d {
+                AlphaMode2d::Blend
+            }
+
+            fn specialize(
+                descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
+                _layout: &bevy::render::mesh::MeshVertexBufferLayoutRef,
+                key: bevy::sprite::Material2dKey<Self>,
+            ) -> bevy::ecs::error::Result<
+                (),
+                bevy::render::render_resource::SpecializedMeshPipelineError,
+            > {
+                if let Some(fragment) = &mut descriptor.fragment {
+                    if let Some(target) = &mut fragment.targets[0] {
+                        if key.bind_group_data.contains(BlendMaterialKey::BLEND_ADD) {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::One,
+                                    operation: BlendOperation::Add,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key
+                            .bind_group_data
+                            .contains(BlendMaterialKey::BLEND_MULTIPLY)
+                        {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::Dst,
+                                    dst_factor: BlendFactor::OneMinusSrcAlpha,
+                                    operation: BlendOperation::Add,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key
+                            .bind_group_data
+                            .contains(BlendMaterialKey::BLEND_SUBTRACT)
+                        {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::One,
+                                    operation: BlendOperation::ReverseSubtract,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key.bind_group_data.contains(BlendMaterialKey::BLEND_SCREEN) {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::OneMinusSrc,
+                                    operation: BlendOperation::Add,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key
+                            .bind_group_data
+                            .contains(BlendMaterialKey::BLEND_LIGHTEN)
+                        {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::One,
+                                    operation: BlendOperation::Max,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        } else if key.bind_group_data.contains(BlendMaterialKey::BLEND_DARKEN) {
+                            target.blend = Some(BlendState {
+                                color: BlendComponent {
+                                    src_factor: BlendFactor::One,
+                                    dst_factor: BlendFactor::One,
+                                    operation: BlendOperation::Min,
+                                },
+                                alpha: BlendComponent::OVER,
+                            });
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+        }
+    };
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
+#[bind_group_data(BlendMaterialKey)]
 pub struct GradientMaterial {
     #[uniform(0)]
     pub gradient: GradientUniforms,
     #[texture(1)]
     #[sampler(2)]
-    pub texture: Option<Handle<Image>>,
+    pub texture: Handle<Image>,
     #[uniform(3)]
     pub texture_transform: Mat4,
     #[uniform(4)]
-    pub transform: SwfTransform,
+    pub transform: MaterialTransform,
+    pub blend_key: BlendMaterialKey,
 }
 
-impl Material2d for GradientMaterial {
-    fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        GRADIENT_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        GRADIENT_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
-    }
-}
+material2d!(GradientMaterial, GRADIENT_MATERIAL_SHADER_HANDLE);
 
-#[derive(Debug, Clone, Default, ShaderType)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable)]
 pub struct GradientUniforms {
     pub focal_point: f32,
     pub interpolation: i32,
@@ -73,25 +196,18 @@ impl From<Gradient> for GradientUniforms {
     }
 }
 
-#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
-pub struct SwfColorMaterial {
+#[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Copy, Default, SwfMaterial)]
+#[bind_group_data(BlendMaterialKey)]
+pub struct ColorMaterial {
     #[uniform(0)]
-    pub transform: SwfTransform,
+    pub transform: MaterialTransform,
+    pub blend_key: BlendMaterialKey,
 }
 
-impl Material2d for SwfColorMaterial {
-    fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        SWF_COLOR_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
-    }
-}
+material2d!(ColorMaterial, SWF_COLOR_MATERIAL_SHADER_HANDLE);
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default, SwfMaterial)]
+#[bind_group_data(BlendMaterialKey)]
 pub struct BitmapMaterial {
     #[texture(0)]
     #[sampler(1)]
@@ -99,33 +215,34 @@ pub struct BitmapMaterial {
     #[uniform(2)]
     pub texture_transform: Mat4,
     #[uniform(3)]
-    pub transform: SwfTransform,
+    pub transform: MaterialTransform,
+    pub blend_key: BlendMaterialKey,
 }
 
-impl Material2d for BitmapMaterial {
-    fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
-        BITMAP_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        BITMAP_MATERIAL_SHADER_HANDLE.into()
-    }
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
-    }
-}
+material2d!(BitmapMaterial, BITMAP_MATERIAL_SHADER_HANDLE);
 
-#[derive(Debug, Clone, Default, ShaderType)]
-pub struct SwfTransform {
+#[derive(Debug, Clone, Copy, Default, ShaderType)]
+pub struct MaterialTransform {
     pub world_transform: Mat4,
-    mult_color: Vec4,
-    add_color: Vec4,
+    pub mult_color: Vec4,
+    pub add_color: Vec4,
 }
 
-impl From<RuffleTransform> for SwfTransform {
-    fn from(transform: RuffleTransform) -> Self {
+impl MaterialTransform {
+    pub fn scale(&self) -> Vec3 {
+        Vec3::new(
+            self.world_transform.x_axis.x,
+            self.world_transform.y_axis.y,
+            1.0,
+        )
+    }
+}
+
+impl From<Transform> for MaterialTransform {
+    fn from(transform: Transform) -> Self {
         let matrix = transform.matrix;
         let color_transform = transform.color_transform;
-        SwfTransform {
+        Self {
             world_transform: Mat4::from_cols_array_2d(&[
                 [matrix.a, matrix.b, 0.0, 0.0],
                 [matrix.c, matrix.d, 0.0, 0.0],

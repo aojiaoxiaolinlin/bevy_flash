@@ -1,37 +1,34 @@
 [package]
 name = "bevy_flash"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.0-Alpha"
+edition = "2024"
 authors = ["傲娇小霖霖"]
 license = "MIT OR Apache-2.0"
 description = "A Bevy plugin for Flash Animation"
 
 [dependencies]
-swf = { git = "https://github.com/ruffle-rs/ruffle.git", tag = "nightly-2024-12-09" }
-ruffle_render = { git = "https://github.com/ruffle-rs/ruffle.git", tag = "nightly-2024-12-09" }
-ruffle_render_wgpu = { git = "https://github.com/ruffle-rs/ruffle.git", tag = "nightly-2024-12-09" }
-ruffle_macros = { git = "https://github.com/ruffle-rs/ruffle.git", tag = "nightly-2024-12-09" }
 swf_macro = { path = "./swf_macro" }
-smallvec = { version = "1.13.2", features = ["union"] }
-wgpu = { version = "23", default-features = false }
-
-bevy = { version = "0.15", default-features = false, features = [
+smallvec = { version = "1.14.0", features = ["union"] }
+bytemuck = { version = "1.21.0", features = ["derive"] }
+bevy = { version = "0.16.1", default-features = false, features = [
     "bevy_asset",
     "bevy_sprite",
 ] }
 
 thiserror = "1.0"
-anyhow = "1.0"
 bitflags = "2.5"
+indexmap = "2.5.0"
 lyon_tessellation = "1.0"
-indexmap = "2.7"
 copyless = "0.1.5"
-
-uuid = "1.10"
-enum-map = "2.7.3"
-
+fnv = "1.0.7"
+swf = "0.2"
+wide = "0.7.32"
+jpeg-decoder = "0.3.1"
+png = "0.17.16"
+gif = "0.13.1"
+flate2 = "1.1.1"
 [dev-dependencies]
-bevy = { version = "0.15" }
+bevy = { version = "0.16.1", features = ["bevy_dev_tools"] }
 
 
 [profile.dev]

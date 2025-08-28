@@ -1,4 +1,5 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
+#import bevy_flash::common::{view_matrix}
 
 struct Gradient {
     focal_point: f32,
@@ -18,14 +19,6 @@ struct SwfTransform {
 @group(2) @binding(2) var texture_sampler: sampler;
 @group(2) @binding(3) var<uniform> texture_transform: mat4x4<f32>;
 @group(2) @binding(4) var<uniform> swf_transform: SwfTransform;
-/// 暂时定为固定值
-const view_matrix: mat4x4<f32> = mat4x4<f32>(
-    vec4<f32>(1.0, 0.0, 0.0, 0.0),
-    vec4<f32>(0.0, -1.0, 0.0, 0.0),
-    vec4<f32>(0.0, 0.0, 1.0, 0.0),
-    vec4<f32>(0.0, 0.0, 0.0, 1.0)
-);
-
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -44,6 +37,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         position
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
+    out.position.x = out.position.x - out.position.w;
+    out.position.y = out.position.y + out.position.w;
     return out;
 }
 
@@ -85,13 +80,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         t = fract(t);
     }
     var color = textureSample(texture, texture_sampler, vec2<f32>(t, 0.0));
-    if gradient.interpolation == 0 {
-        color = common__srgb_to_linear(color);
+    if gradient.interpolation != 0 {
+        color = common__linear_to_srgb(color);
     }
     let out = saturate(color * swf_transform.mult_color + swf_transform.add_color);
     let alpha = saturate(out.a);
     return vec4<f32>(out.rgb * alpha, alpha);
 }
+
 
 /// Converts a color from linear to sRGB color space.
 fn common__linear_to_srgb(linear_: vec4<f32>) -> vec4<f32> {
@@ -103,16 +99,4 @@ fn common__linear_to_srgb(linear_: vec4<f32>) -> vec4<f32> {
     let b = 1.055 * pow(rgb, vec3<f32>(1.0 / 2.4)) - 0.055;
     let c = step(vec3<f32>(0.0031308), rgb);
     return vec4<f32>(mix(a, b, c) * linear_.a, linear_.a);
-}
-
-/// Converts a color from sRGB to linear color space.
-fn common__srgb_to_linear(srgb: vec4<f32>) -> vec4<f32> {
-    var rgb: vec3<f32> = srgb.rgb;
-    if srgb.a > 0.0 {
-        rgb = rgb / srgb.a;
-    }
-    let a = rgb / 12.92;
-    let b = pow((rgb + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
-    let c = step(vec3<f32>(0.04045), rgb);
-    return vec4<f32>(mix(a, b, c) * srgb.a, srgb.a);
 }
