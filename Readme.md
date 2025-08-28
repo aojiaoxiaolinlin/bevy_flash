@@ -1,9 +1,31 @@
 
 
-# bevy_flash
+<div align="center">
+    <h1>bevy_flash</h1>
+    <span>English | <a href="./README.zh_CN.md">中文</a></span>
+    <p><em>Bring Flash animations into the Bevy game engine, fully WASM compatible!</em></p>
 
-Rendering flash animation in Bevy.WASM compatible!
-> Reference [Ruffle](https://github.com/ruffle-rs/ruffle/);
+    <a href="https://github.com/ruffle-rs/ruffle">
+        <img alt="Based on" src="https://img.shields.io/badge/Based%20on-Ruffle-blue" />
+    </a>
+    <a href="https://aojiaoxiaolinlin.github.io/bevy_flash_demo/">
+        <img alt="Live Demo" src="https://img.shields.io/badge/Live-Demo-green" />
+    </a>
+    <br/>
+    <a href="http://49.232.132.44/bevy-flash2/">
+        <img alt="中文文档" src="https://img.shields.io/badge/中文-文档-blue" />
+    </a>
+    <a href="LICENSE">
+        <img alt="License" src="https://img.shields.io/badge/License-MIT%2FApache--2.0-lightgrey" />
+    </a>
+</div>
+
+---
+
+## ✨ Features
+- ✅ Animation control (pause / seek / loop etc.)  
+- 🟡 Blend rendering (partially supported, basic modes only)  
+- 🟡 Filter rendering (partially supported, available in `filter_render_dev` branch)
 
 ## docs
 
@@ -14,69 +36,57 @@ Rendering flash animation in Bevy.WASM compatible!
 I want to bring Flash animations into the game engine to reuse old resources and thereby reconstruct Flash web games!
 
 
-## Support
-
-- [x] MovieClip Animation
-- [x] Control Animation
-- [ ] Blend Render
-- [ ] Filter Render
-
-## Example
-
+## 📸 Example
 [See online demo](https://aojiaoxiaolinlin.github.io/bevy_flash_demo/)
 
-- run example
+![show_case](./docs/Readme/xiao_hai_shen_long.png)
+![bevy_flash_sample](https://github.com/user-attachments/assets/8bf354d0-0c7b-4bce-bd2f-65fb0fcbc590)
+![effect](./docs/Readme/filter_effect.gif)
+
+## 🚀 Quick Start
+
+### 1. Run the example
 
 ```bash
+git clone https://github.com/aojiaoxiaolinlin/bevy_flash.git
+cd bevy_flash
 cargo run --example sample
 ```
 
-- static example
+### 2. Add bevy_flash to your project
 
-    ![show_case](./docs/Readme/xiao_hai_shen_long.png)
+```toml
+[dependencies]
+bevy_flash = { git = "https://github.com/aojiaoxiaolinlin/bevy_flash.git" }
+```
+Minimal usage:
 
-- dynamic example
+```rust
+fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
+    commands.spawn((Camera2d, Msaa::Sample8));
+    commands.spawn((
+        Name::new("冲霄"),
+        Flash(assert_server.load("spirit2159src.swf")),
+        FlashPlayer::from_animation_name("WAI"),
+        Transform::from_scale(Vec3::splat(2.0)),
+    ));
 
-    ![bevy_flash_sample](https://github.com/user-attachments/assets/8bf354d0-0c7b-4bce-bd2f-65fb0fcbc590)
+    commands.spawn((
+        Flash(assert_server.load("埃及太阳神.swf")),
+        Transform::from_scale(Vec3::splat(2.0)),
+    ));
 
-- filter effect example
+    commands.spawn(Flash(assert_server.load("loading_event_test.swf")));
+}
+```
 
-    ![effect](./docs/Readme/filter_effect.gif)
 
 > [!TIP]
 > The filter effects are currently available in the `filter_render_dev` branch. Since I've modified some of the source code, you'll need to pull my [branch](https://github.com/aojiaoxiaolinlin/bevy/tree/bevy_flash_modify).
 
-> [!IMPORTANT]
-> Currently, the animation control still follows Ruffle's implementation, which is quite cumbersome. In the future, I may refer to the design of dedicated animation resources in other game engines for changes.
-
 > [!WARNING]
 > This project is still in the early stages of development.
 
-## Getting Started
-
-
-```rust
-fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
-    commands.spawn(Camera2d::default());
-    commands.spawn((
-        FlashAnimation {
-            name: Some(String::from("name")),
-            swf_movie: assert_server.load("spirit2724src.swf"),
-            ..Default::default()
-        },
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::splat(2.0)),
-    ));
-
-    commands.spawn((
-        FlashAnimation {
-            name: Some(String::from("another name")),
-            swf_movie: assert_server.load("131381-idle.swf"),
-            ..Default::default()
-        },
-        Transform::from_translation(Vec3::new(-800.0, 200.0, 0.0)).with_scale(Vec3::splat(6.0)),
-    ));
-}
-```
 
 ## Contributing
 If you also want to complete this plugin, you are welcome to submit a Pull Request (PR) or raise an issue.  
