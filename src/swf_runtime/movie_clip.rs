@@ -445,21 +445,14 @@ impl MovieClip {
         is_rewind: bool,
         index: usize,
     ) -> Result<(), Error> {
-        let tag_start = reader.get_ref().as_ptr() as u64 - self.swf_slice.as_ref().as_ptr() as u64;
         let place_object = if version == 1 {
             reader.read_place_object()
         } else {
             reader.read_place_object_2_or_3(version)
         }?;
         let depth: Depth = place_object.depth.into();
-        let mut goto_place = GotoPlaceObject::new(
-            self.current_frame,
-            place_object,
-            is_rewind,
-            index,
-            tag_start,
-            version,
-        );
+        let mut goto_place =
+            GotoPlaceObject::new(self.current_frame, place_object, is_rewind, index);
         if let Some(i) = goto_commands.iter().position(|o| o.depth() == depth) {
             goto_commands[i].merge(&mut goto_place);
         } else {
@@ -679,10 +672,6 @@ pub(crate) struct GotoPlaceObject<'a> {
     place_object: swf::PlaceObject<'a>,
 
     index: usize,
-
-    tag_start: u64,
-
-    version: u8,
 }
 
 impl<'a> GotoPlaceObject<'a> {
@@ -691,8 +680,6 @@ impl<'a> GotoPlaceObject<'a> {
         mut place_object: swf::PlaceObject<'a>,
         is_rewind: bool,
         index: usize,
-        tag_start: u64,
-        version: u8,
     ) -> Self {
         if is_rewind {
             if let swf::PlaceObjectAction::Place(_) = place_object.action {
@@ -723,8 +710,6 @@ impl<'a> GotoPlaceObject<'a> {
             frame,
             place_object,
             index,
-            tag_start,
-            version,
         }
     }
 

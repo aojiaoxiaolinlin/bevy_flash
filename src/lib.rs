@@ -21,6 +21,7 @@ use bevy::ecs::event::{Event, EventReader};
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, EntityCommands, Local, Query, Res, ResMut};
 use bevy::ecs::world::FromWorld;
 use bevy::image::Image;
@@ -52,9 +53,8 @@ impl Plugin for FlashPlugin {
             .init_asset_loader::<SwfLoader>()
             .init_resource::<BitmapMesh>()
             .init_resource::<FlashPlayerTimer>()
-            .add_event::<FlashCompleteEvent>()
             .add_systems(Update, prepare_root_clip)
-            .add_systems(PostUpdate, advance_animation);
+            .add_systems(PostUpdate, (advance_animation).chain());
     }
 }
 
@@ -151,6 +151,7 @@ impl<'a> RenderContext<'a> {
             shape_meshes,
         }
     }
+
     pub fn render_shape(
         &mut self,
         id: u16,
@@ -186,7 +187,12 @@ pub struct FlashCompleteEvent {
 
 /// 为 Flash 动画添加帧事件
 #[derive(Event, Clone, Deref, DerefMut)]
-pub struct FrameEvent(String);
+pub struct FlashFrameEvent(String);
+impl FlashFrameEvent {
+    pub fn name(&self) -> &str {
+        self.0.as_str()
+    }
+}
 
 /// 推进Flash动画
 fn advance_animation(
@@ -244,6 +250,13 @@ fn advance_animation(
             root.enter_frame(characters);
             player.incr_frame();
 
+            // 触发帧事件
+            if let Some(event) = swf.frame_events().get(&root.current_frame()) {
+                commands
+                    .entity(entity)
+                    .trigger(FlashFrameEvent(event.as_ref().into()));
+            }
+
             // 处理DisplayList
             let mut cache_draw = vec![];
             let mut transform_stack = TransformStack::default();
@@ -292,6 +305,7 @@ fn advance_animation(
     }
 }
 
+/// 缓存信息
 pub struct CacheInfo {
     handle: Handle<Image>,
     dirty: bool,

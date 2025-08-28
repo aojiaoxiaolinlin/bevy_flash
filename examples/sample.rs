@@ -1,6 +1,6 @@
 use bevy::{dev_tools::fps_overlay::FpsOverlayPlugin, prelude::*};
 use bevy_flash::{
-    FlashCompleteEvent, FlashPlugin,
+    FlashCompleteEvent, FlashFrameEvent, FlashPlugin,
     assets::Swf,
     player::{Flash, FlashPlayer},
     swf_runtime::movie_clip::MovieClip,
@@ -23,6 +23,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, animation_control)
         .add_observer(flash_complete)
+        .add_observer(frame_event)
         .run();
 }
 
@@ -39,6 +40,8 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         Flash(assert_server.load("埃及太阳神.swf")),
         Transform::from_scale(Vec3::splat(2.0)),
     ));
+
+    commands.spawn((Flash(assert_server.load("loading_event_test.swf")),));
 }
 
 /// 按下 Space 控制动画跳转
@@ -72,4 +75,12 @@ fn flash_complete(trigger: Trigger<FlashCompleteEvent>, mut player: Query<&mut F
             animation_name
         );
     }
+}
+
+fn frame_event(trigger: Trigger<FlashFrameEvent>, mut player: Query<&mut FlashPlayer>) {
+    let Ok(_player) = player.get_mut(trigger.target()) else {
+        return;
+    };
+    let event_name = trigger.event().name();
+    info!("实体: {}, 触发帧事件: {:?}", trigger.target(), event_name);
 }

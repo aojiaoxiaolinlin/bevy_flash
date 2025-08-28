@@ -47,6 +47,10 @@ impl Swf {
         &self.animations
     }
 
+    pub fn frame_events(&self) -> &HashMap<FrameNumber, Box<str>> {
+        &self.frame_events
+    }
+
     pub fn characters(&self) -> &HashMap<CharacterId, Character> {
         &self.characters
     }
@@ -109,16 +113,18 @@ impl AssetLoader for SwfLoader {
             }
         });
         // 根据animations 的 起始帧v.0 的值，使用第一个大于当前项的v.0减去当前项的v.0，得到动画的长度。
-        let mut anim_frames = animations.values_mut().collect::<Vec<_>>();
-        anim_frames.sort_by_key(|(start, _)| *start);
-        for i in 0..anim_frames.len() - 1 {
-            let (start, _) = *anim_frames[i];
-            let (end, _) = *anim_frames[i + 1];
-            let len = end - start;
-            anim_frames[i].1 = len;
+        if !animations.is_empty() {
+            let mut anim_frames = animations.values_mut().collect::<Vec<_>>();
+            anim_frames.sort_by_key(|(start, _)| *start);
+            for i in 0..anim_frames.len() - 1 {
+                let (start, _) = *anim_frames[i];
+                let (end, _) = *anim_frames[i + 1];
+                let len = end - start;
+                anim_frames[i].1 = len;
+            }
+            let last: usize = anim_frames.len() - 1;
+            anim_frames[last].1 = root.total_frames() - anim_frames[last].0;
         }
-        let last: usize = anim_frames.len() - 1;
-        anim_frames[last].1 = root.total_frames() - anim_frames[last].0;
 
         Ok(Swf {
             shape_meshes,

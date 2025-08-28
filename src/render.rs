@@ -1,18 +1,15 @@
-use bevy::app::PostUpdate;
 use bevy::asset::{RenderAssetUsages, weak_handle};
 use bevy::ecs::entity::EntityHashMap;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{EntityCommands, Local};
 use bevy::image::{BevyDefault, Image};
 use bevy::math::{UVec2, Vec2, Vec4};
-use bevy::platform::collections::HashMap;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::render::render_resource::{
     CachedRenderPipelineId, Extent3d, TextureDimension, TextureFormat, TextureUsages,
 };
 use bevy::render::view::NoFrustumCulling;
-use bevy::transform::components::GlobalTransform;
 use bevy::{
     app::{App, Plugin},
     asset::{Assets, Handle, load_internal_asset},
@@ -34,9 +31,6 @@ use material::{
 use pipeline::IntermediateTexturePipeline;
 use swf::{CharacterId, Rectangle as SwfRectangle, Twips};
 
-use crate::advance_animation;
-use crate::assets::{ShapeMaterialType, Swf};
-use crate::player::SwfGraph;
 use crate::swf_runtime::filter::Filter;
 
 pub(crate) mod blend_pipeline;
@@ -53,13 +47,6 @@ pub const BITMAP_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("a34c7d82-1f5b-4a9e-93d8-6b7e20c45a1f");
 pub const FLASH_COMMON_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("e53b9f82-6a4c-4d5b-91e7-4f2a63b8c5d9");
-
-type SwfShapeMeshQuery = (
-    Entity,
-    Option<&'static MeshMaterial2d<ColorMaterial>>,
-    Option<&'static MeshMaterial2d<GradientMaterial>>,
-    Option<&'static MeshMaterial2d<BitmapMaterial>>,
-);
 
 pub struct FlashRenderPlugin;
 
@@ -94,9 +81,7 @@ impl Plugin for FlashRenderPlugin {
             .add_plugins(Material2dPlugin::<ColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
             .add_plugins((IntermediateTexturePlugin, FlashFilterRenderGraphPlugin))
-            .add_plugins(ExtractComponentPlugin::<FlashFilters>::default())
-            // .add_systems(PostUpdate, generate_or_update_mesh.after(advance_animation));
-            ;
+            .add_plugins(ExtractComponentPlugin::<FlashFilters>::default());
     }
 
     fn finish(&self, app: &mut App) {
