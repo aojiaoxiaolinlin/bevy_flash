@@ -1,0 +1,37 @@
+[package]
+name = "bevy_flash"
+version = "0.1.0-alpha"
+edition = "2024"
+
+[dependencies]
+smallvec = { version = "1.14.0", features = ["union"] }
+bytemuck = { version = "1.21.0", features = ["derive"] }
+bevy = { version = "0.16.1", default-features = false, features = [
+    "bevy_asset",
+    "bevy_sprite",
+    "bevy_render",
+    "bevy_log",
+] }
+
+thiserror = "1.0"
+bitflags = "2.5"
+indexmap = "2.5.0"
+lyon_tessellation = "1.0"
+copyless = "0.1.5"
+fnv = "1.0.7"
+swf = "0.2"
+wide = "0.7.32"
+jpeg-decoder = "0.3.1"
+png = "0.17.16"
+gif = "0.13.1"
+flate2 = "1.1.1"
+
+[dev-dependencies]
+bevy = { version = "0.16.1", features = ["bevy_dev_tools"] }
+
+[profile.dev]
+opt-level = 1
+
+# Enable a large amount of optimization in the dev profile for dependencies.
+[profile.dev.package."*"]
+opt-level = 3
