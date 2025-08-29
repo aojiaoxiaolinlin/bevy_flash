@@ -58,7 +58,7 @@ fn animation_control(
             // 控制动画跳转
             if name.as_str() == "冲霄" {
                 player.set_play("WAI", &swf, root.as_mut());
-                player.set_looping(true);
+                // player.set_looping(true);
             }
         }
     }
