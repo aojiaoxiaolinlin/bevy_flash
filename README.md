@@ -9,7 +9,10 @@
         <img alt="中文文档" src="https://img.shields.io/badge/中文-文档-blue" />
     </a>
     <a href="LICENSE">
-        <img alt="License" src="https://img.shields.io/badge/License-MIT%2FApache--2.0-lightgrey" />
+        <img alt="License" src="https://img.shields.io/badge/license-MIT%2FApache-blue.svg" />
+    </a>
+    <a href="https://deepwiki.com/aojiaoxiaolinlin/bevy_flash">
+        <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
     </a>
 </div>
 

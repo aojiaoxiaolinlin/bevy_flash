@@ -5,7 +5,10 @@
     <p><em>将 Flash 动画引入 Bevy 引擎，兼容 WASM！</em></p>
     <br/>
     <a href="LICENSE">
-        <img alt="License" src="https://img.shields.io/badge/License-MIT%2FApache--2.0-lightgrey" />
+        <img alt="License" src="https://img.shields.io/badge/license-MIT%2FApache-blue.svg" />
+    </a>
+    <a href="https://deepwiki.com/aojiaoxiaolinlin/bevy_flash">
+        <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
     </a>
 </div>
 
