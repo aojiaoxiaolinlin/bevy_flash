@@ -43,6 +43,9 @@ pub mod player;
 mod render;
 pub mod swf_runtime;
 
+type BitmapMaterialCache = EntityHashMap<HashMap<CharacterId, Handle<BitmapMaterial>>>;
+type ShapeMaterialEntityCache = EntityHashMap<HashMap<String, Vec<(Entity, ShapeMaterialHandle)>>>;
+
 /// Flash 插件模块，为 Bevy 引入 Flash 动画。
 pub struct FlashPlugin;
 
@@ -102,20 +105,17 @@ fn prepare_root_clip(
     mut asset_event: EventReader<AssetEvent<Swf>>,
 ) {
     for event in asset_event.read() {
-        match event {
-            AssetEvent::LoadedWithDependencies { id } => {
-                if let Some((entity, mut player, _)) =
-                    player.iter_mut().find(|(_, _, flash)| flash.id() == *id)
-                {
-                    let Some(swf) = swf_res.get(*id) else {
-                        continue;
-                    };
-                    let mut root = MovieClip::new(swf.swf_movie.clone());
-                    player.play_target_animation(&swf, &mut root);
-                    commands.entity(entity).insert(root);
-                }
+        if let AssetEvent::LoadedWithDependencies { id } = event {
+            if let Some((entity, mut player, _)) =
+                player.iter_mut().find(|(_, _, flash)| flash.id() == *id)
+            {
+                let Some(swf) = swf_res.get(*id) else {
+                    continue;
+                };
+                let mut root = MovieClip::new(swf.swf_movie.clone());
+                player.play_target_animation(&swf, &mut root);
+                commands.entity(entity).insert(root);
             }
-            _ => {}
         }
     }
 }
@@ -169,9 +169,9 @@ impl<'a> RenderContext<'a> {
 }
 
 enum ShapeMaterialHandle {
-    ColorMaterial(Handle<ColorMaterial>),
-    GradientMaterial(Handle<GradientMaterial>),
-    BitmapMaterial(Handle<BitmapMaterial>),
+    Color(Handle<ColorMaterial>),
+    Gradient(Handle<GradientMaterial>),
+    Bitmap(Handle<BitmapMaterial>),
 }
 
 /// 标记Mesh2d实体为ShapeMesh
@@ -195,6 +195,7 @@ impl FlashFrameEvent {
 }
 
 /// 推进Flash动画
+#[allow(clippy::too_many_arguments)]
 fn advance_animation(
     time: Res<Time>,
     bitmap_mesh_res: Res<BitmapMesh>,
@@ -214,10 +215,8 @@ fn advance_animation(
     mut color_materials: ResMut<Assets<ColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
-    mut bitmap_cache: Local<EntityHashMap<HashMap<CharacterId, Handle<BitmapMaterial>>>>,
-    mut shape_material_entity_cache: Local<
-        EntityHashMap<HashMap<String, Vec<(Entity, ShapeMaterialHandle)>>>,
-    >,
+    mut bitmap_cache: Local<BitmapMaterialCache>,
+    mut shape_material_entity_cache: Local<ShapeMaterialEntityCache>,
 ) {
     let mut current_live_player = vec![];
     if timer.tick(time.delta()).just_finished() {
@@ -504,6 +503,7 @@ fn render_display_object(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_or_update_shape(
     mut commands: EntityCommands<'_>,
     color_materials: &mut Assets<ColorMaterial>,
@@ -564,10 +564,10 @@ fn spawn_or_update_shape(
                         };
                         transform.translation.z = z_index;
                         match handle {
-                            ShapeMaterialHandle::ColorMaterial(color) => {
+                            ShapeMaterialHandle::Color(color) => {
                                 update_material(color, color_materials, swf_transform, blend_mode);
                             }
-                            ShapeMaterialHandle::GradientMaterial(gradient) => {
+                            ShapeMaterialHandle::Gradient(gradient) => {
                                 update_material(
                                     gradient,
                                     gradient_materials,
@@ -575,7 +575,7 @@ fn spawn_or_update_shape(
                                     blend_mode,
                                 );
                             }
-                            ShapeMaterialHandle::BitmapMaterial(bitmap) => {
+                            ShapeMaterialHandle::Bitmap(bitmap) => {
                                 update_material(
                                     bitmap,
                                     bitmap_materials,
@@ -618,10 +618,8 @@ fn spawn_or_update_shape(
                                     ))
                                     .id();
 
-                                shape_material_handles_cache.push((
-                                    entity,
-                                    ShapeMaterialHandle::ColorMaterial(color.clone()),
-                                ));
+                                shape_material_handles_cache
+                                    .push((entity, ShapeMaterialHandle::Color(color.clone())));
                                 current_live_shape_entity.push(entity);
                             });
                         }
@@ -647,7 +645,7 @@ fn spawn_or_update_shape(
                                     .id();
                                 shape_material_handles_cache.push((
                                     entity,
-                                    ShapeMaterialHandle::GradientMaterial(gradient.clone()),
+                                    ShapeMaterialHandle::Gradient(gradient.clone()),
                                 ));
                                 current_live_shape_entity.push(entity);
                             });
@@ -672,10 +670,8 @@ fn spawn_or_update_shape(
                                         NoFrustumCulling,
                                     ))
                                     .id();
-                                shape_material_handles_cache.push((
-                                    entity,
-                                    ShapeMaterialHandle::BitmapMaterial(bitmap.clone()),
-                                ));
+                                shape_material_handles_cache
+                                    .push((entity, ShapeMaterialHandle::Bitmap(bitmap.clone())));
                                 current_live_shape_entity.push(entity);
                             });
                         }
@@ -726,7 +722,6 @@ fn get_shape_material_handle_cache<'a>(
                     .map(|v| v == id.to_string())
                     .unwrap_or(false)
             })
-            .map(|(k, v)| (k, v))
         {
             current_shape_depth_layers.insert(k.to_owned());
             Some(shape_material_handles_cache)

@@ -33,7 +33,7 @@ impl TransformStack {
     }
 
     pub fn transform(&self) -> Transform {
-        self.0[self.0.len() - 1].clone()
+        self.0[self.0.len() - 1]
     }
 }
 

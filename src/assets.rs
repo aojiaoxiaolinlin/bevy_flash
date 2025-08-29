@@ -102,11 +102,9 @@ impl AssetLoader for SwfLoader {
         let mut animations = <HashMap<_, _>>::default();
         let mut frame_events = <HashMap<_, _>>::default();
         root.frame_labels().iter().for_each(|(k, v)| {
-            if k.starts_with("anim_") {
-                let anim_name = &k[5..];
+            if let Some(anim_name) = k.strip_prefix("anim_") {
                 animations.insert(anim_name.into(), (*v, 0));
-            } else if k.starts_with("event_") {
-                let event_name = &k[6..];
+            } else if let Some(event_name) = k.strip_prefix("event_") {
                 frame_events.insert(*v, event_name.into());
             } else {
                 animations.insert(k.clone(), (*v, 0));
@@ -205,7 +203,7 @@ fn load_shape_mesh(
                 )
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                 .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
-                let mesh = load_context.add_labeled_asset(format!("mesh_{}", mesh_index), mesh);
+                let mesh = load_context.add_labeled_asset(format!("mesh_{mesh_index}"), mesh);
                 *mesh_index += 1;
 
                 // let material = load_context.add_labeled_asset(
@@ -266,7 +264,7 @@ fn load_shape_mesh(
                         RenderAssetUsages::default(),
                     );
                     let texture =
-                        load_context.add_labeled_asset(format!("texture_{}", image_index), texture);
+                        load_context.add_labeled_asset(format!("texture_{image_index}"), texture);
                     *image_index += 1;
                     // let material = load_context.add_labeled_asset(
                     //     format!("material_{}", material_index),

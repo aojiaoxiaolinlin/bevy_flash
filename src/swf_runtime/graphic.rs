@@ -61,13 +61,11 @@ impl TDisplayObject for Graphic {
         id: CharacterId,
         characters: &HashMap<CharacterId, super::character::Character>,
     ) {
-        if let Some(character) = characters.get(&id) {
-            if let Character::Graphic(graphic) = character {
-                self.id = graphic.id;
-                self.shape = graphic.shape.clone();
-                self.bounds = graphic.bounds.clone();
-                self.movie = graphic.movie.clone();
-            }
+        if let Some(Character::Graphic(graphic)) = characters.get(&id) {
+            self.id = graphic.id;
+            self.shape = graphic.shape.clone();
+            self.bounds = graphic.bounds.clone();
+            self.movie = graphic.movie.clone();
         }
     }
 

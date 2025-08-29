@@ -63,6 +63,7 @@ impl ImageCache {
             || self.image.is_none()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         images: &mut Assets<Image>,
@@ -298,7 +299,7 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
             }
         }
         if let Some(blend_mode) = place_object.blend_mode {
-            self.set_blend_mode(blend_mode.into());
+            self.set_blend_mode(blend_mode);
         }
         if let Some(_is_bitmap_cached) = place_object.is_bitmap_cached {
             //TODO:

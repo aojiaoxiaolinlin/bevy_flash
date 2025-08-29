@@ -78,7 +78,7 @@ impl MovieClip {
         bitmaps: &mut BitmapLibrary,
     ) {
         let swf = self.swf_slice.clone();
-        let mut reader = Reader::new(&swf.data(), swf.version());
+        let mut reader = Reader::new(swf.data(), swf.version());
         let tag_callback = |reader: &mut Reader<'_>, tag_code, tag_len| {
             match tag_code {
                 TagCode::DefineShape => define_shape(characters, self.movie(), reader, 1),
@@ -450,7 +450,7 @@ impl MovieClip {
         } else {
             reader.read_place_object_2_or_3(version)
         }?;
-        let depth: Depth = place_object.depth.into();
+        let depth = place_object.depth;
         let mut goto_place =
             GotoPlaceObject::new(self.current_frame, place_object, is_rewind, index);
         if let Some(i) = goto_commands.iter().position(|o| o.depth() == depth) {
@@ -475,7 +475,7 @@ impl MovieClip {
         } else {
             reader.read_remove_object_2()
         }?;
-        let depth: Depth = remove_object.depth.into();
+        let depth = remove_object.depth;
         if let Some(i) = goto_commands.iter().position(|o| o.depth() == depth) {
             goto_commands.swap_remove(i);
         }
@@ -715,7 +715,7 @@ impl<'a> GotoPlaceObject<'a> {
 
     #[inline]
     fn depth(&self) -> Depth {
-        self.place_object.depth.into()
+        self.place_object.depth
     }
 
     fn merge(&mut self, next: &mut GotoPlaceObject<'a>) {

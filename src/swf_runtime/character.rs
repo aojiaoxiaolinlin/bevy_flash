@@ -93,7 +93,7 @@ pub fn instantiate_by_id(
             }
             child.set_depth(place_object.depth);
             child.set_place_frame(place_frame);
-            child.apply_place_object(&place_object, swf_slice.version());
+            child.apply_place_object(place_object, swf_slice.version());
             // 运行第一帧
             child.enter_frame(characters);
             Some(child)

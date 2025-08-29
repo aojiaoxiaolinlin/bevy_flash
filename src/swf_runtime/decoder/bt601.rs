@@ -112,7 +112,7 @@ pub fn yuv420_to_rgba(y: &[u8], chroma_b: &[u8], chroma_r: &[u8], y_width: usize
     }
 
     // the + 1 is for rounding odd numbers up
-    let br_width = (y_width + 1) / 2;
+    let br_width = y_width.div_ceil(2);
 
     debug_assert_eq!(y.len() % y_width, 0);
     debug_assert_eq!(chroma_b.len() % br_width, 0);
@@ -123,7 +123,7 @@ pub fn yuv420_to_rgba(y: &[u8], chroma_b: &[u8], chroma_r: &[u8], y_width: usize
     let br_height = chroma_b.len() / br_width;
 
     // the + 1 is for rounding odd numbers up
-    debug_assert_eq!((y_height + 1) / 2, br_height);
+    debug_assert_eq!(y_height.div_ceil(2), br_height);
 
     let mut rgba = vec![0; y.len() * 4];
     let rgba_stride = y_width * 4; // 4 bytes per pixel, interleaved

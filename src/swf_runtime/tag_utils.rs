@@ -149,7 +149,7 @@ pub enum Error {
     InvalidBitmap(#[from] decoder::error::Error),
 
     #[error("IO Error: {0}")]
-    IOError(#[from] std::io::Error),
+    IO(#[from] std::io::Error),
 }
 
 pub fn decode_tags<'a, F>(reader: &mut Reader<'a>, mut tag_callback: F) -> Result<bool, Error>
