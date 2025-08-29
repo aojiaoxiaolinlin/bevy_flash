@@ -33,7 +33,7 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         Name::new("冲霄"),
         Flash(assert_server.load("spirit2159src.swf")),
         FlashPlayer::from_animation_name("WAI"),
-        Transform::from_scale(Vec3::splat(2.0)),
+        Transform::from_scale(Vec3::splat(1.0)),
     ));
 
     commands.spawn((
@@ -41,7 +41,24 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         Transform::from_scale(Vec3::splat(2.0)),
     ));
 
-    commands.spawn((Flash(assert_server.load("loading_event_test.swf")),));
+    commands.spawn(Flash(assert_server.load("loading_event_test.swf")));
+
+    // 提示按下空格键，触发动画 ATT 播放
+    commands.spawn((
+        Text::new("按下空格键，触发动画 ATT 播放"),
+        TextFont {
+            font: assert_server.load("fonts/SourceHanSansCN-Normal.otf"),
+            font_size: 24.0,
+            ..default()
+        },
+        TextLayout::new_with_justify(JustifyText::Center),
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(5.0),
+            left: Val::Px(5.0),
+            ..default()
+        },
+    ));
 }
 
 /// 按下 Space 控制动画跳转
@@ -57,15 +74,19 @@ fn animation_control(
             };
             // 控制动画跳转
             if name.as_str() == "冲霄" {
-                player.set_play("WAI", swf, root.as_mut());
-                player.set_looping(true);
+                player.set_play("ATT", swf, root.as_mut());
+                player.set_looping(false);
             }
         }
     }
 }
 
-fn flash_complete(trigger: Trigger<FlashCompleteEvent>, mut player: Query<&mut FlashPlayer>) {
-    let Ok(_player) = player.get_mut(trigger.target()) else {
+fn flash_complete(
+    trigger: Trigger<FlashCompleteEvent>,
+    mut player: Query<(&mut FlashPlayer, &Flash, &mut MovieClip)>,
+    swf_res: Res<Assets<Swf>>,
+) {
+    let Ok((mut player, flash, mut root)) = player.get_mut(trigger.target()) else {
         return;
     };
     if let Some(animation_name) = &trigger.event().animation_name {
@@ -74,6 +95,12 @@ fn flash_complete(trigger: Trigger<FlashCompleteEvent>, mut player: Query<&mut F
             trigger.target(),
             animation_name
         );
+        let Some(swf) = swf_res.get(flash.id()) else {
+            return;
+        };
+
+        player.set_play("WAI", swf, root.as_mut());
+        player.set_looping(true);
     }
 }
 
