@@ -113,7 +113,7 @@ fn prepare_root_clip(
                     continue;
                 };
                 let mut root = MovieClip::new(swf.swf_movie.clone());
-                player.play_target_animation(&swf, &mut root);
+                player.play_target_animation(swf, &mut root);
                 commands.entity(entity).insert(root);
             }
         }
@@ -128,11 +128,16 @@ pub struct ImageCacheEntity {
 }
 
 pub struct RenderContext<'a> {
+    meshes: &'a mut Assets<Mesh>,
+    images: &'a mut Assets<Image>,
+    gradients: &'a mut Assets<GradientMaterial>,
+    bitmaps: &'a mut Assets<BitmapMaterial>,
+
     transform_stack: &'a mut TransformStack,
     scale: Vec3,
     cache_draw: &'a mut Vec<ImageCacheEntity>,
     commands: Vec<ShapeCommand>,
-    shape_meshes: &'a HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shape_mesh_material: &'a mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -141,14 +146,22 @@ impl<'a> RenderContext<'a> {
         scale: Vec3,
         cache_draw: &'a mut Vec<ImageCacheEntity>,
         commands: Vec<ShapeCommand>,
-        shape_meshes: &'a HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+        shape_mesh_material: &'a mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+        meshes: &'a mut Assets<Mesh>,
+        images: &'a mut Assets<Image>,
+        gradients: &'a mut Assets<GradientMaterial>,
+        bitmaps: &'a mut Assets<BitmapMaterial>,
     ) -> Self {
         Self {
             transform_stack,
             scale,
             cache_draw,
             commands,
-            shape_meshes,
+            shape_mesh_material,
+            meshes,
+            images,
+            gradients,
+            bitmaps,
         }
     }
 
@@ -199,7 +212,7 @@ impl FlashFrameEvent {
 fn advance_animation(
     time: Res<Time>,
     bitmap_mesh_res: Res<BitmapMesh>,
-    swf_res: Res<Assets<Swf>>,
+    mut swf_res: ResMut<Assets<Swf>>,
     mut commands: Commands,
     mut timer: ResMut<FlashPlayerTimer>,
     mut player: Query<(
@@ -211,6 +224,7 @@ fn advance_animation(
         Option<&Children>,
     )>,
     mut shape_mesh: Query<&mut Transform, With<ShapeMesh>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut color_materials: ResMut<Assets<ColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
@@ -235,7 +249,7 @@ fn advance_animation(
                 continue;
             }
 
-            let Some(swf) = swf_res.get(swf.id()) else {
+            let Some(swf) = swf_res.get_mut(swf.id()) else {
                 continue;
             };
 
@@ -264,14 +278,17 @@ fn advance_animation(
                 global_transform.scale(),
                 &mut cache_draw,
                 Vec::new(),
-                &swf.shape_meshes,
+                &mut swf.shape_mesh_material,
+                meshes.as_mut(),
+                images.as_mut(),
+                gradient_materials.as_mut(),
+                bitmap_materials.as_mut(),
             );
 
             process_display_list(
                 root.render_list_mut(),
                 &mut context,
                 swf::BlendMode::Normal,
-                images.as_mut(),
                 String::from("0"),
             );
 
@@ -288,7 +305,7 @@ fn advance_animation(
                 shape_material_cache,
                 cache_draw,
                 shape_commands,
-                &swf.shape_meshes,
+                &swf.shape_mesh_material,
                 &mut current_live_shape_entity,
             );
             if let Some(children) = children {
@@ -318,7 +335,6 @@ fn process_display_list(
     display_list: ValuesMut<'_, u16, DisplayObject>,
     context: &mut RenderContext<'_>,
     blend_mode: swf::BlendMode,
-    images: &mut Assets<Image>,
     shape_depth_layer: String,
 ) {
     for display_object in display_list {
@@ -372,7 +388,7 @@ fn process_display_list(
                 let draw_offset = IVec2::new(filter_rect.x_min, filter_rect.y_min);
                 if cache.is_dirty(&base_transform.matrix, width, height) {
                     cache.update(
-                        images,
+                        context.images,
                         &base_transform.matrix,
                         width,
                         height,
@@ -422,18 +438,21 @@ fn process_display_list(
                     },
                 });
                 // 中间纹理绘制
-                let mut offscreen_context = RenderContext {
-                    transform_stack: &mut transform_stack,
-                    scale: context.scale,
-                    cache_draw: context.cache_draw,
-                    commands: Vec::new(),
-                    shape_meshes: context.shape_meshes,
-                };
+                let mut offscreen_context = RenderContext::new(
+                    &mut transform_stack,
+                    context.scale,
+                    context.cache_draw,
+                    Vec::new(),
+                    context.shape_mesh_material,
+                    context.meshes,
+                    context.images,
+                    context.gradients,
+                    context.bitmaps,
+                );
                 render_display_object(
                     display_object,
                     &mut offscreen_context,
                     blend_mode,
-                    images,
                     shape_depth_layer,
                 );
                 // 将offscreen_context需要缓存绘制的render_shapes合并到context.cache_draw.render_shapes
@@ -462,13 +481,7 @@ fn process_display_list(
             // 绘制 background，大概率不重要
             // TODO:
             // 绘制自己
-            render_display_object(
-                display_object,
-                context,
-                blend_mode,
-                images,
-                shape_depth_layer,
-            );
+            render_display_object(display_object, context, blend_mode, shape_depth_layer);
         }
 
         // TODO:处理复杂混合模式
@@ -481,7 +494,6 @@ fn render_display_object(
     display_object: &mut DisplayObject,
     context: &mut RenderContext<'_>,
     blend_mode: swf::BlendMode,
-    images: &mut Assets<Image>,
     shape_depth_layer: String,
 ) {
     match display_object {
@@ -490,7 +502,6 @@ fn render_display_object(
                 movie_clip.render_list_mut(),
                 context,
                 blend_mode,
-                images,
                 shape_depth_layer,
             );
         }
@@ -517,7 +528,7 @@ fn spawn_or_update_shape(
     current_live_shape_entity: &mut Vec<Entity>,
 ) {
     // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
-    let mut current_shape_depth_layers: HashSet<String> = HashSet::new();
+    let mut current_live_shape_depth_layers: HashSet<String> = HashSet::new();
 
     // 1. 处理需要绘制中间纹理的Shape
     for cache_entity in cache_draw {
@@ -529,7 +540,7 @@ fn spawn_or_update_shape(
             shape_depth_layer, ..
         } = shape_command
         {
-            current_shape_depth_layers.insert(shape_depth_layer.to_owned());
+            current_live_shape_depth_layers.insert(shape_depth_layer.to_owned());
         }
     });
 
@@ -551,7 +562,7 @@ fn spawn_or_update_shape(
                     id,
                     shape_depth_layer,
                     shape_material_cache,
-                    &mut current_shape_depth_layers,
+                    &mut current_live_shape_depth_layers,
                 )
                 // if let Some(shape_material_handles_cache) =
                 //     shape_material_cache.get(shape_depth_layer)
@@ -705,17 +716,16 @@ fn get_shape_material_handle_cache<'a>(
     id: &CharacterId,
     shape_depth_layer: &String,
     shape_material_cache: &'a HashMap<String, Vec<(Entity, ShapeMaterialHandle)>>,
-    current_shape_depth_layers: &mut HashSet<String>,
+    current_live_shape_depth_layers: &mut HashSet<String>,
 ) -> Option<&'a Vec<(Entity, ShapeMaterialHandle)>> {
     // 如果当前id已经生成过，则根据深度层获取缓存
     if let Some(shape_material_handles_cache) = shape_material_cache.get(shape_depth_layer) {
-        // current_shape_depth_layers.insert(shape_depth_layer.to_owned());
         Some(shape_material_handles_cache)
     } else {
         // 从shape_material_cache中获取key值最后一个“_"后的字符匹配id
         if let Some((k, shape_material_handles_cache)) = shape_material_cache
             .iter()
-            .filter(|(k, _)| !current_shape_depth_layers.contains(k.as_str()))
+            .filter(|(k, _)| !current_live_shape_depth_layers.contains(k.as_str()))
             .find(|(key, _)| {
                 key.split("_")
                     .last()
@@ -723,7 +733,7 @@ fn get_shape_material_handle_cache<'a>(
                     .unwrap_or(false)
             })
         {
-            current_shape_depth_layers.insert(k.to_owned());
+            current_live_shape_depth_layers.insert(k.to_owned());
             Some(shape_material_handles_cache)
         } else {
             None

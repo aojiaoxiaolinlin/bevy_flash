@@ -34,7 +34,7 @@ const GRADIENT_SIZE: usize = 256;
 /// SWF 资产结构体，包含了 SWF 文件的相关信息。
 #[derive(Asset, TypePath)]
 pub struct Swf {
-    pub shape_meshes: HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    pub shape_mesh_material: HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     pub characters: HashMap<CharacterId, Character>,
     /// 动画名称，以及动画的起始帧和总帧长
     pub animations: HashMap<Box<str>, (FrameNumber, FrameNumber)>,
@@ -82,18 +82,20 @@ impl AssetLoader for SwfLoader {
         let mut mesh_index = 0;
         let mut image_index = 0;
         let mut material_index = 0;
-        let mut shape_meshes = HashMap::new();
+        let mut shape_mesh_material = HashMap::new();
         characters.values_mut().for_each(|v| {
             if let Character::Graphic(graphic) = v {
-                let shape_mesh_materials = load_shape_mesh(
-                    load_context,
-                    graphic,
-                    &bitmaps,
-                    &mut image_index,
-                    &mut mesh_index,
-                    &mut material_index,
+                shape_mesh_material.insert(
+                    graphic.id(),
+                    load_shape_mesh(
+                        load_context,
+                        graphic,
+                        &bitmaps,
+                        &mut image_index,
+                        &mut mesh_index,
+                        &mut material_index,
+                    ),
                 );
-                shape_meshes.insert(graphic.id(), shape_mesh_materials);
                 // 生成Mesh 后清除图形记录数据，后续不在需要。
                 graphic.shape_mut().shape.clear();
             }
@@ -125,7 +127,7 @@ impl AssetLoader for SwfLoader {
         }
 
         Ok(Swf {
-            shape_meshes,
+            shape_mesh_material,
             characters,
             animations,
             frame_events,
@@ -301,6 +303,16 @@ fn load_gradient_textures(
     i: &mut usize,
 ) -> Vec<(Handle<Image>, GradientUniforms)> {
     let mut gradient_textures = Vec::new();
+    for (texture, gradient_uniforms) in get_gradient_texture(gradients) {
+        let handle = load_context.add_labeled_asset(format!("gradient_{i}"), texture);
+        *i += 1;
+        gradient_textures.push((handle, gradient_uniforms));
+    }
+    gradient_textures
+}
+
+pub fn get_gradient_texture(gradients: Vec<Gradient>) -> Vec<(Image, GradientUniforms)> {
+    let mut gradient_textures = Vec::new();
     for gradient in gradients {
         let colors = if gradient.records.is_empty() {
             vec![0; GRADIENT_SIZE * 4]
@@ -369,10 +381,7 @@ fn load_gradient_textures(
             RenderAssetUsages::default(),
         );
         let gradient_uniforms = GradientUniforms::from(gradient);
-
-        let handle = load_context.add_labeled_asset(format!("gradient_{i}"), texture);
-        *i += 1;
-        gradient_textures.push((handle, gradient_uniforms));
+        gradient_textures.push((texture, gradient_uniforms));
     }
     gradient_textures
 }

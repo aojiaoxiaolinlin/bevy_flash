@@ -1,8 +1,17 @@
+use bevy::asset::{Handle, RenderAssetUsages};
+use bevy::color::ColorToComponents;
 use bevy::log::warn;
+use bevy::math::{Mat3, Mat4};
+use bevy::platform::collections::HashMap;
+use bevy::render::mesh::{Indices, Mesh, PrimitiveTopology};
+use copyless::VecHelper;
 use std::sync::Arc;
 use swf::{CharacterId, Color, Fixed8, Fixed16, Point, Rectangle, Twips};
 
+use crate::assets::{ShapeMaterialType, get_gradient_texture};
+use crate::render::material::{ColorMaterial, GradientMaterial};
 use crate::swf_runtime::shape_utils::calculate_shape_bounds;
+use crate::swf_runtime::tessellator::{DrawType, ShapeTessellator};
 
 use super::tag_utils::SwfMovie;
 
@@ -12,7 +21,7 @@ use super::display_object::{DisplayObject, DisplayObjectBase, TDisplayObject};
 #[derive(Debug, Clone)]
 
 struct Frame {
-    // shape_handle: Option<ShapeHandle>,
+    shape_mesh_material: Option<Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     shape: swf::Shape,
     bounds: Rectangle<Twips>,
 }
@@ -46,6 +55,106 @@ impl MorphShape {
         self.frames
             .entry(ratio)
             .or_insert_with(|| Self::build_morph_frame(&self.start, &self.end, ratio))
+    }
+
+    fn get_shape(&mut self, ratio: u16, context: &mut crate::RenderContext) {
+        let frame = self.get_frame(ratio);
+        if let Some(shape_mesh_material) = frame.shape_mesh_material.clone() {
+            context
+                .shape_mesh_material
+                .insert(self.id, shape_mesh_material);
+        } else {
+            let bitmaps = HashMap::new();
+            let mut tessellator = ShapeTessellator::default();
+            let shape = &frame.shape;
+            let lyon_mesh = tessellator.tessellate_shape(shape.into(), &bitmaps);
+            let mut gradient_texture = Vec::new();
+            for (texture, gradient_uniforms) in get_gradient_texture(lyon_mesh.gradients) {
+                gradient_texture.push((context.images.add(texture), gradient_uniforms));
+            }
+            let mut shape_mesh_material = Vec::new();
+            for draw in lyon_mesh.draws {
+                match &draw.draw_type {
+                    DrawType::Color => {
+                        let mut positions = Vec::with_capacity(draw.vertices.len());
+                        let mut colors = Vec::with_capacity(draw.vertices.len());
+                        for vertex in &draw.vertices {
+                            positions.alloc().init([vertex.x, vertex.y, 0.0]);
+                            let linear_color = bevy::color::Color::srgba_u8(
+                                vertex.color.r,
+                                vertex.color.g,
+                                vertex.color.b,
+                                vertex.color.a,
+                            )
+                            .to_linear();
+                            colors.alloc().init(linear_color.to_f32_array());
+                        }
+
+                        let mesh = Mesh::new(
+                            PrimitiveTopology::TriangleList,
+                            RenderAssetUsages::default(),
+                        )
+                        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+                        .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
+                        let mesh = context.meshes.add(mesh);
+                        // let material = load_context.add_labeled_asset(
+                        //     format!("material_{}", material_index),
+                        //     ColorMaterial::default(),
+                        // );
+                        // *material_index += 1;
+                        // shape_mesh_material.push((ShapeMaterialType::Color(material), mesh));
+                        shape_mesh_material
+                            .push((ShapeMaterialType::Color(ColorMaterial::default()), mesh));
+                    }
+                    DrawType::Gradient { matrix, gradient } => {
+                        let Some((handle, gradient)) = gradient_texture.get(*gradient).cloned()
+                        else {
+                            continue;
+                        };
+                        let mut positions = Vec::with_capacity(draw.vertices.len());
+                        for vertex in &draw.vertices {
+                            positions.alloc().init([vertex.x, vertex.y, 0.0]);
+                        }
+                        let mesh = Mesh::new(
+                            PrimitiveTopology::TriangleList,
+                            RenderAssetUsages::default(),
+                        )
+                        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                        .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
+                        let mesh = context.meshes.add(mesh);
+
+                        // let material = load_context.add_labeled_asset(
+                        //     format!("material_{}", material_index),
+                        //     GradientMaterial {
+                        //         gradient,
+                        //         texture: handle,
+                        //         texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&matrix)),
+                        //         ..Default::default()
+                        //     },
+                        // );
+                        // *material_index += 1;
+                        // shape_mesh_material.push((ShapeMaterialType::Gradient(material), mesh));
+                        shape_mesh_material.push((
+                            ShapeMaterialType::Gradient(GradientMaterial {
+                                gradient,
+                                texture: handle,
+                                texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(
+                                    matrix,
+                                )),
+                                ..Default::default()
+                            }),
+                            mesh,
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            frame.shape_mesh_material = Some(shape_mesh_material.clone());
+            context
+                .shape_mesh_material
+                .insert(self.id, shape_mesh_material);
+        }
     }
 
     fn build_morph_frame(start: &swf::MorphShape, end: &swf::MorphShape, ratio: u16) -> Frame {
@@ -168,7 +277,11 @@ impl MorphShape {
             shape,
         };
 
-        Frame { shape, bounds }
+        Frame {
+            shape_mesh_material: None,
+            shape,
+            bounds,
+        }
     }
 
     fn update_pos(x: &mut Twips, y: &mut Twips, record: &swf::ShapeRecord) {
@@ -218,6 +331,21 @@ impl TDisplayObject for MorphShape {
 
     fn id(&self) -> CharacterId {
         self.id
+    }
+
+    fn render_self(
+        &mut self,
+        context: &mut crate::RenderContext,
+        blend_mode: swf::BlendMode,
+        shape_depth_layer: String,
+    ) {
+        self.get_shape(self.ratio, context);
+        context.render_shape(
+            self.id(),
+            context.transform_stack.transform(),
+            shape_depth_layer,
+            blend_mode.into(),
+        );
     }
 
     fn as_morph_shape(&mut self) -> Option<&mut MorphShape> {
