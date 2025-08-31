@@ -69,7 +69,7 @@ impl TDisplayObject for Graphic {
         }
     }
 
-    fn self_bounds(&mut self) -> Rectangle<Twips> {
+    fn self_bounds(&mut self, _context: &mut RenderContext) -> Rectangle<Twips> {
         self.bounds.clone()
     }
 

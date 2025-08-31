@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::image::Image;
 use bevy::log::warn_once;
-use bevy::math::{IVec2, Vec3};
+use bevy::math::IVec2;
 use bevy::platform::collections::HashMap;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use swf::{BlendMode, CharacterId, ColorTransform, Depth, Rectangle, Twips};
@@ -253,7 +253,7 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
 
     /// 该对象未经过变换的固有边界框。这些边界不包含子显示对象（DisplayObjects）。
     /// 叶节点显示对象应返回自身的边界。仅包含子对象的复合显示对象应返回 &Default::default ()。
-    fn self_bounds(&mut self) -> Rectangle<Twips>;
+    fn self_bounds(&mut self, context: &mut RenderContext) -> Rectangle<Twips>;
 
     /// 获取此对象及其所有子对象的渲染边界。该边界与向 Flash 暴露的边界主要有两点不同：
     /// - 若应用了会增大显示内容尺寸的滤镜，渲染边界可能会更大
@@ -262,16 +262,17 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         &mut self,
         matrix: &Matrix,
         include_own_filters: bool,
-        scale: Vec3,
+        context: &mut RenderContext,
     ) -> Rectangle<Twips> {
-        let mut bounds = *matrix * self.self_bounds();
+        let scale = context.scale;
+        let mut bounds = *matrix * self.self_bounds(context);
         if let Some(children) = self.children_mut() {
             for child in children {
                 let matrix = *matrix * *child.matrix();
                 bounds = bounds.union(&child.render_bounds_with_transform(
                     &matrix,
                     include_own_filters,
-                    scale,
+                    context,
                 ));
             }
         }
@@ -395,11 +396,11 @@ impl TDisplayObject for DisplayObject {
         }
     }
 
-    fn self_bounds(&mut self) -> Rectangle<Twips> {
+    fn self_bounds(&mut self, context: &mut RenderContext) -> Rectangle<Twips> {
         match self {
-            Self::Graphic(g) => g.self_bounds(),
-            Self::MovieClip(m) => m.self_bounds(),
-            Self::MorphShape(m) => m.self_bounds(),
+            Self::Graphic(g) => g.self_bounds(context),
+            Self::MovieClip(m) => m.self_bounds(context),
+            Self::MorphShape(m) => m.self_bounds(context),
         }
     }
 

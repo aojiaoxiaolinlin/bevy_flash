@@ -8,7 +8,7 @@ use copyless::VecHelper;
 use std::sync::Arc;
 use swf::{CharacterId, Color, Fixed8, Fixed16, Point, Rectangle, Twips};
 
-use crate::assets::{ShapeMaterialType, get_gradient_texture};
+use crate::assets::{ShapeMaterialType, create_gradient_textures};
 use crate::render::material::{ColorMaterial, GradientMaterial};
 use crate::swf_runtime::shape_utils::calculate_shape_bounds;
 use crate::swf_runtime::tessellator::{DrawType, ShapeTessellator};
@@ -20,7 +20,7 @@ use super::display_object::{DisplayObject, DisplayObjectBase, TDisplayObject};
 /// 为变形形状预先计算的中间框架。
 #[derive(Debug, Clone)]
 
-struct Frame {
+pub struct Frame {
     shape_mesh_material: Option<Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     shape: swf::Shape,
     bounds: Rectangle<Twips>,
@@ -31,7 +31,7 @@ pub struct MorphShape {
     id: CharacterId,
     start: swf::MorphShape,
     end: swf::MorphShape,
-    frames: fnv::FnvHashMap<u16, Frame>,
+    // frames: fnv::FnvHashMap<u16, Frame>,
     base: DisplayObjectBase,
     ratio: u16,
     movie: Arc<SwfMovie>,
@@ -43,7 +43,7 @@ impl MorphShape {
             id: swf_tag.id,
             start: swf_tag.start.clone(),
             end: swf_tag.end.clone(),
-            frames: fnv::FnvHashMap::default(),
+            // frames: fnv::FnvHashMap::default(),
             base: DisplayObjectBase::default(),
             ratio: 0,
             movie,
@@ -51,14 +51,20 @@ impl MorphShape {
     }
 
     /// 延迟初始化该变形形状的中间帧
-    fn get_frame(&mut self, ratio: u16) -> &mut Frame {
-        self.frames
+    fn get_frame<'a>(
+        &self,
+        ratio: u16,
+        morph_shape_cache: &'a mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
+    ) -> &'a mut Frame {
+        morph_shape_cache
+            .entry(self.id())
+            .or_default()
             .entry(ratio)
             .or_insert_with(|| Self::build_morph_frame(&self.start, &self.end, ratio))
     }
 
     fn get_shape(&mut self, ratio: u16, context: &mut crate::RenderContext) {
-        let frame = self.get_frame(ratio);
+        let frame = self.get_frame(ratio, context.morph_shape_cache);
         if let Some(shape_mesh_material) = frame.shape_mesh_material.clone() {
             context
                 .shape_mesh_material
@@ -69,7 +75,7 @@ impl MorphShape {
             let shape = &frame.shape;
             let lyon_mesh = tessellator.tessellate_shape(shape.into(), &bitmaps);
             let mut gradient_texture = Vec::new();
-            for (texture, gradient_uniforms) in get_gradient_texture(lyon_mesh.gradients) {
+            for (texture, gradient_uniforms) in create_gradient_textures(lyon_mesh.gradients) {
                 gradient_texture.push((context.images.add(texture), gradient_uniforms));
             }
             let mut shape_mesh_material = Vec::new();
@@ -325,8 +331,10 @@ impl TDisplayObject for MorphShape {
         self.movie.clone()
     }
 
-    fn self_bounds(&mut self) -> Rectangle<Twips> {
-        self.get_frame(self.ratio).bounds.clone()
+    fn self_bounds(&mut self, context: &mut crate::RenderContext) -> Rectangle<Twips> {
+        self.get_frame(self.ratio, context.morph_shape_cache)
+            .bounds
+            .clone()
     }
 
     fn id(&self) -> CharacterId {

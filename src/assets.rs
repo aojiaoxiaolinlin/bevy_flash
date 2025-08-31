@@ -303,7 +303,7 @@ fn load_gradient_textures(
     i: &mut usize,
 ) -> Vec<(Handle<Image>, GradientUniforms)> {
     let mut gradient_textures = Vec::new();
-    for (texture, gradient_uniforms) in get_gradient_texture(gradients) {
+    for (texture, gradient_uniforms) in create_gradient_textures(gradients) {
         let handle = load_context.add_labeled_asset(format!("gradient_{i}"), texture);
         *i += 1;
         gradient_textures.push((handle, gradient_uniforms));
@@ -311,7 +311,7 @@ fn load_gradient_textures(
     gradient_textures
 }
 
-pub fn get_gradient_texture(gradients: Vec<Gradient>) -> Vec<(Image, GradientUniforms)> {
+pub fn create_gradient_textures(gradients: Vec<Gradient>) -> Vec<(Image, GradientUniforms)> {
     let mut gradient_textures = Vec::new();
     for gradient in gradients {
         let colors = if gradient.records.is_empty() {

@@ -517,7 +517,7 @@ impl TDisplayObject for MovieClip {
         }
     }
 
-    fn self_bounds(&mut self) -> Rectangle<Twips> {
+    fn self_bounds(&mut self, _context: &mut crate::RenderContext) -> Rectangle<Twips> {
         Default::default()
     }
 

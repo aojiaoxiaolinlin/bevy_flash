@@ -9,6 +9,7 @@ use crate::render::material::{BitmapMaterial, ColorMaterial, GradientMaterial, S
 use crate::swf_runtime::display_object::{DisplayObject, TDisplayObject};
 use crate::swf_runtime::filter::Filter;
 use crate::swf_runtime::matrix::Matrix;
+use crate::swf_runtime::morph_shape::Frame;
 use crate::swf_runtime::movie_clip::MovieClip;
 use crate::swf_runtime::transform::{Transform as SwfTransform, TransformStack};
 
@@ -44,6 +45,7 @@ mod render;
 pub mod swf_runtime;
 
 type BitmapMaterialCache = EntityHashMap<HashMap<CharacterId, Handle<BitmapMaterial>>>;
+type MorphShapeFrameCache = EntityHashMap<HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>>;
 type ShapeMaterialEntityCache = EntityHashMap<HashMap<String, Vec<(Entity, ShapeMaterialHandle)>>>;
 
 /// Flash 插件模块，为 Bevy 引入 Flash 动画。
@@ -72,7 +74,7 @@ impl Default for FlashPlayerTimer {
     }
 }
 
-/// 位图Mesh,是一个固定的矩形
+/// 用于滤镜纹理渲染的Mesh，一个固定的矩形
 #[derive(Resource, Debug, Clone, Deref, DerefMut)]
 pub struct BitmapMesh(Handle<Mesh>);
 
@@ -97,29 +99,6 @@ impl FromWorld for BitmapMesh {
     }
 }
 
-/// 准备Root MovieClip
-fn prepare_root_clip(
-    mut commands: Commands,
-    mut player: Query<(Entity, &mut FlashPlayer, &Flash)>,
-    swf_res: Res<Assets<Swf>>,
-    mut asset_event: EventReader<AssetEvent<Swf>>,
-) {
-    for event in asset_event.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = event {
-            if let Some((entity, mut player, _)) =
-                player.iter_mut().find(|(_, _, flash)| flash.id() == *id)
-            {
-                let Some(swf) = swf_res.get(*id) else {
-                    continue;
-                };
-                let mut root = MovieClip::new(swf.swf_movie.clone());
-                player.play_target_animation(swf, &mut root);
-                commands.entity(entity).insert(root);
-            }
-        }
-    }
-}
-
 pub struct ImageCacheEntity {
     handle: Handle<Image>,
     clear_color: Color,
@@ -138,6 +117,8 @@ pub struct RenderContext<'a> {
     cache_draw: &'a mut Vec<ImageCacheEntity>,
     commands: Vec<ShapeCommand>,
     shape_mesh_material: &'a mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+
+    morph_shape_cache: &'a mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -151,6 +132,7 @@ impl<'a> RenderContext<'a> {
         images: &'a mut Assets<Image>,
         gradients: &'a mut Assets<GradientMaterial>,
         bitmaps: &'a mut Assets<BitmapMaterial>,
+        morph_shape_cache: &'a mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
     ) -> Self {
         Self {
             transform_stack,
@@ -162,6 +144,7 @@ impl<'a> RenderContext<'a> {
             images,
             gradients,
             bitmaps,
+            morph_shape_cache,
         }
     }
 
@@ -207,6 +190,29 @@ impl FlashFrameEvent {
     }
 }
 
+/// 为Player实体添加Root MovieClip 组件
+fn prepare_root_clip(
+    mut commands: Commands,
+    mut player: Query<(Entity, &mut FlashPlayer, &Flash)>,
+    swf_res: Res<Assets<Swf>>,
+    mut asset_event: EventReader<AssetEvent<Swf>>,
+) {
+    for event in asset_event.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = event {
+            if let Some((entity, mut player, _)) =
+                player.iter_mut().find(|(_, _, flash)| flash.id() == *id)
+            {
+                let Some(swf) = swf_res.get(*id) else {
+                    continue;
+                };
+                let mut root = MovieClip::new(swf.swf_movie.clone());
+                player.play_target_animation(swf, &mut root);
+                commands.entity(entity).insert(root);
+            }
+        }
+    }
+}
+
 /// 推进Flash动画
 #[allow(clippy::too_many_arguments)]
 fn advance_animation(
@@ -229,6 +235,7 @@ fn advance_animation(
     mut color_materials: ResMut<Assets<ColorMaterial>>,
     mut gradient_materials: ResMut<Assets<GradientMaterial>>,
     mut bitmap_materials: ResMut<Assets<BitmapMaterial>>,
+    mut morph_shape_entity_cache: Local<MorphShapeFrameCache>,
     mut bitmap_cache: Local<BitmapMaterialCache>,
     mut shape_material_entity_cache: Local<ShapeMaterialEntityCache>,
 ) {
@@ -283,6 +290,7 @@ fn advance_animation(
                 images.as_mut(),
                 gradient_materials.as_mut(),
                 bitmap_materials.as_mut(),
+                morph_shape_entity_cache.entry(entity).or_default(),
             );
 
             process_display_list(
@@ -318,6 +326,7 @@ fn advance_animation(
             }
         }
         shape_material_entity_cache.retain(|entity, _| current_live_player.contains(entity));
+        morph_shape_entity_cache.retain(|entity, _| current_live_player.contains(entity));
     }
 }
 
@@ -352,11 +361,8 @@ fn process_display_list(
         // 处理当前DisplayObject滤镜
         let mut cache_info = None;
         let base_transform = context.transform_stack.transform();
-        let bounds = display_object.render_bounds_with_transform(
-            &base_transform.matrix,
-            false,
-            context.scale,
-        );
+        let bounds =
+            display_object.render_bounds_with_transform(&base_transform.matrix, false, context);
 
         let mut filters = display_object.filters();
         let swf_version = display_object.swf_version();
@@ -448,6 +454,7 @@ fn process_display_list(
                     context.images,
                     context.gradients,
                     context.bitmaps,
+                    context.morph_shape_cache,
                 );
                 render_display_object(
                     display_object,
@@ -558,7 +565,7 @@ fn spawn_or_update_shape(
                 let Some(shape_meshes) = shape_meshes.get(id) else {
                     continue;
                 };
-                if let Some(shape_material_handles_cache) = get_shape_material_handle_cache(
+                if let Some(shape_material_handles_cache) = find_cached_shape_material_handles(
                     id,
                     shape_depth_layer,
                     shape_material_cache,
@@ -712,7 +719,7 @@ fn update_material<T: SwfMaterial>(
 }
 
 /// 尽量复用已经生成的实体。只有在同一帧同一个 shape被多次使用时才需要重新生成
-fn get_shape_material_handle_cache<'a>(
+fn find_cached_shape_material_handles<'a>(
     id: &CharacterId,
     shape_depth_layer: &String,
     shape_material_cache: &'a HashMap<String, Vec<(Entity, ShapeMaterialHandle)>>,
