@@ -34,7 +34,7 @@ const GRADIENT_SIZE: usize = 256;
 /// SWF 资产结构体，包含了 SWF 文件的相关信息。
 #[derive(Asset, TypePath)]
 pub struct Swf {
-    pub shape_mesh_material: HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    pub shape_mesh_materials: HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     pub characters: HashMap<CharacterId, Character>,
     /// 动画名称，以及动画的起始帧和总帧长
     pub animations: HashMap<Box<str>, (FrameNumber, FrameNumber)>,
@@ -82,10 +82,10 @@ impl AssetLoader for SwfLoader {
         let mut mesh_index = 0;
         let mut image_index = 0;
         let mut material_index = 0;
-        let mut shape_mesh_material = HashMap::new();
+        let mut shape_mesh_materials = HashMap::new();
         characters.values_mut().for_each(|v| {
             if let Character::Graphic(graphic) = v {
-                shape_mesh_material.insert(
+                shape_mesh_materials.insert(
                     graphic.id(),
                     load_shape_mesh(
                         load_context,
@@ -127,7 +127,7 @@ impl AssetLoader for SwfLoader {
         }
 
         Ok(Swf {
-            shape_mesh_material,
+            shape_mesh_materials,
             characters,
             animations,
             frame_events,

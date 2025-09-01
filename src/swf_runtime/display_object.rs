@@ -83,11 +83,12 @@ impl ImageCache {
         self.source_height = height;
         self.draw_offset = draw_offset;
 
-        if let Some(current) = self.image.as_mut() {
-            if current.width == width && current.height == height {
-                // 缓存命中，不需要重新渲染
-                return;
-            }
+        if let Some(current) = self.image.as_mut()
+            && current.width == width
+            && current.height == height
+        {
+            // 缓存命中，不需要重新渲染
+            return;
         }
         let acceptable_size = if swf_version > 9 {
             let total = actual_width as u32 * actual_height as u32;
@@ -294,10 +295,10 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         if let Some(color_transform) = &place_object.color_transform {
             self.set_color_transform(*color_transform);
         }
-        if let Some(ratio) = place_object.ratio {
-            if let Some(morph_shape) = self.as_morph_shape() {
-                morph_shape.set_ratio(ratio);
-            }
+        if let Some(ratio) = place_object.ratio
+            && let Some(morph_shape) = self.as_morph_shape()
+        {
+            morph_shape.set_ratio(ratio);
         }
         if let Some(blend_mode) = place_object.blend_mode {
             self.set_blend_mode(blend_mode);
