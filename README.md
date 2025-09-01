@@ -55,7 +55,7 @@ Minimal usage:
 
 ```rust
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
-    commands.spawn((Camera2d, Msaa::Sample8));
+    commands.spawn(Camera2d);
     commands.spawn((
         Name::new("冲霄"),
         Flash(assert_server.load("spirit2159src.swf")),
