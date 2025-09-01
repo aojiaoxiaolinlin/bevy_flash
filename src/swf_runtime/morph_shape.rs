@@ -67,7 +67,7 @@ impl MorphShape {
         let frame = self.get_frame(ratio, context.morph_shape_cache);
         if let Some(shape_mesh_material) = frame.shape_mesh_material.clone() {
             context
-                .shape_mesh_material
+                .shape_mesh_materials
                 .insert(self.id, shape_mesh_material);
         } else {
             let bitmaps = HashMap::new();
@@ -158,7 +158,7 @@ impl MorphShape {
             }
             frame.shape_mesh_material = Some(shape_mesh_material.clone());
             context
-                .shape_mesh_material
+                .shape_mesh_materials
                 .insert(self.id, shape_mesh_material);
         }
     }

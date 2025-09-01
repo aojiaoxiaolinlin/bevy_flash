@@ -107,27 +107,31 @@ pub struct ImageCacheEntity {
 }
 
 pub struct RenderContext<'a> {
+    // 系统资源
     meshes: &'a mut Assets<Mesh>,
     images: &'a mut Assets<Image>,
     gradients: &'a mut Assets<GradientMaterial>,
     bitmaps: &'a mut Assets<BitmapMaterial>,
 
+    // 渲染需要的数据
     transform_stack: &'a mut TransformStack,
     scale: Vec3,
     cache_draw: &'a mut Vec<ImageCacheEntity>,
     commands: Vec<ShapeCommand>,
-    shape_mesh_material: &'a mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shape_mesh_materials: &'a mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
 
+    // 纹理缓存
     morph_shape_cache: &'a mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
 }
 
 impl<'a> RenderContext<'a> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         transform_stack: &'a mut TransformStack,
         scale: Vec3,
         cache_draw: &'a mut Vec<ImageCacheEntity>,
         commands: Vec<ShapeCommand>,
-        shape_mesh_material: &'a mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+        shape_mesh_materials: &'a mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
         meshes: &'a mut Assets<Mesh>,
         images: &'a mut Assets<Image>,
         gradients: &'a mut Assets<GradientMaterial>,
@@ -139,7 +143,7 @@ impl<'a> RenderContext<'a> {
             scale,
             cache_draw,
             commands,
-            shape_mesh_material,
+            shape_mesh_materials,
             meshes,
             images,
             gradients,
@@ -178,7 +182,7 @@ pub struct ShapeMesh;
 #[derive(Event, Clone, Deref)]
 pub struct FlashCompleteEvent {
     /// 当前播放的动画名
-    pub animation_name: Option<Box<str>>,
+    pub animation_name: Option<String>,
 }
 
 /// 为 Flash 动画添加帧事件
@@ -198,17 +202,16 @@ fn prepare_root_clip(
     mut asset_event: EventReader<AssetEvent<Swf>>,
 ) {
     for event in asset_event.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = event {
-            if let Some((entity, mut player, _)) =
+        if let AssetEvent::LoadedWithDependencies { id } = event
+            && let Some((entity, mut player, _)) =
                 player.iter_mut().find(|(_, _, flash)| flash.id() == *id)
-            {
-                let Some(swf) = swf_res.get(*id) else {
-                    continue;
-                };
-                let mut root = MovieClip::new(swf.swf_movie.clone());
-                player.play_target_animation(swf, &mut root);
-                commands.entity(entity).insert(root);
-            }
+        {
+            let Some(swf) = swf_res.get(*id) else {
+                continue;
+            };
+            let mut root = MovieClip::new(swf.swf_movie.clone());
+            player.play_target_animation(swf, &mut root);
+            commands.entity(entity).insert(root);
         }
     }
 }
@@ -229,7 +232,7 @@ fn advance_animation(
         &GlobalTransform,
         Option<&Children>,
     )>,
-    mut shape_mesh: Query<&mut Transform, With<ShapeMesh>>,
+    mut shape_meshes: Query<&mut Transform, With<ShapeMesh>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut color_materials: ResMut<Assets<ColorMaterial>>,
@@ -252,7 +255,6 @@ fn advance_animation(
                     });
                     player.set_completed(true);
                 }
-
                 continue;
             }
 
@@ -285,7 +287,7 @@ fn advance_animation(
                 global_transform.scale(),
                 &mut cache_draw,
                 Vec::new(),
-                &mut swf.shape_mesh_material,
+                &mut swf.shape_mesh_materials,
                 meshes.as_mut(),
                 images.as_mut(),
                 gradient_materials.as_mut(),
@@ -309,11 +311,11 @@ fn advance_animation(
                 color_materials.as_mut(),
                 gradient_materials.as_mut(),
                 bitmap_materials.as_mut(),
-                &mut shape_mesh,
+                &mut shape_meshes,
                 shape_material_cache,
                 cache_draw,
                 shape_commands,
-                &swf.shape_mesh_material,
+                &swf.shape_mesh_materials,
                 &mut current_live_shape_entity,
             );
             if let Some(children) = children {
@@ -449,7 +451,7 @@ fn process_display_list(
                     context.scale,
                     context.cache_draw,
                     Vec::new(),
-                    context.shape_mesh_material,
+                    context.shape_mesh_materials,
                     context.meshes,
                     context.images,
                     context.gradients,
@@ -527,11 +529,11 @@ fn spawn_or_update_shape(
     color_materials: &mut Assets<ColorMaterial>,
     gradient_materials: &mut Assets<GradientMaterial>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
-    shape_mesh: &mut Query<&mut Transform, With<ShapeMesh>>,
+    shape_meshes: &mut Query<&mut Transform, With<ShapeMesh>>,
     shape_material_cache: &mut HashMap<String, Vec<(Entity, ShapeMaterialHandle)>>,
     cache_draw: Vec<ImageCacheEntity>,
     shape_commands: Vec<ShapeCommand>,
-    shape_meshes: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     current_live_shape_entity: &mut Vec<Entity>,
 ) {
     // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
@@ -562,10 +564,10 @@ fn spawn_or_update_shape(
                 shape_depth_layer,
                 blend_mode,
             } => {
-                let Some(shape_meshes) = shape_meshes.get(id) else {
+                let Some(shape_mesh_materials) = shape_mesh_materials.get(id) else {
                     continue;
                 };
-                if let Some(shape_material_handles_cache) = find_cached_shape_material_handles(
+                if let Some(shape_material_handle_cache) = find_cached_shape_material_handles(
                     id,
                     shape_depth_layer,
                     shape_material_cache,
@@ -574,10 +576,10 @@ fn spawn_or_update_shape(
                 // if let Some(shape_material_handles_cache) =
                 //     shape_material_cache.get(shape_depth_layer)
                 {
-                    for (index, (entity, handle)) in shape_material_handles_cache.iter().enumerate()
+                    for (index, (entity, handle)) in shape_material_handle_cache.iter().enumerate()
                     {
                         z_index += index as f32 * 0.001;
-                        let Ok(mut transform) = shape_mesh.get_mut(*entity) else {
+                        let Ok(mut transform) = shape_meshes.get_mut(*entity) else {
                             continue;
                         };
                         transform.translation.z = z_index;
@@ -607,91 +609,59 @@ fn spawn_or_update_shape(
                     continue;
                 }
                 // 该Shape没有生成过，需要生成
-                let shape_material_handles_cache = shape_material_cache
+                let shape_material_handle_cache = shape_material_cache
                     .entry(shape_depth_layer.to_owned())
                     .or_default();
-                for (material_type, mesh) in shape_meshes {
+                for (material_type, mesh) in shape_mesh_materials {
                     let mesh = mesh.clone();
                     match material_type {
                         ShapeMaterialType::Color(color) => {
-                            // let Some(material) = color_materials.get_mut(color.id()) else {
-                            //     continue;
-                            // };
-                            // material.transform = (*transform).into();
-
-                            let mut color_material = *color;
-                            color_material.update_swf_material((*swf_transform).into());
-                            color_material.set_blend_key((*blend_mode).into());
-                            let color = color_materials.add(color_material);
-
-                            commands.with_children(|parent| {
-                                let entity = parent
-                                    .spawn((
-                                        Mesh2d(mesh),
-                                        MeshMaterial2d(color.clone()),
-                                        Transform::from_translation(Vec3::Z * z_index),
-                                        ShapeMesh,
-                                        // 由于Flash顶点特殊性不应用剔除
-                                        NoFrustumCulling,
-                                    ))
-                                    .id();
-
-                                shape_material_handles_cache
-                                    .push((entity, ShapeMaterialHandle::Color(color.clone())));
-                                current_live_shape_entity.push(entity);
-                            });
+                            let handle = spawn_shape_mesh(
+                                &mut commands,
+                                color_materials,
+                                mesh,
+                                *color,
+                                swf_transform,
+                                blend_mode,
+                                z_index,
+                                current_live_shape_entity,
+                            );
+                            shape_material_handle_cache.push((
+                                *current_live_shape_entity.last().unwrap(),
+                                ShapeMaterialHandle::Color(handle),
+                            ));
                         }
                         ShapeMaterialType::Gradient(gradient) => {
-                            // let Some(material) = gradient_materials.get_mut(gradient.id()) else {
-                            //     continue;
-                            // };
-                            // material.transform = (*transform).into();
-                            let mut gradient_material = gradient.clone();
-                            gradient_material.update_swf_material((*swf_transform).into());
-                            gradient_material.set_blend_key((*blend_mode).into());
-                            let gradient = gradient_materials.add(gradient_material);
-                            commands.with_children(|parent| {
-                                let entity = parent
-                                    .spawn((
-                                        Mesh2d(mesh),
-                                        MeshMaterial2d(gradient.clone()),
-                                        Transform::from_translation(Vec3::Z * z_index),
-                                        ShapeMesh,
-                                        // 由于Flash顶点特殊性不应用剔除
-                                        NoFrustumCulling,
-                                    ))
-                                    .id();
-                                shape_material_handles_cache.push((
-                                    entity,
-                                    ShapeMaterialHandle::Gradient(gradient.clone()),
-                                ));
-                                current_live_shape_entity.push(entity);
-                            });
+                            let handle = spawn_shape_mesh(
+                                &mut commands,
+                                gradient_materials,
+                                mesh,
+                                gradient.clone(),
+                                swf_transform,
+                                blend_mode,
+                                z_index,
+                                current_live_shape_entity,
+                            );
+                            shape_material_handle_cache.push((
+                                *current_live_shape_entity.last().unwrap(),
+                                ShapeMaterialHandle::Gradient(handle),
+                            ));
                         }
                         ShapeMaterialType::Bitmap(bitmap) => {
-                            // let Some(material) = bitmap_materials.get_mut(bitmap.id()) else {
-                            //     continue;
-                            // };
-                            // material.transform = (*transform).into();
-                            let mut bitmap_material = bitmap.clone();
-                            bitmap_material.update_swf_material((*swf_transform).into());
-                            bitmap_material.set_blend_key((*blend_mode).into());
-                            let bitmap = bitmap_materials.add(bitmap_material);
-                            commands.with_children(|parent| {
-                                let entity = parent
-                                    .spawn((
-                                        Mesh2d(mesh),
-                                        MeshMaterial2d(bitmap.clone()),
-                                        Transform::from_translation(Vec3::Z * z_index),
-                                        ShapeMesh,
-                                        // 由于Flash顶点特殊性不应用剔除
-                                        NoFrustumCulling,
-                                    ))
-                                    .id();
-                                shape_material_handles_cache
-                                    .push((entity, ShapeMaterialHandle::Bitmap(bitmap.clone())));
-                                current_live_shape_entity.push(entity);
-                            });
+                            let handle = spawn_shape_mesh(
+                                &mut commands,
+                                bitmap_materials,
+                                mesh,
+                                bitmap.clone(),
+                                swf_transform,
+                                blend_mode,
+                                z_index,
+                                current_live_shape_entity,
+                            );
+                            shape_material_handle_cache.push((
+                                *current_live_shape_entity.last().unwrap(),
+                                ShapeMaterialHandle::Bitmap(handle),
+                            ));
                         }
                     }
                 }
@@ -705,6 +675,44 @@ fn spawn_or_update_shape(
     }
 }
 
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn spawn_shape_mesh<T: SwfMaterial>(
+    commands: &mut EntityCommands,
+    materials: &mut Assets<T>,
+    mesh: Handle<Mesh>,
+    material: T,
+    swf_transform: &SwfTransform,
+    blend_mode: &BlendMode,
+    z_index: f32,
+    current_live_shape_entity: &mut Vec<Entity>,
+) -> Handle<T> {
+    // let Some(material) = bitmap_materials.get_mut(bitmap.id()) else {
+    //     continue;
+    // };
+    // material.transform = (*transform).into();
+
+    let mut material = material;
+    material.update_swf_material((*swf_transform).into());
+    material.set_blend_key((*blend_mode).into());
+    let handle = materials.add(material);
+    commands.with_children(|parent| {
+        let entity = parent
+            .spawn((
+                Mesh2d(mesh),
+                MeshMaterial2d(handle.clone()),
+                Transform::from_translation(Vec3::Z * z_index),
+                ShapeMesh,
+                // 由于Flash顶点特殊性不应用剔除
+                NoFrustumCulling,
+            ))
+            .id();
+        current_live_shape_entity.push(entity);
+    });
+    handle
+}
+
+#[inline]
 fn update_material<T: SwfMaterial>(
     handle: &Handle<T>,
     swf_materials: &mut Assets<T>,

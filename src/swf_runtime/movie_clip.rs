@@ -681,29 +681,27 @@ impl<'a> GotoPlaceObject<'a> {
         is_rewind: bool,
         index: usize,
     ) -> Self {
-        if is_rewind {
-            if let swf::PlaceObjectAction::Place(_) = place_object.action {
-                if place_object.matrix.is_none() {
-                    place_object.matrix = Some(Default::default());
-                }
-                if place_object.color_transform.is_none() {
-                    place_object.color_transform = Some(Default::default());
-                }
-                if place_object.ratio.is_none() {
-                    place_object.ratio = Some(Default::default());
-                }
-                if place_object.blend_mode.is_none() {
-                    place_object.blend_mode = Some(Default::default());
-                }
-                if place_object.is_bitmap_cached.is_none() {
-                    place_object.is_bitmap_cached = Some(Default::default());
-                }
-                if place_object.background_color.is_none() {
-                    place_object.background_color = Some(Color::from_rgba(0));
-                }
-                if place_object.filters.is_none() {
-                    place_object.filters = Some(Default::default());
-                }
+        if is_rewind && let swf::PlaceObjectAction::Place(_) = place_object.action {
+            if place_object.matrix.is_none() {
+                place_object.matrix = Some(Default::default());
+            }
+            if place_object.color_transform.is_none() {
+                place_object.color_transform = Some(Default::default());
+            }
+            if place_object.ratio.is_none() {
+                place_object.ratio = Some(Default::default());
+            }
+            if place_object.blend_mode.is_none() {
+                place_object.blend_mode = Some(Default::default());
+            }
+            if place_object.is_bitmap_cached.is_none() {
+                place_object.is_bitmap_cached = Some(Default::default());
+            }
+            if place_object.background_color.is_none() {
+                place_object.background_color = Some(Color::from_rgba(0));
+            }
+            if place_object.filters.is_none() {
+                place_object.filters = Some(Default::default());
             }
         }
         Self {
