@@ -1,3 +1,9 @@
+pub mod assets;
+mod commands;
+pub mod player;
+mod render;
+pub mod swf_runtime;
+
 use std::collections::btree_map::ValuesMut;
 
 use crate::assets::{ShapeMaterialType, Swf, SwfLoader};
@@ -37,12 +43,6 @@ use bevy::time::{Time, Timer, TimerMode};
 use bevy::transform::components::{GlobalTransform, Transform};
 use bevy::{app::Plugin, asset::AssetApp};
 use swf::{CharacterId, Rectangle, Twips};
-
-pub mod assets;
-mod commands;
-pub mod player;
-mod render;
-pub mod swf_runtime;
 
 type BitmapMaterialCache = EntityHashMap<HashMap<CharacterId, Handle<BitmapMaterial>>>;
 type MorphShapeFrameCache = EntityHashMap<HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>>;

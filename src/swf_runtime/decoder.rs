@@ -1,11 +1,11 @@
+pub(crate) mod bt601;
+pub(crate) mod error;
+
 use bevy::prelude::{error, warn};
 use bt601::yuv420_to_rgba;
 use error::Error;
 use std::{borrow::Cow, io::Read};
 use swf::Color;
-
-pub(crate) mod bt601;
-pub(crate) mod error;
 
 /// Decoded bitmap data from an SWF tag.
 #[derive(Clone, Debug)]

@@ -1,3 +1,9 @@
+pub(crate) mod blend_pipeline;
+mod graph;
+mod intermediate_texture;
+pub(crate) mod material;
+mod pipeline;
+
 use std::default;
 
 use bevy::asset::{RenderAssetUsages, weak_handle};
@@ -34,12 +40,6 @@ use pipeline::IntermediateTexturePipeline;
 use swf::{CharacterId, Rectangle as SwfRectangle, Twips};
 
 use crate::swf_runtime::filter::Filter;
-
-pub(crate) mod blend_pipeline;
-mod graph;
-mod intermediate_texture;
-pub(crate) mod material;
-mod pipeline;
 
 pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("8c2a5b0f-3e6d-4f8a-b217-84d2f5e1c9b3");
