@@ -103,7 +103,7 @@ impl FlashPlayer {
                     self.set_total_frames(*total_frames);
                 }
                 None => {
-                    error!("animation {} not found", name);
+                    error!("Animation '{}' not found", name);
                 }
             }
         } else {
