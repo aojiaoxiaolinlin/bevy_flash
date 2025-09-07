@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::image::Image;
-use bevy::log::warn_once;
-use bevy::math::IVec2;
+use bevy::log::{info, warn_once};
+use bevy::math::{IVec2, UVec2};
 use bevy::platform::collections::HashMap;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use swf::{BlendMode, CharacterId, ColorTransform, Depth, Rectangle, Twips};
@@ -28,6 +28,20 @@ pub struct ImageCacheInfo {
     height: u16,
     handle: Handle<Image>,
 }
+impl ImageCacheInfo {
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+    pub fn handle(&self) -> Handle<Image> {
+        self.handle.clone()
+    }
+    pub fn size(&self) -> UVec2 {
+        UVec2::new(self.width as u32, self.height as u32)
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct ImageCache {
@@ -50,17 +64,20 @@ pub struct ImageCache {
 
     /// 用于绘制最终位图的偏移量（即如果滤镜增加了位图大小的情况下）。
     draw_offset: IVec2,
+
+    dirty: bool,
 }
 
 impl ImageCache {
-    pub fn is_dirty(&self, other: &Matrix, source_width: u16, source_height: u16) -> bool {
-        self.matrix_a != other.a
+    pub fn is_dirty(&mut self, other: &Matrix, source_width: u16, source_height: u16) -> bool {
+        self.dirty = self.matrix_a != other.a
             || self.matrix_b != other.b
             || self.matrix_c != other.c
             || self.matrix_d != other.d
             || self.source_width != source_width
             || self.source_height != source_height
-            || self.image.is_none()
+            || self.image.is_none();
+        self.dirty
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -70,8 +87,8 @@ impl ImageCache {
         matrix: &Matrix,
         width: u16,
         height: u16,
-        actual_width: u64,
-        actual_height: u64,
+        actual_width: u16,
+        actual_height: u16,
         swf_version: u8,
         draw_offset: IVec2,
     ) {
@@ -112,8 +129,8 @@ impl ImageCache {
                 | TextureUsages::COPY_DST
                 | TextureUsages::RENDER_ATTACHMENT;
             self.image = Some(ImageCacheInfo {
-                width,
-                height,
+                width: actual_width,
+                height: actual_height,
                 handle: images.add(image),
             })
         } else {
@@ -127,8 +144,15 @@ impl ImageCache {
         self.image = None;
     }
 
-    pub fn handle(&self) -> Option<Handle<Image>> {
-        self.image.as_ref().map(|i| i.handle.clone())
+    pub fn image_info(&self) -> Option<ImageCacheInfo> {
+        self.image.as_ref().map(|i| i.clone())
+    }
+
+    pub fn size(&self) -> UVec2 {
+        self.image
+            .as_ref()
+            .map(|i| UVec2::new(i.width as u32, i.height as u32))
+            .unwrap_or_default()
     }
 }
 
@@ -140,7 +164,6 @@ pub struct DisplayObjectBase {
     transform: Transform,
     filters: Vec<Filter>,
     blend_mode: BlendMode,
-    cache: Option<ImageCache>,
 }
 impl DisplayObjectBase {
     fn set_matrix(&mut self, matrix: Matrix) {
@@ -158,21 +181,16 @@ impl DisplayObjectBase {
     fn set_filters(&mut self, filters: Vec<Filter>) -> bool {
         if filters != self.filters {
             self.filters = filters;
-            self.recheck_cache();
             true
         } else {
             false
         }
     }
 
-    fn recheck_cache(&mut self) {
-        if !self.filters.is_empty() && self.cache.is_none() {
-            self.cache = Some(ImageCache::default());
+    fn recheck_cache(&self, id: CharacterId, image_caches: &mut HashMap<CharacterId, ImageCache>) {
+        if !self.filters.is_empty() && image_caches.get(&id).is_none() {
+            image_caches.insert(id, ImageCache::default());
         }
-    }
-
-    pub fn cache_mut(&mut self) -> Option<&mut ImageCache> {
-        self.cache.as_mut()
     }
 
     fn set_name(&mut self, name: Option<Box<str>>) {
@@ -218,6 +236,10 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
 
     fn set_filters(&mut self, filters: Vec<Filter>) {
         self.base_mut().set_filters(filters);
+    }
+
+    fn recheck_cache(&self, id: CharacterId, image_caches: &mut HashMap<CharacterId, ImageCache>) {
+        self.base().recheck_cache(id, image_caches);
     }
 
     fn set_name(&mut self, name: Option<Box<str>>) {

@@ -1,39 +1,35 @@
-use crate::render::FlashFilters;
-use crate::render::intermediate_texture::ExtractedIntermediateTexture;
+use crate::render::offscreen_texture::{ExtractedOffscreenTexture, ViewTarget};
 use crate::render::pipeline::{
-    BevelFilterPipeline, BlurFilterPipeline, ColorMatrixFilterPipeline, GlowFilterPipeline,
+    BevelFilterPipeline, BevelUniform, BlurFilterPipeline, BlurUniform, ColorMatrixFilterPipeline,
+    ColorMatrixUniform, FilterVertexWithDoubleBlur, GlowFilterPipeline, GlowFilterUniform,
 };
-use crate::swf_runtime::filter::Filter::{BevelFilter, BlurFilter, ColorMatrixFilter, GlowFilter};
+use crate::swf_runtime::filter::Filter::{
+    BevelFilter, BlurFilter, ColorMatrixFilter, ConvolutionFilter, DropShadowFilter, GlowFilter,
+    GradientBevelFilter, GradientGlowFilter,
+};
+use bevy::log::info_once;
 use bevy::math::UVec2;
+use bevy::render::render_graph::ViewNode;
 use bevy::render::render_phase::TrackedRenderPass;
 use bevy::render::render_resource::{
     BindGroupEntries, BufferInitDescriptor, BufferUsages, IndexFormat, Operations, PipelineCache,
-    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderType,
-    TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension, TextureUsages,
-    TextureView, TextureViewDescriptor,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, TexelCopyTextureInfo,
+    TextureAspect, TextureDescriptor, TextureDimension, TextureUsages, TextureView,
+    TextureViewDescriptor,
 };
 use bevy::render::renderer::RenderContext;
-use bevy::render::{render_graph::ViewNode, view::ViewTarget};
-use bytemuck::{Pod, Zeroable};
 
 #[derive(Default)]
-pub struct FlashFilterNode;
+pub struct FilterPostProcessingNode;
 
-impl ViewNode for FlashFilterNode {
-    type ViewQuery = (
-        &'static ExtractedIntermediateTexture,
-        &'static FlashFilters,
-        &'static ViewTarget,
-    );
+impl ViewNode for FilterPostProcessingNode {
+    type ViewQuery = (&'static ExtractedOffscreenTexture, &'static ViewTarget);
 
     fn run<'w>(
         &self,
         _graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext<'w>,
-        (intermediate_texture, filters, view_target): bevy::ecs::query::QueryItem<
-            'w,
-            Self::ViewQuery,
-        >,
+        (offscreen_texture, view_target): bevy::ecs::query::QueryItem<'w, Self::ViewQuery>,
         world: &'w bevy::ecs::world::World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let pipeline_cache = world.resource::<PipelineCache>();
@@ -43,7 +39,9 @@ impl ViewNode for FlashFilterNode {
         let bevel_filter_pipeline = world.resource::<BevelFilterPipeline>();
 
         // 以下算法均来自于Ruffle
-        for filter in filters.iter() {
+        let size = offscreen_texture.size;
+        for filter in offscreen_texture.filters.iter() {
+            // TODO: 通过Resource再优化下
             match filter {
                 BlurFilter(blur_filter) => {
                     let Some(pipeline) =
@@ -57,7 +55,7 @@ impl ViewNode for FlashFilterNode {
                         pipeline,
                         blur_filter_pipeline,
                         view_target,
-                        intermediate_texture.filter_size,
+                        size,
                     );
                 }
                 GlowFilter(glow_filter) => {
@@ -78,7 +76,7 @@ impl ViewNode for FlashFilterNode {
                         blur_filter_render_pipeline,
                         blur_filter_pipeline,
                         view_target,
-                        intermediate_texture.filter_size,
+                        size,
                     );
                     let post_process = view_target.post_process_write();
 
@@ -192,7 +190,7 @@ impl ViewNode for FlashFilterNode {
                         blur_filter_render_pipeline,
                         blur_filter_pipeline,
                         view_target,
-                        intermediate_texture.filter_size,
+                        size,
                     );
                     let post_process = view_target.post_process_write();
                     let mut highlight_color = [
@@ -231,8 +229,8 @@ impl ViewNode for FlashFilterNode {
                     let angle = bevel_filter.angle.to_f32();
                     let blur_offset_x = angle.cos() * distance;
                     let blur_offset_y = angle.sin() * distance;
-                    let width = intermediate_texture.filter_size.x as f32;
-                    let height = intermediate_texture.filter_size.y as f32;
+                    let width = size.x as f32;
+                    let height = size.y as f32;
                     let filter_vertex_with_double_blur = vec![
                         FilterVertexWithDoubleBlur {
                             position: [0.0, 0.0],
@@ -319,12 +317,18 @@ impl ViewNode for FlashFilterNode {
                     render_pass.set_index_buffer(indices_buffer.slice(..), 0, IndexFormat::Uint32);
                     render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
                 }
-                // DropShadowFilter(drop_shadow_filter) => todo!(),
-                // ConvolutionFilter(convolution_filter) => todo!(),
-
-                // GradientBevelFilter(gradient_filter) => todo!(),
-                // GradientGlowFilter(gradient_filter) => todo!(),
-                _ => {}
+                DropShadowFilter(..) => {
+                    info_once!("DropShadowFilter 滤镜尚未实现，我需要帮助!!!");
+                }
+                ConvolutionFilter(..) => {
+                    info_once!("ConvolutionFilter 滤镜尚未实现，我需要帮助!!!");
+                }
+                GradientBevelFilter(..) => {
+                    info_once!("GradientBevelFilter 滤镜尚未实现，我需要帮助!!!");
+                }
+                GradientGlowFilter(..) => {
+                    info_once!("GradientGlowFilter 滤镜尚未实现，我需要帮助!!!");
+                }
             }
         }
         Ok(())
@@ -337,10 +341,10 @@ fn apply_blur<'w>(
     pipeline: &RenderPipeline,
     blur_filter_pipeline: &BlurFilterPipeline,
     view_target: &ViewTarget,
-    filter_size: UVec2,
+    size: UVec2,
 ) {
-    let width = filter_size.x as f32;
-    let height = filter_size.y as f32;
+    let width = size.x as f32;
+    let height = size.y as f32;
     for _ in 0..(blur_filter.num_passes() as usize) {
         for i in 0..2 {
             let post_process = view_target.post_process_write();
@@ -466,54 +470,4 @@ fn get_render_pass<'a, 'w>(
         timestamp_writes: None,
         occlusion_query_set: None,
     })
-}
-
-/// 模糊滤镜
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable, PartialEq)]
-pub struct BlurUniform {
-    direction: [f32; 2],
-    full_size: f32,
-    m: f32,
-    m2: f32,
-    first_weight: f32,
-    last_offset: f32,
-    last_weight: f32,
-}
-
-/// 颜色矩阵滤镜
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable, PartialEq)]
-pub struct ColorMatrixUniform {
-    pub matrix: [f32; 20],
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable, PartialEq)]
-pub struct GlowFilterUniform {
-    color: [f32; 4],
-    strength: f32,
-    inner: u32,            // a wasteful bool, but we need to be aligned anyway
-    knockout: u32,         // a wasteful bool, but we need to be aligned anyway
-    composite_source: u32, // undocumented flash feature, another bool
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, ShaderType, Pod, Zeroable, PartialEq)]
-pub struct BevelUniform {
-    highlight_color: [f32; 4],
-    shadow_color: [f32; 4],
-    strength: f32,
-    bevel_type: u32,       // 0 outer, 1 inner, 2 full
-    knockout: u32,         // a wasteful bool, but we need to be aligned anyway
-    composite_source: u32, // undocumented flash feature, another bool
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, ShaderType, Pod, Zeroable, PartialEq)]
-pub struct FilterVertexWithDoubleBlur {
-    position: [f32; 2],
-    source_uv: [f32; 2],
-    blur_uv_left: [f32; 2],
-    blur_uv_right: [f32; 2],
 }

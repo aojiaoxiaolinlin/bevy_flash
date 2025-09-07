@@ -1,37 +1,45 @@
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
+#import bevy_flash::common::{MaterialTransform}
+
 struct Gradient {
     focal_point: f32,
     interpolation: i32,
     shape: i32,
     repeat: i32,
 };
-struct VertexInput {
+struct Vertex {
     @location(0) position: vec3<f32>,
 }
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
 
 struct TextureTransforms {
     texture_matrix: mat4x4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> view_matrix: mat4x4<f32>;
-@group(0) @binding(1) var<uniform> world_matrix: mat4x4<f32>;
 
 @group(1) @binding(0) var texture: texture_2d<f32>;
 @group(1) @binding(1) var texture_sampler: sampler;
-@group(1) @binding(2) var<uniform> texture_transforms: TextureTransforms;
-@group(1) @binding(3) var<uniform> gradient: Gradient;
+@group(1) @binding(2) var<uniform> gradient: Gradient;
+@group(1) @binding(3) var<uniform> texture_transforms: TextureTransforms;
+@group(1) @binding(4) var<uniform> material_transform: MaterialTransform;
+
+
 
 
 
 @vertex
-fn vertex(in: VertexInput) -> VertexOutput {
+fn vertex(vertex: Vertex) -> VertexOutput {
+    var out: VertexOutput;
     let matrix_ = texture_transforms.texture_matrix;
-    let uv = (mat3x3<f32>(matrix_[0].xyz, matrix_[1].xyz, matrix_[2].xyz) * vec3<f32>(in.position)).xy;
-    let pos = view_matrix * world_matrix * vec4<f32>(in.position.x, in.position.y, 0.0, 1.0);
-    return VertexOutput(pos, uv);
+    out.uv = (mat3x3<f32>(matrix_[0].xyz, matrix_[1].xyz, matrix_[2].xyz) * vertex.position).xy;
+    out.position = view_matrix * material_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
+    out.position.x = out.position.x - out.position.w;
+    out.position.y = out.position.y + out.position.w;
+    return out;
 }
 
 fn find_t(uv: vec2<f32>) -> f32 {
@@ -79,7 +87,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if gradient.interpolation != 0 {
         color = common__linear_to_srgb(color);
     }
-    return color;
+    let out = saturate(color * material_transform.mult_color + material_transform.add_color);
+    let alpha = saturate(out.a);
+    return vec4<f32>(out.rgb * alpha, alpha);
 }
 
 /// Converts a color from linear to sRGB color space.

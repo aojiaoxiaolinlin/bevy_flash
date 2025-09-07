@@ -606,6 +606,7 @@ dependencies = [
  "jpeg-decoder",
  "lyon_tessellation",
  "png",
+ "radsort",
  "smallvec",
  "swf",
  "thiserror 1.0.69",

@@ -1,18 +1,32 @@
 use bevy::{
     asset::{Asset, Handle},
+    ecs::system::lifetimeless::SRes,
     math::{Mat4, Vec3, Vec4},
     prelude::Image,
     reflect::TypePath,
-    render::render_resource::{
-        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, ShaderType,
+    render::{
+        render_asset::{PrepareAssetError, RenderAsset},
+        render_phase::{DrawFunctions, SetItemPipeline},
+        render_resource::{
+            AsBindGroup, BindGroup, BindingResources, BlendComponent, BlendFactor, BlendOperation,
+            BlendState, ShaderType,
+        },
+        renderer::RenderDevice,
     },
-    sprite::{AlphaMode2d, Material2d},
+    sprite::{
+        AlphaMode2d, DrawMesh2d, Material2d, Material2dBindGroupId, Material2dPipeline,
+        Material2dProperties, Mesh2dPipelineKey, SetMaterial2dBindGroup, SetMesh2dBindGroup,
+        SetMesh2dViewBindGroup, alpha_mode_pipeline_key,
+    },
 };
 use bytemuck::{Pod, Zeroable};
 
 use swf::GradientSpread;
 
-use crate::swf_runtime::{shape_utils::GradientType, tessellator::Gradient, transform::Transform};
+use crate::{
+    render::sort_item::OffscreenTransparent2d,
+    swf_runtime::{shape_utils::GradientType, tessellator::Gradient, transform::Transform},
+};
 
 use super::{
     BITMAP_MATERIAL_SHADER_HANDLE, GRADIENT_MATERIAL_SHADER_HANDLE,
@@ -167,11 +181,11 @@ macro_rules! material2d {
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 #[bind_group_data(BlendMaterialKey)]
 pub struct GradientMaterial {
-    #[uniform(0)]
-    pub gradient: GradientUniforms,
-    #[texture(1)]
-    #[sampler(2)]
+    #[texture(0)]
+    #[sampler(1)]
     pub texture: Handle<Image>,
+    #[uniform(2)]
+    pub gradient: GradientUniforms,
     #[uniform(3)]
     pub texture_transform: Mat4,
     #[uniform(4)]
@@ -271,6 +285,83 @@ impl From<Transform> for MaterialTransform {
             ]),
             mult_color: Vec4::from_array(color_transform.mult_rgba_normalized()),
             add_color: Vec4::from_array(color_transform.add_rgba_normalized()),
+        }
+    }
+}
+
+// 以是offscreen渲染的material
+
+// 以下是offscreen渲染一些自定义尝试，当前未使用。
+pub(super) type OffscreenDrawMaterial2d<M> = (
+    SetItemPipeline,
+    SetMesh2dBindGroup<1>,
+    SetMaterial2dBindGroup<M, 2>,
+    DrawMesh2d,
+);
+
+pub struct PreparedOffscreenMaterial2d<T: Material2d> {
+    pub bindings: BindingResources,
+    pub bind_group: BindGroup,
+    pub key: T::Data,
+    pub properties: Material2dProperties,
+}
+
+impl<T: Material2d> PreparedOffscreenMaterial2d<T> {
+    pub fn get_bind_group_id(&self) -> Material2dBindGroupId {
+        Material2dBindGroupId(Some(self.bind_group.id()))
+    }
+}
+
+impl<M: Material2d> RenderAsset for PreparedOffscreenMaterial2d<M> {
+    type SourceAsset = M;
+
+    type Param = (
+        SRes<RenderDevice>,
+        SRes<Material2dPipeline<M>>,
+        SRes<DrawFunctions<OffscreenTransparent2d>>,
+        M::Param,
+    );
+
+    fn prepare_asset(
+        material: Self::SourceAsset,
+        _: bevy::asset::AssetId<Self::SourceAsset>,
+        (
+            render_device,
+            pipeline,
+            transparent_draw_functions,
+            material_param,
+        ): &mut bevy::ecs::system::SystemParamItem<Self::Param>,
+    ) -> Result<Self, bevy::render::render_asset::PrepareAssetError<Self::SourceAsset>> {
+        match material.as_bind_group(&pipeline.material2d_layout, render_device, material_param) {
+            Ok(prepared) => {
+                let mut mesh_pipeline_key_bits = Mesh2dPipelineKey::empty();
+                mesh_pipeline_key_bits.insert(alpha_mode_pipeline_key(material.alpha_mode()));
+
+                let draw_function_id = match material.alpha_mode() {
+                    AlphaMode2d::Blend => transparent_draw_functions
+                        .read()
+                        .id::<OffscreenDrawMaterial2d<M>>(),
+                    _ => {
+                        return Err(PrepareAssetError::AsBindGroupError(
+                            bevy::render::render_resource::AsBindGroupError::CreateBindGroupDirectly,
+                        ));
+                    }
+                };
+
+                Ok(PreparedOffscreenMaterial2d {
+                    bindings: prepared.bindings,
+                    bind_group: prepared.bind_group,
+                    key: prepared.data,
+                    properties: Material2dProperties {
+                        depth_bias: material.depth_bias(),
+                        alpha_mode: material.alpha_mode(),
+                        mesh_pipeline_key_bits,
+                        draw_function_id,
+                    },
+                })
+            }
+
+            Err(other) => Err(PrepareAssetError::AsBindGroupError(other)),
         }
     }
 }

@@ -1,28 +1,28 @@
 use bevy::{
-    ecs::{entity::Entity, query::QueryState, world::World},
+    ecs::{query::QueryState, world::World},
     render::render_graph::{Node, RenderLabel},
 };
 
-use crate::render::intermediate_texture::ExtractedIntermediateTexture;
+use crate::render::{ExtractedOffscreenTexture, offscreen_texture::SortedOffscreenTextures};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-pub struct SingleTextureMultiPassPostProcessingDriverLabel;
+pub struct OffscreenTextureMultiPassPostProcessingDriverLabel;
 
-pub struct SingleTextureMultiPassPostProcessingDriverNode {
-    intermediate_textures: QueryState<(Entity, &'static ExtractedIntermediateTexture)>,
+pub struct OffscreenTextureMultiPassPostProcessingDriverNode {
+    offscreen_textures: QueryState<&'static ExtractedOffscreenTexture>,
 }
 
-impl SingleTextureMultiPassPostProcessingDriverNode {
+impl OffscreenTextureMultiPassPostProcessingDriverNode {
     pub fn new(world: &mut World) -> Self {
         Self {
-            intermediate_textures: world.query(),
+            offscreen_textures: world.query(),
         }
     }
 }
 
-impl Node for SingleTextureMultiPassPostProcessingDriverNode {
+impl Node for OffscreenTextureMultiPassPostProcessingDriverNode {
     fn update(&mut self, world: &mut World) {
-        self.intermediate_textures.update_archetypes(world);
+        self.offscreen_textures.update_archetypes(world);
     }
 
     fn run<'w>(
@@ -31,8 +31,20 @@ impl Node for SingleTextureMultiPassPostProcessingDriverNode {
         _render_context: &mut bevy::render::renderer::RenderContext<'w>,
         world: &'w bevy::ecs::world::World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
-        for (entity, intermediate_texture) in self.intermediate_textures.iter_manual(world) {
-            graph.run_sub_graph(intermediate_texture.render_graph, vec![], Some(entity))?;
+        let sorted_offscreen_textures = world.resource::<SortedOffscreenTextures>();
+
+        for sorted_offscreen_texture in &sorted_offscreen_textures.0 {
+            let Ok(offscreen_texture) = self
+                .offscreen_textures
+                .get_manual(world, sorted_offscreen_texture.entity)
+            else {
+                continue;
+            };
+            graph.run_sub_graph(
+                offscreen_texture.render_graph,
+                vec![],
+                Some(sorted_offscreen_texture.entity),
+            )?;
         }
         Ok(())
     }

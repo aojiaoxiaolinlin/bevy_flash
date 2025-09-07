@@ -25,6 +25,7 @@ jpeg-decoder = "0.3.1"
 png = "0.17.16"
 gif = "0.13.1"
 flate2 = "1.1.1"
+radsort = "0.1.1"
 
 [dev-dependencies]
 bevy = { version = "0.16.1", features = ["bevy_dev_tools"] }
