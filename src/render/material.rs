@@ -16,7 +16,7 @@ use bevy::{
     sprite::{
         AlphaMode2d, DrawMesh2d, Material2d, Material2dBindGroupId, Material2dPipeline,
         Material2dProperties, Mesh2dPipelineKey, SetMaterial2dBindGroup, SetMesh2dBindGroup,
-        SetMesh2dViewBindGroup, alpha_mode_pipeline_key,
+        alpha_mode_pipeline_key,
     },
 };
 use bytemuck::{Pod, Zeroable};

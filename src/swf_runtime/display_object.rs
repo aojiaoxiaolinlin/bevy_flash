@@ -139,7 +139,7 @@ impl ImageCache {
     }
 
     pub fn image_info(&self) -> Option<ImageCacheInfo> {
-        self.image.as_ref().map(|i| i.clone())
+        self.image.clone()
     }
 }
 

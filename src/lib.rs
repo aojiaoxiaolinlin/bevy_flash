@@ -65,7 +65,7 @@ impl Plugin for FlashPlugin {
         app.add_plugins(FlashRenderPlugin)
             .init_asset::<Swf>()
             .init_asset_loader::<SwfLoader>()
-            .init_resource::<BitmapMesh>()
+            .init_resource::<FilterTextureMesh>()
             .init_resource::<FlashPlayerTimer>()
             .add_systems(Update, prepare_root_clip)
             .add_systems(PostUpdate, advance_animation);
@@ -85,9 +85,10 @@ impl Default for FlashPlayerTimer {
 
 /// 用于滤镜纹理渲染的Mesh，一个固定的矩形
 #[derive(Resource, Debug, Clone, Deref, DerefMut)]
-pub struct BitmapMesh(Handle<Mesh>);
+/// 用于滤镜纹理渲染的固定矩形网格
+pub struct FilterTextureMesh(Handle<Mesh>);
 
-impl FromWorld for BitmapMesh {
+impl FromWorld for FilterTextureMesh {
     fn from_world(world: &mut bevy::ecs::world::World) -> Self {
         let mut meshes = world.resource_mut::<Assets<Mesh>>();
         let mesh = Mesh::new(
@@ -141,6 +142,12 @@ pub struct RenderContext<'a> {
     /// Image 缓存
     image_caches: &'a mut HashMap<CharacterId, ImageCache>,
 }
+
+type ShapeMaterialAssets<'a> = (
+    &'a mut Assets<ColorMaterial>,
+    &'a mut Assets<GradientMaterial>,
+    &'a mut Assets<BitmapMaterial>,
+);
 
 impl<'a> RenderContext<'a> {
     #[allow(clippy::too_many_arguments)]
@@ -234,7 +241,7 @@ fn prepare_root_clip(
 #[allow(clippy::too_many_arguments)]
 fn advance_animation(
     time: Res<Time>,
-    bitmap_mesh_res: Res<BitmapMesh>,
+    filter_texture_mesh: Res<FilterTextureMesh>,
     mut swf_res: ResMut<Assets<Swf>>,
     mut commands: Commands,
     mut timer: ResMut<FlashPlayerTimer>,
@@ -301,9 +308,9 @@ fn advance_animation(
 
             let global_scale = global_transform.scale();
 
-            let entity_cache = display_object_entity_caches.entry(entity).or_default();
-            let morph_shape_cache = &mut entity_cache.morph_shape_frame_cache;
-            let image_cache = &mut entity_cache.image_cache;
+            let display_object_cache = display_object_entity_caches.entry(entity).or_default();
+            let morph_shape_cache: &mut _ = &mut display_object_cache.morph_shape_frame_cache;
+            let image_cache = &mut display_object_cache.image_cache;
 
             // 处理DisplayList
             let mut cache_draws = vec![];
@@ -329,30 +336,24 @@ fn advance_animation(
                 String::from("0"),
             );
 
-            let layer_shape_material_cache = &mut entity_cache.layer_shape_material_cache;
-            let layer_offscreen_shape_draw_cache =
-                &mut entity_cache.layer_offscreen_shape_draw_cache;
-            let layer_offscreen_cache = &mut entity_cache.layer_offscreen_cache;
-
             let shape_commands = context.commands;
             let mut current_live_shape_entity = vec![];
             spawn_or_update_shape(
                 &mut commands,
                 entity,
-                bitmap_mesh_res.as_ref(),
-                color_materials.as_mut(),
-                gradient_materials.as_mut(),
-                bitmap_materials.as_mut(),
+                filter_texture_mesh.as_ref(),
+                (
+                    color_materials.as_mut(),
+                    gradient_materials.as_mut(),
+                    bitmap_materials.as_mut(),
+                ),
                 &mut shape_meshes,
-                layer_shape_material_cache,
-                layer_offscreen_shape_draw_cache,
                 cache_draws,
                 shape_commands,
                 &swf.shape_mesh_materials,
                 &mut current_live_shape_entity,
                 &mut offscreen_textures,
-                layer_offscreen_cache,
-                image_cache,
+                display_object_cache,
                 global_scale,
             );
             if let Some(children) = children {
@@ -535,7 +536,7 @@ fn process_display_list(
             context.commands.push(ShapeCommand::RenderBitmap {
                 bitmap_material,
                 id,
-                shape_depth_layer: shape_depth_layer,
+                shape_depth_layer,
                 size: cache_info.image_info.size().as_vec2(),
             });
         } else {
@@ -579,22 +580,23 @@ fn render_display_object(
 fn spawn_or_update_shape(
     commands: &mut Commands,
     entity: Entity,
-    bitmap_mesh_res: &BitmapMesh,
-    color_materials: &mut Assets<ColorMaterial>,
-    gradient_materials: &mut Assets<GradientMaterial>,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
+    filter_texture_mesh: &FilterTextureMesh,
+    (color_materials, gradient_materials, bitmap_materials): ShapeMaterialAssets<'_>,
     shape_meshes: &mut Query<&mut Transform, Or<(With<ShapeMesh>, With<OffscreenMesh>)>>,
-    layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
     cache_draw: Vec<ImageCacheDraw>,
     shape_commands: Vec<ShapeCommand>,
     shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     current_live_shape_entity: &mut Vec<Entity>,
     offscreen_textures: &mut Query<&mut OffscreenTexture>,
-    layer_offscreen_cache: &mut HashMap<String, Entity>,
-    image_cache: &mut HashMap<CharacterId, ImageCache>,
+    display_object_cache: &mut DisplayObjectCache,
     scale: Vec3,
 ) {
+    let (layer_shape_material_cache, layer_offscreen_shape_draw_cache, layer_offscreen_cache) = (
+        &mut display_object_cache.layer_shape_material_cache,
+        &mut display_object_cache.layer_offscreen_shape_draw_cache,
+        &mut display_object_cache.layer_offscreen_cache,
+    );
+
     // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
     let mut current_live_shape_depth_layers: HashSet<String> = HashSet::new();
     // 1. 处理需要绘制中间纹理的Shape
@@ -605,10 +607,8 @@ fn spawn_or_update_shape(
         if cache_draw.dirty {
             let current_frame_shape_mesh_draws = process_offscreen_draw_commands(
                 &cache_draw.commands,
-                bitmap_mesh_res,
-                color_materials,
-                gradient_materials,
-                bitmap_materials,
+                filter_texture_mesh,
+                (color_materials, gradient_materials, bitmap_materials),
                 shape_mesh_materials,
                 layer_offscreen_shape_draw_cache,
                 &mut current_live_shape_depth_layers,
@@ -769,7 +769,7 @@ fn spawn_or_update_shape(
                         commands.with_children(|parent| {
                             let entity = parent
                                 .spawn((
-                                    Mesh2d(bitmap_mesh_res.0.clone()),
+                                    Mesh2d(filter_texture_mesh.0.clone()),
                                     MeshMaterial2d(bitmap_material_handle.clone()),
                                     Transform::from_translation(Vec3::Z * z_index),
                                     ShapeMesh,
@@ -950,7 +950,7 @@ fn find_cached_shape_material<'a, T>(
 }
 
 fn record_current_live_layer(
-    shape_commands: &Vec<ShapeCommand>,
+    shape_commands: &[ShapeCommand],
     current_live_shape_depth_layers: &mut HashSet<String>,
 ) {
     shape_commands.iter().for_each(|shape_command| {
@@ -964,11 +964,9 @@ fn record_current_live_layer(
 }
 
 fn process_offscreen_draw_commands(
-    commands: &Vec<ShapeCommand>,
-    bitmap_mesh_res: &BitmapMesh,
-    color_materials: &mut Assets<ColorMaterial>,
-    gradient_materials: &mut Assets<GradientMaterial>,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
+    commands: &[ShapeCommand],
+    filter_texture_mesh: &FilterTextureMesh,
+    (color_materials, gradient_materials, bitmap_materials): ShapeMaterialAssets<'_>,
     shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
     current_live_shape_depth_layers: &mut HashSet<String>,
@@ -1084,7 +1082,7 @@ fn process_offscreen_draw_commands(
                     .or_default();
                 let handle = bitmap_materials.add(bitmap_material.clone());
                 cache.push(ShapeMeshDraw {
-                    mesh: bitmap_mesh_res.0.clone(),
+                    mesh: filter_texture_mesh.0.clone(),
                     material_type: MaterialType::Bitmap(handle.clone()),
                     blend: BlendMaterialKey::NORMAL,
                 });
