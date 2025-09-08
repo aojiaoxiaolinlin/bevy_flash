@@ -33,16 +33,15 @@ use bevy::ecs::event::{Event, EventReader};
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::{Or, With};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, EntityCommands, Local, Query, Res, ResMut};
 use bevy::ecs::world::FromWorld;
 use bevy::image::Image;
-use bevy::log::{error, info, info_once, warn, warn_once};
+use bevy::log::warn_once;
 use bevy::math::{IVec2, Mat4, UVec2, Vec2, Vec3, Vec3Swizzles};
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::{Deref, DerefMut};
 use bevy::render::mesh::{Indices, Mesh, Mesh2d, PrimitiveTopology};
-use bevy::render::view::{NoFrustumCulling, ViewVisibility, Visibility};
+use bevy::render::view::{NoFrustumCulling, Visibility};
 use bevy::sprite::MeshMaterial2d;
 use bevy::time::{Time, Timer, TimerMode};
 use bevy::transform::components::{GlobalTransform, Transform};
@@ -54,9 +53,9 @@ use swf::{CharacterId, Rectangle, Twips};
 struct DisplayObjectCache {
     morph_shape_frame_cache: HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
     layer_shape_material_cache: HashMap<String, Vec<(Entity, MaterialType)>>,
-    layer_offscreen_shape_cache: HashMap<String, Vec<ShapeMeshDraw>>,
+    layer_offscreen_shape_draw_cache: HashMap<String, Vec<ShapeMeshDraw>>,
+    layer_offscreen_cache: HashMap<String, Entity>,
     image_cache: HashMap<CharacterId, ImageCache>,
-    offscreen_cache: HashMap<CharacterId, Entity>,
 }
 /// Flash 插件模块，为 Bevy 引入 Flash 动画。
 pub struct FlashPlugin;
@@ -69,16 +68,7 @@ impl Plugin for FlashPlugin {
             .init_resource::<BitmapMesh>()
             .init_resource::<FlashPlayerTimer>()
             .add_systems(Update, prepare_root_clip)
-            .add_systems(PostUpdate, (advance_animation, debug_mesh).chain());
-    }
-}
-
-fn debug_mesh(query: Query<(Entity, &OffscreenTexture)>) {
-    // info!("离屏渲染");
-    for (entity, offscreen_texture) in query.iter() {
-        if offscreen_texture.is_active {
-            // info!("entity: {:?}", entity);
-        }
+            .add_systems(PostUpdate, advance_animation);
     }
 }
 
@@ -120,6 +110,7 @@ impl FromWorld for BitmapMesh {
 
 #[derive(Debug)]
 pub struct ImageCacheDraw {
+    layer: String,
     id: CharacterId,
     handle: Handle<Image>,
     clear_color: Color,
@@ -339,8 +330,9 @@ fn advance_animation(
             );
 
             let layer_shape_material_cache = &mut entity_cache.layer_shape_material_cache;
-            let layer_offscreen_shape_cache = &mut entity_cache.layer_offscreen_shape_cache;
-            let offscreen_cache = &mut entity_cache.offscreen_cache;
+            let layer_offscreen_shape_draw_cache =
+                &mut entity_cache.layer_offscreen_shape_draw_cache;
+            let layer_offscreen_cache = &mut entity_cache.layer_offscreen_cache;
 
             let shape_commands = context.commands;
             let mut current_live_shape_entity = vec![];
@@ -353,13 +345,13 @@ fn advance_animation(
                 bitmap_materials.as_mut(),
                 &mut shape_meshes,
                 layer_shape_material_cache,
-                layer_offscreen_shape_cache,
+                layer_offscreen_shape_draw_cache,
                 cache_draws,
                 shape_commands,
                 &swf.shape_mesh_materials,
                 &mut current_live_shape_entity,
                 &mut offscreen_textures,
-                offscreen_cache,
+                layer_offscreen_cache,
                 image_cache,
                 global_scale,
             );
@@ -514,6 +506,7 @@ fn process_display_list(
                 );
                 // 将offscreen_context需要缓存绘制的render_shapes合并到context.cache_draw.render_shapes
                 offscreen_context.cache_draws.push(ImageCacheDraw {
+                    layer: shape_depth_layer.clone(),
                     id,
                     handle: cache_info.image_info.handle(),
                     clear_color: Color::NONE,
@@ -592,37 +585,23 @@ fn spawn_or_update_shape(
     bitmap_materials: &mut Assets<BitmapMaterial>,
     shape_meshes: &mut Query<&mut Transform, Or<(With<ShapeMesh>, With<OffscreenMesh>)>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    layer_offscreen_shape_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
+    layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
     cache_draw: Vec<ImageCacheDraw>,
     shape_commands: Vec<ShapeCommand>,
     shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     current_live_shape_entity: &mut Vec<Entity>,
     offscreen_textures: &mut Query<&mut OffscreenTexture>,
-    offscreen_cache: &mut HashMap<CharacterId, Entity>,
+    layer_offscreen_cache: &mut HashMap<String, Entity>,
     image_cache: &mut HashMap<CharacterId, ImageCache>,
     scale: Vec3,
 ) {
     // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
     let mut current_live_shape_depth_layers: HashSet<String> = HashSet::new();
-    let record_current_live_layer =
-        |shape_commands: &Vec<ShapeCommand>,
-         current_live_shape_depth_layers: &mut HashSet<String>| {
-            shape_commands.iter().for_each(|shape_command| {
-                if let ShapeCommand::RenderShape {
-                    shape_depth_layer, ..
-                } = shape_command
-                {
-                    current_live_shape_depth_layers.insert(shape_depth_layer.to_owned());
-                }
-            });
-        };
-
     // 1. 处理需要绘制中间纹理的Shape
     let mut order = isize::MIN;
     for cache_draw in cache_draw {
-        // TODO:
         // 实现方案：
-        // 为每一份 离屏纹理生成一个ViewTarget 并通过类似于RenderLayer的方式渲染到对应的ViewTarget中
+        // 为每一份 离屏纹理生成一个ViewTarget 并渲染到对应的通过自定义的ViewTarget中
         if cache_draw.dirty {
             let current_frame_shape_mesh_draws = process_offscreen_draw_commands(
                 &cache_draw.commands,
@@ -631,10 +610,10 @@ fn spawn_or_update_shape(
                 gradient_materials,
                 bitmap_materials,
                 shape_mesh_materials,
-                layer_offscreen_shape_cache,
+                layer_offscreen_shape_draw_cache,
                 &mut current_live_shape_depth_layers,
             );
-            if let Some(entity) = offscreen_cache.get(&cache_draw.id) {
+            if let Some(entity) = layer_offscreen_cache.get(&cache_draw.layer) {
                 let Ok(mut offscreen_texture) = offscreen_textures.get_mut(*entity) else {
                     continue;
                 };
@@ -662,7 +641,7 @@ fn spawn_or_update_shape(
                         OffscreenDrawCommands(current_frame_shape_mesh_draws),
                     ))
                     .id();
-                offscreen_cache.insert(cache_draw.id, entity);
+                layer_offscreen_cache.insert(cache_draw.layer, entity);
             }
         }
     }
@@ -970,6 +949,20 @@ fn find_cached_shape_material<'a, T>(
     }
 }
 
+fn record_current_live_layer(
+    shape_commands: &Vec<ShapeCommand>,
+    current_live_shape_depth_layers: &mut HashSet<String>,
+) {
+    shape_commands.iter().for_each(|shape_command| {
+        if let ShapeCommand::RenderShape {
+            shape_depth_layer, ..
+        } = shape_command
+        {
+            current_live_shape_depth_layers.insert(shape_depth_layer.to_owned());
+        }
+    });
+}
+
 fn process_offscreen_draw_commands(
     commands: &Vec<ShapeCommand>,
     bitmap_mesh_res: &BitmapMesh,
@@ -977,9 +970,11 @@ fn process_offscreen_draw_commands(
     gradient_materials: &mut Assets<GradientMaterial>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
     shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
-    layer_offscreen_shape_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
+    layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
     current_live_shape_depth_layers: &mut HashSet<String>,
 ) -> Vec<ShapeMeshDraw> {
+    // 记录当前帧可以重复使用的层级
+    record_current_live_layer(commands, current_live_shape_depth_layers);
     let mut current_frame_shape_mesh_draws = vec![];
     commands.iter().for_each(|command| match command {
         ShapeCommand::RenderShape {
@@ -991,7 +986,7 @@ fn process_offscreen_draw_commands(
             if let Some(cache) = find_cached_shape_material(
                 id,
                 shape_depth_layer,
-                layer_offscreen_shape_cache,
+                layer_offscreen_shape_draw_cache,
                 current_live_shape_depth_layers,
             ) {
                 for shape_mesh_draw in cache.iter() {
@@ -1012,7 +1007,7 @@ fn process_offscreen_draw_commands(
                 let Some(material_type_mesh_cache) = shape_mesh_materials.get(id) else {
                     return;
                 };
-                let shape_mesh_draws = layer_offscreen_shape_cache
+                let shape_mesh_draws = layer_offscreen_shape_draw_cache
                     .entry(shape_depth_layer.to_owned())
                     .or_default();
                 for (material_type, mesh) in material_type_mesh_cache {
@@ -1072,7 +1067,7 @@ fn process_offscreen_draw_commands(
             shape_depth_layer,
             ..
         } => {
-            if let Some(cache) = layer_offscreen_shape_cache.get(shape_depth_layer)
+            if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer)
                 && let Some(shape_mesh_draw) = cache.first()
                 && let MaterialType::Bitmap(handle) = &shape_mesh_draw.material_type
             {
@@ -1084,7 +1079,7 @@ fn process_offscreen_draw_commands(
                 bitmap.texture = bitmap_material.texture.clone();
                 current_frame_shape_mesh_draws.extend(cache.clone());
             } else {
-                let cache = layer_offscreen_shape_cache
+                let cache = layer_offscreen_shape_draw_cache
                     .entry(shape_depth_layer.to_owned())
                     .or_default();
                 let handle = bitmap_materials.add(bitmap_material.clone());

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::image::Image;
-use bevy::log::{info, warn_once};
+use bevy::log::warn_once;
 use bevy::math::{IVec2, UVec2};
 use bevy::platform::collections::HashMap;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
@@ -29,12 +29,6 @@ pub struct ImageCacheInfo {
     handle: Handle<Image>,
 }
 impl ImageCacheInfo {
-    pub fn width(&self) -> u16 {
-        self.width
-    }
-    pub fn height(&self) -> u16 {
-        self.height
-    }
     pub fn handle(&self) -> Handle<Image> {
         self.handle.clone()
     }
@@ -146,13 +140,6 @@ impl ImageCache {
 
     pub fn image_info(&self) -> Option<ImageCacheInfo> {
         self.image.as_ref().map(|i| i.clone())
-    }
-
-    pub fn size(&self) -> UVec2 {
-        self.image
-            .as_ref()
-            .map(|i| UVec2::new(i.width as u32, i.height as u32))
-            .unwrap_or_default()
     }
 }
 
