@@ -33,6 +33,7 @@ use crate::{
             upscaling::OffscreenUpscalingNode,
         },
         material::{BitmapMaterial, ColorMaterial, GradientMaterial},
+        pipeline::RectVertexIndicesBuffer,
     },
 };
 
@@ -107,7 +108,8 @@ impl Plugin for FlashFilterRenderGraphPlugin {
             .init_resource::<BlurFilterPipeline>()
             .init_resource::<ColorMatrixFilterPipeline>()
             .init_resource::<GlowFilterPipeline>()
-            .init_resource::<BevelFilterPipeline>();
+            .init_resource::<BevelFilterPipeline>()
+            .init_resource::<RectVertexIndicesBuffer>();
     }
 }
 

@@ -6,22 +6,24 @@ use bevy::{
     ecs::{
         resource::Resource,
         system::{Res, SystemState},
-        world::FromWorld,
+        world::{FromWorld, World},
     },
     image::BevyDefault,
-    math::Mat4,
+    math::{Mat4, UVec2},
+    prelude::Deref,
     render::{
         mesh::{Mesh, PrimitiveTopology, VertexBufferLayout},
         render_resource::{
             AsBindGroup, BindGroupLayout, BindGroupLayoutEntries, BlendComponent, BlendFactor,
-            BlendOperation, BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites,
-            FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
+            BlendOperation, BlendState, Buffer, BufferInitDescriptor, BufferUsages,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, FrontFace,
+            MultisampleState, PipelineCache, PolygonMode, PrimitiveState, RawBufferVec,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, Shader,
             ShaderStages, ShaderType, SpecializedMeshPipeline, SpecializedRenderPipeline,
             TextureFormat, TextureSampleType, VertexFormat, VertexState, VertexStepMode,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
-        renderer::RenderDevice,
+        renderer::{RenderDevice, RenderQueue},
         view::Msaa,
     },
 };
@@ -534,7 +536,19 @@ impl FromWorld for GlowFilterPipeline {
             label: Some(Cow::from("glow_filter_filter_render_pipeline")),
             layout: vec![layout.clone()],
             push_constant_ranges: vec![],
-            vertex: fullscreen_shader_vertex_state(),
+            vertex: VertexState {
+                shader: GLOW_FILTER_SHADER_HANDLE,
+                shader_defs: vec![],
+                entry_point: "vertex".into(),
+                buffers: vec![VertexBufferLayout::from_vertex_formats(
+                    VertexStepMode::Vertex,
+                    vec![
+                        VertexFormat::Float32x2,
+                        VertexFormat::Float32x2,
+                        VertexFormat::Float32x2,
+                    ],
+                )],
+            },
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
@@ -627,5 +641,87 @@ impl FromWorld for BevelFilterPipeline {
             sampler,
             pipeline_id,
         }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct FilterVertexWithBlur {
+    pub position: [f32; 2],
+    pub source_uv: [f32; 2],
+    pub blur_uv: [f32; 2],
+}
+
+pub fn vertices_with_blur_offset(
+    blur_offset: (f32, f32),
+    size: UVec2,
+) -> [FilterVertexWithBlur; 4] {
+    let point = (0, 0);
+    let source_width = size.x as f32;
+    let source_height = size.y as f32;
+    let source_left = point.0;
+    let source_top = point.1;
+    let source_right = source_left + size.x;
+    let source_bottom = source_top + size.y;
+    [
+        FilterVertexWithBlur {
+            position: [0.0, 0.0],
+            source_uv: [
+                source_left as f32 / source_width,
+                source_top as f32 / source_height,
+            ],
+            blur_uv: [
+                (source_left as f32 + blur_offset.0) / source_width,
+                (source_top as f32 + blur_offset.1) / source_height,
+            ],
+        },
+        FilterVertexWithBlur {
+            position: [1.0, 0.0],
+            source_uv: [
+                source_right as f32 / source_width,
+                source_top as f32 / source_height,
+            ],
+            blur_uv: [
+                (source_right as f32 + blur_offset.0) / source_width,
+                (source_top as f32 + blur_offset.1) / source_height,
+            ],
+        },
+        FilterVertexWithBlur {
+            position: [1.0, 1.0],
+            source_uv: [
+                source_right as f32 / source_width,
+                source_bottom as f32 / source_height,
+            ],
+            blur_uv: [
+                (source_right as f32 + blur_offset.0) / source_width,
+                (source_bottom as f32 + blur_offset.1) / source_height,
+            ],
+        },
+        FilterVertexWithBlur {
+            position: [0.0, 1.0],
+            source_uv: [
+                source_left as f32 / source_width,
+                source_bottom as f32 / source_height,
+            ],
+            blur_uv: [
+                (source_left as f32 + blur_offset.0) / source_width,
+                (source_bottom as f32 + blur_offset.1) / source_height,
+            ],
+        },
+    ]
+}
+
+#[derive(Resource, Deref)]
+pub struct RectVertexIndicesBuffer(pub RawBufferVec<u32>);
+
+impl FromWorld for RectVertexIndicesBuffer {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let render_queue = world.resource::<RenderQueue>();
+
+        let mut ibo = RawBufferVec::new(BufferUsages::INDEX);
+        ibo.extend([0, 1, 2, 0, 2, 3]);
+        ibo.write_buffer(render_device, render_queue);
+        Self(ibo)
     }
 }
