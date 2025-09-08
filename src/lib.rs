@@ -519,11 +519,14 @@ fn process_display_list(
             }
             // 引用绘制出来的中间纹理，按照位图材质的方式绘制到view
             let matrix = context.transform_stack.transform().matrix;
+            let scale = context.scale;
             let bitmap_material = BitmapMaterial {
                 texture: cache_info.image_info.handle(),
                 texture_transform: Mat4::IDENTITY,
                 transform: SwfTransform {
                     matrix: Matrix {
+                        a: cache_info.image_info.size().x as f32 / scale.x,
+                        d: cache_info.image_info.size().y as f32 / scale.y,
                         tx: matrix.tx + offset_x,
                         ty: matrix.ty + offset_y,
                         ..Default::default()

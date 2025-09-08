@@ -1,5 +1,5 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
-#import bevy_flash::common::{view_matrix}
+#import bevy_flash::common::{view_matrix,MaterialTransform}
 
 struct Gradient {
     focal_point: f32,
@@ -7,19 +7,12 @@ struct Gradient {
     shape: i32,
     repeat: i32,
 }
-struct SwfTransform {
-    world_matrix: mat4x4<f32>,
-    mult_color: vec4<f32>,
-    add_color: vec4<f32>,
-}
-
-
 
 @group(2) @binding(0) var texture: texture_2d<f32>;
 @group(2) @binding(1) var texture_sampler: sampler;
 @group(2) @binding(2) var<uniform> gradient: Gradient;
 @group(2) @binding(3) var<uniform> texture_transform: mat4x4<f32>;
-@group(2) @binding(4) var<uniform> swf_transform: SwfTransform;
+@group(2) @binding(4) var<uniform> material_transform: MaterialTransform;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -31,7 +24,7 @@ struct Vertex {
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     out.uv = (mat3x3<f32>(texture_transform[0].xyz, texture_transform[1].xyz, texture_transform[2].xyz) * vec3<f32>(vertex.position.x, vertex.position.y, 1.0)).xy;
-    let position: vec4<f32> = view_matrix * swf_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
+    let position: vec4<f32> = view_matrix * material_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
     var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh2d_position_local_to_world(
         world_from_local,
@@ -84,7 +77,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if gradient.interpolation != 0 {
         color = common__linear_to_srgb(color);
     }
-    let out = saturate(color * swf_transform.mult_color + swf_transform.add_color);
+    let out = saturate(color * material_transform.mult_color + material_transform.add_color);
     let alpha = saturate(out.a);
     return vec4<f32>(out.rgb * alpha, alpha);
 }
