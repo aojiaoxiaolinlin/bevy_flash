@@ -41,10 +41,6 @@ use crate::render::pipeline::{
 };
 use crate::render::texture_attachment::ColorAttachment;
 use crate::swf_runtime::filter::Filter;
-
-#[derive(Component)]
-pub struct OffscreenMesh;
-
 #[derive(Component, Default, Clone)]
 #[require(
     OffscreenTextureRenderGraph::new(OffscreenCore2d),

@@ -1,5 +1,5 @@
-pub(crate) mod filter;
-mod flash_filter_driven_node;
+mod filter_driven_node;
+mod filter_node;
 mod main_transparent_pass_2d_node;
 mod upscaling;
 
@@ -19,7 +19,7 @@ use bevy::{
     },
     utils::default,
 };
-use flash_filter_driven_node::{
+use filter_driven_node::{
     OffscreenTextureMultiPassPostProcessingDriverLabel,
     OffscreenTextureMultiPassPostProcessingDriverNode,
 };
@@ -28,7 +28,7 @@ use crate::{
     commands::MaterialType,
     render::{
         graph::{
-            filter::FilterPostProcessingNode,
+            filter_node::FilterPostProcessingNode,
             main_transparent_pass_2d_node::OffscreenMainTransparentPass2dNode,
             upscaling::OffscreenUpscalingNode,
         },

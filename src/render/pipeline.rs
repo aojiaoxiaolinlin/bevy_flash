@@ -17,8 +17,8 @@ use bevy::{
             BlendOperation, BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites,
             FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, Shader,
-            ShaderStages, ShaderType, SpecializedMeshPipeline, SpecializedRenderPipeline,
-            TextureFormat, TextureSampleType, VertexFormat, VertexState, VertexStepMode,
+            ShaderStages, ShaderType, SpecializedMeshPipeline, TextureFormat, TextureSampleType,
+            VertexFormat, VertexState, VertexStepMode,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::RenderDevice,
@@ -37,6 +37,18 @@ pub const OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE: Handle<Shader> =
 
 pub const OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE: Handle<Shader> =
     weak_handle!("e3f4a5b6-c7d8-4e9f-0a1b-2c3d4e5f6a7b");
+
+pub const BLUR_FILTER_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("f59e3d1c-7a24-4b8c-82a3-1d94e6f2c705");
+
+pub const COLOR_MATRIX_FILTER_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("1a2b3c4d-5e6f-4789-0123-456789abcdef");
+
+pub const GLOW_FILTER_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("c1d2e3f4-a5b6-4789-0123-456789abcdef");
+
+pub const BEVEL_FILTER_SHADER_HANDLE: Handle<Shader> =
+    weak_handle!("e2f8a9d6-3c7b-42f1-8e9d-5a6b4c3d2e1f");
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -252,98 +264,6 @@ impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
         })
     }
 }
-
-impl SpecializedRenderPipeline for OffscreenMesh2dPipeline {
-    type Key = OffscreenMesh2dKey;
-
-    fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
-        let vertex_buffer_layout = if key.contains(OffscreenMesh2dKey::COLOR) {
-            VertexBufferLayout::from_vertex_formats(
-                VertexStepMode::Vertex,
-                vec![VertexFormat::Float32x3, VertexFormat::Float32x4],
-            )
-        } else {
-            VertexBufferLayout::from_vertex_formats(
-                VertexStepMode::Vertex,
-                vec![VertexFormat::Float32x3],
-            )
-        };
-
-        let bind_group_layout = if key.contains(OffscreenMesh2dKey::GRADIENT) {
-            vec![
-                self.view_bind_group_layout.clone(),
-                self.gradient_bind_group_layout.clone(),
-            ]
-        } else if key.contains(OffscreenMesh2dKey::BITMAP) {
-            vec![
-                self.view_bind_group_layout.clone(),
-                self.bitmap_bind_group_layout.clone(),
-            ]
-        } else {
-            vec![self.view_bind_group_layout.clone()]
-        };
-
-        let shader = if key.contains(OffscreenMesh2dKey::COLOR) {
-            OFFSCREEN_MESH2D_SHADER_HANDLE
-        } else if key.contains(OffscreenMesh2dKey::GRADIENT) {
-            OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE
-        } else if key.contains(OffscreenMesh2dKey::BITMAP) {
-            OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE
-        } else {
-            OFFSCREEN_MESH2D_SHADER_HANDLE
-        };
-
-        RenderPipelineDescriptor {
-            label: Some(Cow::from("intermediate_render_pipeline")),
-            layout: bind_group_layout,
-            push_constant_ranges: vec![],
-            vertex: VertexState {
-                shader: shader.clone(),
-                shader_defs: vec![],
-                entry_point: "vertex".into(),
-                buffers: vec![vertex_buffer_layout],
-            },
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: Msaa::default().samples(),
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            fragment: Some(FragmentState {
-                shader,
-                shader_defs: vec![],
-                entry_point: "fragment".into(),
-                targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
-                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-            }),
-            zero_initialize_workgroup_memory: false,
-        }
-    }
-}
-
-pub const BLUR_FILTER_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("f59e3d1c-7a24-4b8c-82a3-1d94e6f2c705");
-
-pub const COLOR_MATRIX_FILTER_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("1a2b3c4d-5e6f-4789-0123-456789abcdef");
-
-pub const GLOW_FILTER_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("c1d2e3f4-a5b6-4789-0123-456789abcdef");
-
-pub const BEVEL_FILTER_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("e2f8a9d6-3c7b-42f1-8e9d-5a6b4c3d2e1f");
 
 /// 模糊滤镜
 #[repr(C)]
