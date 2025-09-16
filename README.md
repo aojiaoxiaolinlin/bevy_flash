@@ -72,10 +72,6 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
 }
 ```
 
-
-> [!TIP]
-> The filter effects are currently available in the `filter_render_dev` branch. Since I've modified some of the source code, you'll need to pull my [branch](https://github.com/aojiaoxiaolinlin/bevy/tree/bevy_flash_modify).
-
 > [!WARNING]
 > This project is still in the early stages of development.
 

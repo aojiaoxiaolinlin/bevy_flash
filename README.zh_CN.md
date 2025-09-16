@@ -66,9 +66,6 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
 }
 ```
 
-> [!TIP]
-> 滤镜效果当前在 `filter_render_dev` 分支。由于我修改了部分源码，你需要拉取我的 [分支](https://github.com/aojiaoxiaolinlin/bevy/tree/bevy_flash_modify)。
-
 > [!WARNING]
 > 该项目目前仍处于开发的早期阶段。
 
