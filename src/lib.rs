@@ -25,22 +25,20 @@ use crate::swf_runtime::movie_clip::MovieClip;
 use crate::swf_runtime::transform::{Transform as SwfTransform, TransformStack};
 
 use bevy::app::{App, PostUpdate, Update};
-use bevy::asset::{AssetEvent, Assets, Handle, RenderAssetUsages};
+use bevy::asset::{AssetEvent, Assets, Handle};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::{Entity, EntityHashMap};
 use bevy::ecs::event::{Event, EventReader};
-use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, EntityCommands, Local, Query, Res, ResMut};
-use bevy::ecs::world::FromWorld;
 use bevy::image::Image;
 use bevy::log::{info, warn_once};
 use bevy::math::{IVec2, Mat4, UVec2, Vec2, Vec3, Vec3Swizzles};
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::{Deref, DerefMut};
-use bevy::render::mesh::{Indices, Mesh, Mesh2d, PrimitiveTopology};
+use bevy::render::mesh::{Mesh, Mesh2d};
 use bevy::render::view::{NoFrustumCulling, Visibility};
 use bevy::sprite::MeshMaterial2d;
 use bevy::time::{Time, Timer, TimerMode};
@@ -497,9 +495,7 @@ fn process_cache_and_filters(
     display_object.recheck_cache(id, context.image_caches);
 
     // 如果没有缓存，直接返回None
-    let Some(cache) = context.image_caches.get_mut(&id) else {
-        return None;
-    };
+    let cache = context.image_caches.get_mut(&id)?;
 
     // 计算尺寸
     let width = bounds.width().to_pixels().ceil().max(0.);
@@ -522,9 +518,8 @@ fn process_cache_and_filters(
     let draw_offset = IVec2::new(filter_rect.x_min, filter_rect.y_min);
     let actual_width = (filter_rect.width() as f32 * context.scale.x) as u16;
     let actual_height = (filter_rect.height() as f32 * context.scale.y) as u16;
-
     // 更新缓存
-    if cache.is_dirty(&base_transform.matrix, width, height) {
+    if cache.is_dirty(&base_transform.matrix, width, height) || display_object.cache_dirty() {
         cache.update(
             context.images,
             &base_transform.matrix,
@@ -622,7 +617,6 @@ fn render_with_cache(
         offset_x,
         offset_y,
         blend_mode,
-        id,
         shape_depth_layer,
     );
 }
@@ -692,7 +686,6 @@ fn render_cached_texture_to_view(
     offset_x: Twips,
     offset_y: Twips,
     blend_mode: swf::BlendMode,
-    id: CharacterId,
     shape_depth_layer: &str,
 ) {
     // 获取当前变换矩阵和缩放
@@ -720,7 +713,6 @@ fn render_cached_texture_to_view(
     // 添加渲染位图命令
     context.commands.push(ShapeCommand::RenderBitmap {
         bitmap_material,
-        id,
         shape_depth_layer: shape_depth_layer.to_string(),
         size: cache_info.image_info.size().as_vec2(),
     });
@@ -894,7 +886,7 @@ fn update_existing_offscreen_texture(
 fn create_new_offscreen_texture(
     commands: &mut Commands,
     layer_offscreen_cache: &mut HashMap<String, Entity>,
-    layer_key: &String,
+    layer_key: &str,
     cache_draw: &ImageCacheDraw,
     current_frame_shape_mesh_draws: Vec<ShapeMeshDraw>,
     order: &mut isize,
@@ -919,7 +911,7 @@ fn create_new_offscreen_texture(
         .id();
 
     // 缓存新创建的实体
-    layer_offscreen_cache.insert(layer_key.clone(), entity);
+    layer_offscreen_cache.insert(layer_key.to_owned(), entity);
 }
 
 /// 处理直接渲染的形状（不需要离屏渲染）
@@ -1155,7 +1147,6 @@ fn process_render_bitmap_command(
         bitmap_material,
         shape_depth_layer,
         size,
-        ..
     } = shape_command
     {
         let raw_size = *size / scale.xy();
@@ -1268,7 +1259,7 @@ fn update_existing_bitmap(
         return;
     };
 
-    entity_bitmap_material.transform = bitmap_material.transform.clone();
+    entity_bitmap_material.transform = bitmap_material.transform;
     entity_bitmap_material.transform.world_transform.x_axis.x = size.x;
     entity_bitmap_material.transform.world_transform.y_axis.y = size.y;
     entity_bitmap_material.blend_key = bitmap_material.blend_key;

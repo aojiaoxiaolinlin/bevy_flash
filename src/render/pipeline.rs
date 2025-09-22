@@ -9,19 +9,21 @@ use bevy::{
         world::FromWorld,
     },
     image::BevyDefault,
-    math::Mat4,
+    math::{Mat4, Vec2},
+    prelude::{Deref, DerefMut},
     render::{
         mesh::{Mesh, PrimitiveTopology, VertexBufferLayout},
         render_resource::{
             AsBindGroup, BindGroupLayout, BindGroupLayoutEntries, BlendComponent, BlendFactor,
-            BlendOperation, BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites,
-            FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
-            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, Shader,
-            ShaderStages, ShaderType, SpecializedMeshPipeline, TextureFormat, TextureSampleType,
-            VertexFormat, VertexState, VertexStepMode,
+            BlendOperation, BlendState, BufferUsages, BufferVec, CachedRenderPipelineId,
+            ColorTargetState, ColorWrites, DynamicUniformBuffer, FragmentState, FrontFace,
+            MultisampleState, PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor,
+            Sampler, SamplerBindingType, SamplerDescriptor, Shader, ShaderStages, ShaderType,
+            SpecializedMeshPipeline, TextureFormat, TextureSampleType, VertexFormat, VertexState,
+            VertexStepMode,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
-        renderer::RenderDevice,
+        renderer::{RenderDevice, RenderQueue},
         view::Msaa,
     },
 };
@@ -91,7 +93,7 @@ impl FromWorld for OffscreenMesh2dPipeline {
 
         let view_bind_group_layout = render_device.create_bind_group_layout(
             "纹理变换矩阵布局",
-            &BindGroupLayoutEntries::single(ShaderStages::VERTEX, uniform_buffer::<Mat4>(false)),
+            &BindGroupLayoutEntries::single(ShaderStages::VERTEX, uniform_buffer::<Mat4>(true)),
         );
 
         let color_bind_group_layout = ColorMaterial::bind_group_layout(render_device);
@@ -548,4 +550,103 @@ impl FromWorld for BevelFilterPipeline {
             pipeline_id,
         }
     }
+}
+
+#[derive(Resource)]
+pub struct FilterUniformBuffers {
+    pub view_uniform_buffer: DynamicUniformBuffer<Mat4>,
+    pub color_matrix_uniform_buffer: DynamicUniformBuffer<ColorMatrixUniform>,
+    pub blur_uniform_buffer: DynamicUniformBuffer<BlurUniform>,
+    pub glow_uniform_buffer: DynamicUniformBuffer<GlowFilterUniform>,
+    pub bevel_uniform_buffer: DynamicUniformBuffer<BevelUniform>,
+    pub filter_vertex_with_double_blur_buffer: BufferVec<FilterVertexWithDoubleBlur>,
+}
+
+impl Default for FilterUniformBuffers {
+    fn default() -> Self {
+        Self {
+            view_uniform_buffer: DynamicUniformBuffer::default(),
+            color_matrix_uniform_buffer: DynamicUniformBuffer::default(),
+            blur_uniform_buffer: DynamicUniformBuffer::default(),
+            glow_uniform_buffer: DynamicUniformBuffer::default(),
+            bevel_uniform_buffer: DynamicUniformBuffer::default(),
+            filter_vertex_with_double_blur_buffer: BufferVec::new(BufferUsages::VERTEX),
+        }
+    }
+}
+
+impl FilterUniformBuffers {
+    pub fn clear(&mut self) {
+        self.view_uniform_buffer.clear();
+        self.color_matrix_uniform_buffer.clear();
+        self.blur_uniform_buffer.clear();
+        self.glow_uniform_buffer.clear();
+        self.bevel_uniform_buffer.clear();
+        self.filter_vertex_with_double_blur_buffer.clear();
+    }
+
+    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        self.view_uniform_buffer.write_buffer(device, queue);
+        self.color_matrix_uniform_buffer.write_buffer(device, queue);
+        self.blur_uniform_buffer.write_buffer(device, queue);
+        self.glow_uniform_buffer.write_buffer(device, queue);
+        self.bevel_uniform_buffer.write_buffer(device, queue);
+        self.filter_vertex_with_double_blur_buffer
+            .write_buffer(device, queue);
+    }
+}
+
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct BlurFilterUniformBuffer(pub DynamicUniformBuffer<BlurUniform>);
+
+pub fn get_filter_vertex_with_double_blur(
+    distance: f32,
+    angle: f32,
+    size: Vec2,
+) -> Vec<FilterVertexWithDoubleBlur> {
+    let blur_offset_x = angle.cos() * distance;
+    let blur_offset_y = angle.sin() * distance;
+    let width = size.x;
+    let height = size.y;
+    vec![
+        FilterVertexWithDoubleBlur {
+            position: [0.0, 0.0],
+            source_uv: [0.0, 0.0],
+            blur_uv_left: [blur_offset_x / width, blur_offset_y / height],
+            blur_uv_right: [
+                (0.0 - blur_offset_x) / width,
+                (0.0 - blur_offset_y) / height,
+            ],
+        },
+        FilterVertexWithDoubleBlur {
+            position: [1.0, 0.0],
+            source_uv: [1.0, 0.0],
+            blur_uv_left: [(width + blur_offset_x) / width, blur_offset_y / height],
+            blur_uv_right: [
+                (width - blur_offset_x) / width,
+                (0.0 - blur_offset_y) / height,
+            ],
+        },
+        FilterVertexWithDoubleBlur {
+            position: [1.0, 1.0],
+            source_uv: [1.0, 1.0],
+            blur_uv_left: [
+                (width + blur_offset_x) / width,
+                (height + blur_offset_y) / height,
+            ],
+            blur_uv_right: [
+                (width - blur_offset_x) / width,
+                (height - blur_offset_y) / height,
+            ],
+        },
+        FilterVertexWithDoubleBlur {
+            position: [0.0, 1.0],
+            source_uv: [0.0, 1.0],
+            blur_uv_left: [blur_offset_x / width, (blur_offset_y + height) / height],
+            blur_uv_right: [
+                (0.0 - blur_offset_x) / width,
+                (height - blur_offset_y) / height,
+            ],
+        },
+    ]
 }

@@ -26,8 +26,6 @@ pub(crate) enum ShapeCommand {
     },
     RenderBitmap {
         bitmap_material: BitmapMaterial,
-        // Bitmap 对应的 CharacterId
-        id: CharacterId,
         shape_depth_layer: String,
         size: Vec2,
     },

@@ -1,19 +1,16 @@
 use std::sync::Arc;
 
-use bevy::log::error;
+use bevy::log::error_once;
 use bevy::platform::collections::HashMap;
 use swf::{CharacterId, DefineBitsLossless, PlaceObject};
 
-use crate::swf_runtime::display_object::FrameNumber;
-
-use super::display_object::{DisplayObject, TDisplayObject};
-use super::tag_utils::{SwfMovie, SwfSlice};
-
 use super::decoder::error::Error;
 use super::decoder::{Bitmap, decode_define_bits_jpeg, decode_define_bits_lossless};
+use super::display_object::{DisplayObject, FrameNumber, TDisplayObject};
 use super::graphic::Graphic;
 use super::morph_shape::MorphShape;
 use super::movie_clip::MovieClip;
+use super::tag_utils::{SwfMovie, SwfSlice};
 
 #[derive(Clone)]
 pub enum Character {
@@ -99,7 +96,7 @@ pub fn instantiate_by_id(
             Some(child)
         }
         None => {
-            error!("Unable to instantiate display node id {}", id);
+            error_once!("Unable to instantiate display node id {}", id);
             None
         }
     }

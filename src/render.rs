@@ -11,7 +11,6 @@ use bevy::{
     asset::{Assets, Handle, RenderAssetUsages, load_internal_asset, weak_handle},
     ecs::{resource::Resource, world::FromWorld},
     render::{
-        RenderApp,
         mesh::{Indices, Mesh, PrimitiveTopology},
         render_resource::Shader,
     },

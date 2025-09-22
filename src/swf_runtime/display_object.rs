@@ -151,6 +151,7 @@ pub struct DisplayObjectBase {
     transform: Transform,
     filters: Vec<Filter>,
     blend_mode: BlendMode,
+    cache_dirty: bool,
 }
 impl DisplayObjectBase {
     fn set_matrix(&mut self, matrix: Matrix) {
@@ -178,6 +179,10 @@ impl DisplayObjectBase {
         if !self.filters.is_empty() && image_caches.get(&id).is_none() {
             image_caches.insert(id, ImageCache::default());
         }
+    }
+
+    fn invalidate_cached_bitmap(&mut self) {
+        self.cache_dirty = true;
     }
 
     fn set_name(&mut self, name: Option<Box<str>>) {
@@ -222,7 +227,13 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
     }
 
     fn set_filters(&mut self, filters: Vec<Filter>) {
-        self.base_mut().set_filters(filters);
+        if self.base_mut().set_filters(filters) {
+            self.invalidate_cached_bitmap();
+        }
+    }
+
+    fn invalidate_cached_bitmap(&mut self) {
+        self.base_mut().invalidate_cached_bitmap();
     }
 
     fn recheck_cache(&self, id: CharacterId, image_caches: &mut HashMap<CharacterId, ImageCache>) {
@@ -259,6 +270,10 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
 
     fn swf_version(&self) -> u8 {
         self.movie().version()
+    }
+
+    fn cache_dirty(&self) -> bool {
+        self.base().cache_dirty
     }
 
     /// 该对象未经过变换的固有边界框。这些边界不包含子显示对象（DisplayObjects）。

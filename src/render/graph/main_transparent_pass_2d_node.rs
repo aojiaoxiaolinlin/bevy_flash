@@ -1,15 +1,11 @@
 use bevy::{
-    math::Mat4,
     render::{
         diagnostic::RecordDiagnostics,
         mesh::{RenderMesh, allocator::MeshAllocator},
         render_asset::RenderAssets,
         render_graph::ViewNode,
         render_phase::TrackedRenderPass,
-        render_resource::{
-            BindGroupEntries, BufferInitDescriptor, BufferUsages, CommandEncoderDescriptor,
-            PipelineCache, RenderPassDescriptor,
-        },
+        render_resource::{CommandEncoderDescriptor, PipelineCache, RenderPassDescriptor},
         sync_world::MainEntity,
     },
     sprite::PreparedMaterial2d,
@@ -18,21 +14,24 @@ use bevy::{
 use crate::render::{
     graph::OffscreenFlashShapeRenderPhases,
     material::{BitmapMaterial, ColorMaterial, GradientMaterial},
-    offscreen_texture::{ExtractedOffscreenTexture, ViewTarget},
-    pipeline::OffscreenMesh2dPipeline,
+    offscreen_texture::{ExtractedOffscreenTexture, FilterBindGroup, FilterOffsets, ViewTarget},
 };
 
 #[derive(Default)]
 pub struct OffscreenMainTransparentPass2dNode;
 
 impl ViewNode for OffscreenMainTransparentPass2dNode {
-    type ViewQuery = (&'static ExtractedOffscreenTexture, &'static ViewTarget);
+    type ViewQuery = (
+        &'static ExtractedOffscreenTexture,
+        &'static ViewTarget,
+        &'static FilterOffsets,
+    );
 
     fn run<'w>(
         &self,
         graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext<'w>,
-        (offscreen_texture, target): bevy::ecs::query::QueryItem<'w, Self::ViewQuery>,
+        (_, target, filter_offsets): bevy::ecs::query::QueryItem<'w, Self::ViewQuery>,
         world: &'w bevy::ecs::world::World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let Some(transparent_phases) = world.get_resource::<OffscreenFlashShapeRenderPhases>()
@@ -47,7 +46,7 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
 
         // 准备资源
         let pipeline_cache = world.resource::<PipelineCache>();
-        let offscreen_mesh_2d_pipeline = world.resource::<OffscreenMesh2dPipeline>();
+        let filter_bind_group = world.resource::<FilterBindGroup>();
         let render_meshes = world.resource::<RenderAssets<RenderMesh>>();
         let mesh_allocator = world.resource::<MeshAllocator>();
         let color_materials = world.resource::<RenderAssets<PreparedMaterial2d<ColorMaterial>>>();
@@ -67,25 +66,7 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                 });
 
             {
-                let size = offscreen_texture.size.as_vec2();
-                let scale = offscreen_texture.scale;
-                let view_matrix = Mat4::from_cols_array_2d(&[
-                    [2.0 * scale.x / size.x, 0.0, 0.0, 0.0],
-                    [0.0, -2.0 * scale.y / size.y, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                ]);
-                let view_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                    label: Some("offscreen_main_transparent_pass_2d_view_matrix"),
-                    contents: bytemuck::cast_slice(&[view_matrix]),
-                    usage: BufferUsages::UNIFORM,
-                });
-                let view_bind_group = render_device.create_bind_group(
-                    "view_bind_group",
-                    &offscreen_mesh_2d_pipeline.view_bind_group_layout,
-                    &BindGroupEntries::sequential((view_buffer.as_entire_binding(),)),
-                );
-
+                let view_bind_group = &filter_bind_group.view_bind_group;
                 let render_pass = command_encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("offscreen_main_transparent_pass_2d"),
                     color_attachments: &color_attachments,
@@ -132,7 +113,11 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                         };
                         render_pass.set_render_pipeline(pipeline);
                         render_pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
-                        render_pass.set_bind_group(0, &view_bind_group, &[]);
+                        render_pass.set_bind_group(
+                            0,
+                            view_bind_group,
+                            &[filter_offsets.view_offset],
+                        );
                         render_pass.set_bind_group(1, bind_group, &[]);
                         let batch_range = 0..1;
                         match &gpu_mesh.buffer_info {
