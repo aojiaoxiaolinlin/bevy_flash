@@ -11,7 +11,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::image::BevyDefault;
 use bevy::log::error;
-use bevy::math::{UVec2, Vec3};
+use bevy::math::{Mat4, UVec2, Vec3};
 use bevy::platform::collections::hash_map::Entry;
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::{Deref, DerefMut, ReflectComponent};
@@ -21,10 +21,11 @@ use bevy::render::mesh::RenderMesh;
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_graph::{InternedRenderSubGraph, RenderSubGraph};
 use bevy::render::render_resource::{
-    Extent3d, PipelineCache, RenderPassColorAttachment, Shader, SpecializedMeshPipelines,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
+    BindGroup, BindGroupEntries, Extent3d, PipelineCache, RenderPassColorAttachment, Shader,
+    SpecializedMeshPipelines, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+    TextureView,
 };
-use bevy::render::renderer::RenderDevice;
+use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::sync_world::{MainEntity, RenderEntity, SyncToRenderWorld};
 use bevy::render::texture::{GpuImage, OutputColorAttachment, TextureCache};
 use bevy::render::view::{ExtractedWindows, Msaa, PostProcessWrite, ViewTargetAttachments};
@@ -34,17 +35,13 @@ use bevy::{ecs::component::Component, reflect::Reflect};
 use crate::commands::OffscreenDrawCommands;
 use crate::render::graph::{DrawPhase, DrawType, OffscreenCore2d, OffscreenFlashShapeRenderPhases};
 use crate::render::pipeline::{
-    BEVEL_FILTER_SHADER_HANDLE, BLUR_FILTER_SHADER_HANDLE, COLOR_MATRIX_FILTER_SHADER_HANDLE,
-    GLOW_FILTER_SHADER_HANDLE, OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE,
-    OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE, OFFSCREEN_MESH2D_SHADER_HANDLE, OffscreenMesh2dKey,
-    OffscreenMesh2dPipeline,
+    BEVEL_FILTER_SHADER_HANDLE, BLUR_FILTER_SHADER_HANDLE, BlurFilterUniformBuffer,
+    COLOR_MATRIX_FILTER_SHADER_HANDLE, FilterUniformBuffers, GLOW_FILTER_SHADER_HANDLE,
+    OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE, OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE,
+    OFFSCREEN_MESH2D_SHADER_HANDLE, OffscreenMesh2dKey, OffscreenMesh2dPipeline,
 };
 use crate::render::texture_attachment::ColorAttachment;
 use crate::swf_runtime::filter::Filter;
-
-#[derive(Component)]
-pub struct OffscreenMesh;
-
 #[derive(Component, Default, Clone)]
 #[require(
     OffscreenTextureRenderGraph::new(OffscreenCore2d),
@@ -290,6 +287,8 @@ impl Plugin for OffscreenTexturePlugin {
             .init_resource::<SortedOffscreenTextures>()
             .init_resource::<OffscreenFlashShapeRenderPhases>()
             .init_resource::<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>()
+            .init_resource::<FilterUniformBuffers>()
+            .init_resource::<BlurFilterUniformBuffer>()
             .add_systems(ExtractSchedule, extract_offscreen_textures)
             .add_systems(
                 Render,
@@ -299,6 +298,8 @@ impl Plugin for OffscreenTexturePlugin {
                     prepare_offscreen_texture_view_target
                         .in_set(RenderSet::ManageViews)
                         .after(prepare_offscreen_view_attachments),
+                    prepare_offscreen_shape_filter_uniform.in_set(RenderSet::PrepareResources),
+                    prepare_offscreen_shape_bind_group.in_set(RenderSet::PrepareBindGroups),
                     special_and_queue_shape_draw.in_set(RenderSet::Queue),
                 ),
             );
@@ -451,6 +452,59 @@ fn prepare_offscreen_texture_view_target(
     }
 }
 
+fn prepare_offscreen_shape_filter_uniform(
+    mut commands: Commands,
+    query: Query<(Entity, &ExtractedOffscreenTexture)>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    mut filter_uniform_buffers: ResMut<FilterUniformBuffers>,
+) {
+    if query.is_empty() {
+        return;
+    }
+
+    filter_uniform_buffers.clear();
+    for (entity, offscreen_texture) in query.iter() {
+        let size = offscreen_texture.size.as_vec2();
+        let scale = offscreen_texture.scale;
+        let view_matrix = Mat4::from_cols_array_2d(&[
+            [2.0 * scale.x / size.x, 0.0, 0.0, 0.0],
+            [0.0, -2.0 * scale.y / size.y, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]);
+        let view_offset = filter_uniform_buffers
+            .view_uniform_buffer
+            .push(&view_matrix);
+        let filter_offsets = FilterOffsets::new(view_offset);
+
+        commands.entity(entity).insert(filter_offsets);
+    }
+    // 写入缓冲区
+    filter_uniform_buffers.write_buffer(&render_device, &render_queue);
+}
+
+fn prepare_offscreen_shape_bind_group(
+    mut commands: Commands,
+    query: Query<Entity, With<ExtractedOffscreenTexture>>,
+    offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
+    render_device: Res<RenderDevice>,
+    filter_uniform_buffers: Res<FilterUniformBuffers>,
+) {
+    if query.is_empty() {
+        return;
+    }
+    let view_buffer = &filter_uniform_buffers.view_uniform_buffer;
+
+    let view_bind_group = render_device.create_bind_group(
+        "offscreen_main_transparent_pass_2d_bind_group",
+        &offscreen_mesh2d_pipeline.view_bind_group_layout,
+        &BindGroupEntries::single(view_buffer.binding().unwrap()),
+    );
+
+    commands.insert_resource(FilterBindGroup { view_bind_group });
+}
+
 pub fn special_and_queue_shape_draw(
     offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
     mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,
@@ -498,4 +552,19 @@ pub fn special_and_queue_shape_draw(
             });
         }
     }
+}
+
+#[derive(Component)]
+pub struct FilterOffsets {
+    pub view_offset: u32,
+}
+impl FilterOffsets {
+    pub fn new(view_offset: u32) -> Self {
+        Self { view_offset }
+    }
+}
+
+#[derive(Resource)]
+pub struct FilterBindGroup {
+    pub view_bind_group: BindGroup,
 }

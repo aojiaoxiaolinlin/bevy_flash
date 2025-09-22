@@ -1,7 +1,7 @@
 use crate::render::offscreen_texture::{ExtractedOffscreenTexture, ViewTarget};
 use crate::render::pipeline::{
     BevelFilterPipeline, BevelUniform, BlurFilterPipeline, BlurUniform, ColorMatrixFilterPipeline,
-    ColorMatrixUniform, FilterVertexWithDoubleBlur, GlowFilterPipeline, GlowFilterUniform,
+    ColorMatrixUniform, GlowFilterPipeline, GlowFilterUniform, get_filter_vertex_with_double_blur,
 };
 use crate::swf_runtime::filter::Filter::{
     BevelFilter, BlurFilter, ColorMatrixFilter, ConvolutionFilter, DropShadowFilter, GlowFilter,
@@ -41,7 +41,6 @@ impl ViewNode for FilterPostProcessingNode {
         // 以下算法均来自于Ruffle
         let size = offscreen_texture.size;
         for filter in offscreen_texture.filters.iter() {
-            // TODO: 通过Resource再优化下
             match filter {
                 BlurFilter(blur_filter) => {
                     let Some(pipeline) =
@@ -227,54 +226,8 @@ impl ViewNode for FilterPostProcessingNode {
                     };
                     let distance = bevel_filter.distance.to_f32();
                     let angle = bevel_filter.angle.to_f32();
-                    let blur_offset_x = angle.cos() * distance;
-                    let blur_offset_y = angle.sin() * distance;
-                    let width = size.x as f32;
-                    let height = size.y as f32;
-                    let filter_vertex_with_double_blur = vec![
-                        FilterVertexWithDoubleBlur {
-                            position: [0.0, 0.0],
-                            source_uv: [0.0, 0.0],
-                            blur_uv_left: [blur_offset_x / width, blur_offset_y / height],
-                            blur_uv_right: [
-                                (0.0 - blur_offset_x) / width,
-                                (0.0 - blur_offset_y) / height,
-                            ],
-                        },
-                        FilterVertexWithDoubleBlur {
-                            position: [1.0, 0.0],
-                            source_uv: [1.0, 0.0],
-                            blur_uv_left: [(width + blur_offset_x) / width, blur_offset_y / height],
-                            blur_uv_right: [
-                                (width - blur_offset_x) / width,
-                                (0.0 - blur_offset_y) / height,
-                            ],
-                        },
-                        FilterVertexWithDoubleBlur {
-                            position: [1.0, 1.0],
-                            source_uv: [1.0, 1.0],
-                            blur_uv_left: [
-                                (width + blur_offset_x) / width,
-                                (height + blur_offset_y) / height,
-                            ],
-                            blur_uv_right: [
-                                (width - blur_offset_x) / width,
-                                (height - blur_offset_y) / height,
-                            ],
-                        },
-                        FilterVertexWithDoubleBlur {
-                            position: [0.0, 1.0],
-                            source_uv: [0.0, 1.0],
-                            blur_uv_left: [
-                                blur_offset_x / width,
-                                (blur_offset_y + height) / height,
-                            ],
-                            blur_uv_right: [
-                                (0.0 - blur_offset_x) / width,
-                                (height - blur_offset_y) / height,
-                            ],
-                        },
-                    ];
+                    let filter_vertex_with_double_blur =
+                        get_filter_vertex_with_double_blur(distance, angle, size.as_vec2());
                     let render_device = render_context.render_device();
                     let vertex_buffer =
                         render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -398,17 +351,6 @@ fn apply_blur<'w>(
                 post_process.destination,
                 "blur_filter_render_pass",
             );
-            // render_context.begin_tracked_render_pass(RenderPassDescriptor {
-            //     label: Some("blur_filter_render_pass"),
-            //     color_attachments: &[Some(RenderPassColorAttachment {
-            //         view: post_process.destination,
-            //         resolve_target: None,
-            //         ops: Operations::default(),
-            //     })],
-            //     depth_stencil_attachment: None,
-            //     timestamp_writes: None,
-            //     occlusion_query_set: None,
-            // });
             render_pass.set_render_pipeline(pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..3, 0..1);

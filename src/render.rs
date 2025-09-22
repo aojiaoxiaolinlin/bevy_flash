@@ -8,8 +8,12 @@ mod texture_attachment;
 
 use bevy::{
     app::{App, Plugin},
-    asset::{Handle, load_internal_asset, weak_handle},
-    render::render_resource::Shader,
+    asset::{Assets, Handle, RenderAssetUsages, load_internal_asset, weak_handle},
+    ecs::{resource::Resource, world::FromWorld},
+    render::{
+        mesh::{Indices, Mesh, PrimitiveTopology},
+        render_resource::Shader,
+    },
     sprite::Material2dPlugin,
 };
 
@@ -59,6 +63,33 @@ impl Plugin for FlashRenderPlugin {
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
             .add_plugins(Material2dPlugin::<ColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
-            .add_plugins((OffscreenTexturePlugin, FlashFilterRenderGraphPlugin));
+            .add_plugins((OffscreenTexturePlugin, FlashFilterRenderGraphPlugin))
+            .init_resource::<FilterTextureMesh>();
+    }
+}
+
+/// 用于滤镜纹理渲染的Mesh，一个固定的矩形
+#[derive(Resource, Debug, Clone)]
+/// 用于滤镜纹理渲染的固定矩形网格
+pub struct FilterTextureMesh(pub Handle<Mesh>);
+
+impl FromWorld for FilterTextureMesh {
+    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
+        let mut meshes = world.resource_mut::<Assets<Mesh>>();
+        let mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+        )
+        .with_inserted_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+        Self(meshes.add(mesh))
     }
 }
