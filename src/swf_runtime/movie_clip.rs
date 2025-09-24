@@ -5,7 +5,7 @@ use std::collections::btree_map::{Values, ValuesMut};
 use std::sync::Arc;
 
 use bevy::ecs::component::Component;
-use bevy::log::error;
+use bevy::log::{error, warn};
 use bevy::platform::collections::HashMap;
 use smallvec::SmallVec;
 use swf::extensions::ReadSwfExt;
@@ -13,6 +13,8 @@ use swf::read::Reader;
 use swf::{
     CharacterId, Color, DefineBitsLossless, Depth, PlaceObjectAction, Rectangle, TagCode, Twips,
 };
+
+use crate::swf_runtime::decoder::{glue_tables_to_jpeg, remove_invalid_jpeg_data};
 
 use super::character::{BitmapLibrary, Character, CompressedBitmap, instantiate_by_id};
 use super::decoder::decode_define_bits_jpeg_dimensions;
@@ -76,6 +78,7 @@ impl MovieClip {
         &mut self,
         characters: &mut HashMap<CharacterId, Character>,
         bitmaps: &mut BitmapLibrary,
+        jpeg_tables: &mut Option<Vec<u8>>,
     ) {
         let swf = self.swf_slice.clone();
         let mut reader = Reader::new(swf.data(), swf.version());
@@ -91,6 +94,7 @@ impl MovieClip {
                 TagCode::DefineMorphShape2 => {
                     define_morph_shape(characters, self.movie(), reader, 2)
                 }
+                TagCode::DefineBits => define_bits(bitmaps, jpeg_tables, reader),
                 TagCode::DefineBitsJpeg2 => define_bits_jpeg_2(bitmaps, reader),
                 TagCode::DefineBitsJpeg3 => define_bits_jpeg_3_or_4(bitmaps, reader, 3),
                 TagCode::DefineBitsJpeg4 => define_bits_jpeg_3_or_4(bitmaps, reader, 4),
@@ -98,8 +102,16 @@ impl MovieClip {
                 TagCode::DefineBitsLossless2 => define_bits_lossless(bitmaps, reader, 2),
                 TagCode::FrameLabel => self.frame_label(reader, self.current_frame()),
                 TagCode::DefineSprite => {
-                    return define_sprite(characters, bitmaps, &self.swf_slice, reader, tag_len);
+                    return define_sprite(
+                        characters,
+                        bitmaps,
+                        jpeg_tables,
+                        &self.swf_slice,
+                        reader,
+                        tag_len,
+                    );
                 }
+                TagCode::JpegTables => jpeg_tables_t(jpeg_tables, reader),
                 TagCode::ShowFrame => {
                     self.current_frame += 1;
                     Ok(())
@@ -552,6 +564,7 @@ enum NextFrame {
 fn define_sprite(
     characters: &mut HashMap<CharacterId, Character>,
     bitmaps: &mut BitmapLibrary,
+    jpeg_tables: &mut Option<Vec<u8>>,
     swf_slice: &SwfSlice,
     reader: &mut Reader<'_>,
     tag_len: usize,
@@ -565,7 +578,7 @@ fn define_sprite(
         swf_slice.resize_to_reader(reader, tag_len - num_read),
         num_frames,
     );
-    movie_clip.preload(characters, bitmaps);
+    movie_clip.preload(characters, bitmaps, jpeg_tables);
     characters.insert(id, Character::MovieClip(movie_clip));
     Ok(ControlFlow::Continue)
 }
@@ -596,6 +609,43 @@ fn define_morph_shape(
     characters.insert(
         id,
         Character::MorphShape(MorphShape::from_swf_tag(&tag, movie)),
+    );
+    Ok(())
+}
+
+#[inline]
+fn jpeg_tables_t(jpeg_tables: &mut Option<Vec<u8>>, reader: &mut Reader) -> Result<(), Error> {
+    let data = reader.read_slice_to_end();
+    if jpeg_tables.is_some() {
+        warn!("SWF contains multiple JPEGTables tags");
+    } else {
+        *jpeg_tables = if data.is_empty() {
+            None
+        } else {
+            Some(remove_invalid_jpeg_data(data).into_owned())
+        }
+    }
+    Ok(())
+}
+
+#[inline]
+fn define_bits(
+    bitmaps: &mut BitmapLibrary,
+    jpeg_tables: &mut Option<Vec<u8>>,
+    reader: &mut Reader,
+) -> Result<(), Error> {
+    let id = reader.read_character_id()?;
+    let jpeg_data = reader.read_slice_to_end();
+    let jpeg_data = glue_tables_to_jpeg(jpeg_data, jpeg_tables.as_deref()).into_owned();
+    let (width, height) = decode_define_bits_jpeg_dimensions(&jpeg_data)?;
+    bitmaps.insert(
+        id,
+        CompressedBitmap::Jpeg {
+            data: jpeg_data,
+            alpha: None,
+            width,
+            height,
+        },
     );
     Ok(())
 }

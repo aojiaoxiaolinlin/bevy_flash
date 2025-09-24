@@ -76,8 +76,11 @@ impl AssetLoader for SwfLoader {
         let swf_movie = Arc::new(SwfMovie::from_data(&swf_data)?);
         let mut root = MovieClip::new(swf_movie.clone());
         let mut characters = HashMap::new();
+
+        // 解析定义的资源
         let mut bitmaps = HashMap::new();
-        root.preload(&mut characters, &mut bitmaps);
+        let mut jpeg_tables = None;
+        root.preload(&mut characters, &mut bitmaps, &mut jpeg_tables);
 
         let mut mesh_index = 0;
         let mut image_index = 0;
