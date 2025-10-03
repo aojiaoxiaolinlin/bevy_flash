@@ -44,7 +44,7 @@ use bevy::{
         system::{Commands, EntityCommands, Local, Query, Res, ResMut},
     },
     image::Image,
-    log::{info, warn_once},
+    log::warn_once,
     math::{IVec2, Mat4, UVec2, Vec2, Vec3, Vec3Swizzles},
     mesh::{Mesh, Mesh2d},
     platform::collections::{HashMap, HashSet},
@@ -776,7 +776,6 @@ fn render_display_object(
             graphic.render_self(context, blend_mode, shape_depth_layer);
         }
         DisplayObject::MorphShape(morph_shape) => {
-            info!("处理变形形状 {} 渲染", morph_shape.id());
             morph_shape.render_self(context, blend_mode, shape_depth_layer);
         }
     }
