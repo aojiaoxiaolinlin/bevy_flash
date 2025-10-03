@@ -29,7 +29,7 @@ impl ViewNode for FilterPostProcessingNode {
         &self,
         _graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext<'w>,
-        (offscreen_texture, view_target): bevy::ecs::query::QueryItem<'w, Self::ViewQuery>,
+        (offscreen_texture, view_target): bevy::ecs::query::QueryItem<'w, '_, Self::ViewQuery>,
         world: &'w bevy::ecs::world::World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let pipeline_cache = world.resource::<PipelineCache>();
@@ -405,6 +405,7 @@ fn get_render_pass<'a, 'w>(
         label: Some(label),
         color_attachments: &[Some(RenderPassColorAttachment {
             view,
+            depth_slice: None,
             resolve_target: None,
             ops: Operations::default(),
         })],

@@ -8,7 +8,7 @@ use bevy::{
         render_resource::{CommandEncoderDescriptor, PipelineCache, RenderPassDescriptor},
         sync_world::MainEntity,
     },
-    sprite::PreparedMaterial2d,
+    sprite_render::PreparedMaterial2d,
 };
 
 use crate::render::{
@@ -31,7 +31,7 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
         &self,
         graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext<'w>,
-        (_, target, filter_offsets): bevy::ecs::query::QueryItem<'w, Self::ViewQuery>,
+        (_, target, filter_offsets): bevy::ecs::query::QueryItem<'w, '_, Self::ViewQuery>,
         world: &'w bevy::ecs::world::World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let Some(transparent_phases) = world.get_resource::<OffscreenFlashShapeRenderPhases>()

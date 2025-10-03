@@ -8,28 +8,26 @@ mod texture_attachment;
 
 use bevy::{
     app::{App, Plugin},
-    asset::{Assets, Handle, RenderAssetUsages, load_internal_asset, weak_handle},
+    asset::{Assets, Handle, RenderAssetUsages, load_internal_asset, uuid_handle},
     ecs::{resource::Resource, world::FromWorld},
-    render::{
-        mesh::{Indices, Mesh, PrimitiveTopology},
-        render_resource::Shader,
-    },
-    sprite::Material2dPlugin,
+    mesh::{Indices, Mesh, PrimitiveTopology},
+    shader::Shader,
+    sprite_render::Material2dPlugin,
 };
 
-use graph::FlashFilterRenderGraphPlugin;
+use graph::FlashFilterRenderPlugin;
 use material::{BitmapMaterial, ColorMaterial, GradientMaterial};
 
 use crate::render::offscreen_texture::{ExtractedOffscreenTexture, OffscreenTexturePlugin};
 
 pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("8c2a5b0f-3e6d-4f8a-b217-84d2f5e1c9b3");
+    uuid_handle!("8c2a5b0f-3e6d-4f8a-b217-84d2f5e1c9b3");
 pub const GRADIENT_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("5e9f1a78-9b34-4c15-8d7e-2a3b0f47d862");
+    uuid_handle!("5e9f1a78-9b34-4c15-8d7e-2a3b0f47d862");
 pub const BITMAP_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("a34c7d82-1f5b-4a9e-93d8-6b7e20c45a1f");
+    uuid_handle!("a34c7d82-1f5b-4a9e-93d8-6b7e20c45a1f");
 pub const FLASH_COMMON_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("e53b9f82-6a4c-4d5b-91e7-4f2a63b8c5d9");
+    uuid_handle!("e53b9f82-6a4c-4d5b-91e7-4f2a63b8c5d9");
 
 pub struct FlashRenderPlugin;
 
@@ -63,7 +61,7 @@ impl Plugin for FlashRenderPlugin {
         app.add_plugins(Material2dPlugin::<GradientMaterial>::default())
             .add_plugins(Material2dPlugin::<ColorMaterial>::default())
             .add_plugins(Material2dPlugin::<BitmapMaterial>::default())
-            .add_plugins((OffscreenTexturePlugin, FlashFilterRenderGraphPlugin))
+            .add_plugins((OffscreenTexturePlugin, FlashFilterRenderPlugin))
             .init_resource::<FilterTextureMesh>();
     }
 }

@@ -13,12 +13,14 @@ use bevy::{
         },
         renderer::RenderDevice,
     },
-    sprite::{
+    shader::ShaderRef,
+    sprite_render::{
         AlphaMode2d, DrawMesh2d, Material2d, Material2dBindGroupId, Material2dPipeline,
         Material2dProperties, Mesh2dPipelineKey, SetMaterial2dBindGroup, SetMesh2dBindGroup,
         alpha_mode_pipeline_key,
     },
 };
+
 use bytemuck::{Pod, Zeroable};
 
 use swf::GradientSpread;
@@ -85,10 +87,10 @@ macro_rules! swf_material {
 macro_rules! material2d {
     ($name:ident, $shader:expr) => {
         impl Material2d for $name {
-            fn vertex_shader() -> bevy::render::render_resource::ShaderRef {
+            fn vertex_shader() -> ShaderRef {
                 $shader.into()
             }
-            fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
+            fn fragment_shader() -> ShaderRef {
                 $shader.into()
             }
             fn alpha_mode(&self) -> AlphaMode2d {
@@ -97,8 +99,8 @@ macro_rules! material2d {
 
             fn specialize(
                 descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-                _layout: &bevy::render::mesh::MeshVertexBufferLayoutRef,
-                key: bevy::sprite::Material2dKey<Self>,
+                _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
+                key: bevy::sprite_render::Material2dKey<Self>,
             ) -> bevy::ecs::error::Result<
                 (),
                 bevy::render::render_resource::SpecializedMeshPipelineError,
@@ -331,7 +333,9 @@ impl<M: Material2d> RenderAsset for PreparedOffscreenMaterial2d<M> {
             transparent_draw_functions,
             material_param,
         ): &mut bevy::ecs::system::SystemParamItem<Self::Param>,
+        _: Option<&Self>,
     ) -> Result<Self, bevy::render::render_asset::PrepareAssetError<Self::SourceAsset>> {
+        let bind_group_data = material.bind_group_data();
         match material.as_bind_group(&pipeline.material2d_layout, render_device, material_param) {
             Ok(prepared) => {
                 let mut mesh_pipeline_key_bits = Mesh2dPipelineKey::empty();
@@ -351,7 +355,7 @@ impl<M: Material2d> RenderAsset for PreparedOffscreenMaterial2d<M> {
                 Ok(PreparedOffscreenMaterial2d {
                     bindings: prepared.bindings,
                     bind_group: prepared.bind_group,
-                    key: prepared.data,
+                    key: bind_group_data,
                     properties: Material2dProperties {
                         depth_bias: material.depth_bias(),
                         alpha_mode: material.alpha_mode(),

@@ -1,24 +1,24 @@
 use std::borrow::Cow;
 
 use bevy::{
-    asset::{Handle, weak_handle},
-    core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state,
+    asset::{Handle, uuid_handle},
+    core_pipeline::FullscreenShader,
     ecs::{
         resource::Resource,
-        system::{Res, SystemState},
+        system::{Commands, Res},
         world::FromWorld,
     },
     image::BevyDefault,
     math::{Mat4, Vec2},
+    mesh::{Mesh, PrimitiveTopology, VertexBufferLayout},
     prelude::{Deref, DerefMut},
     render::{
-        mesh::{Mesh, PrimitiveTopology, VertexBufferLayout},
         render_resource::{
             AsBindGroup, BindGroupLayout, BindGroupLayoutEntries, BlendComponent, BlendFactor,
             BlendOperation, BlendState, BufferUsages, BufferVec, CachedRenderPipelineId,
             ColorTargetState, ColorWrites, DynamicUniformBuffer, FragmentState, FrontFace,
             MultisampleState, PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, Shader, ShaderStages, ShaderType,
+            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType,
             SpecializedMeshPipeline, TextureFormat, TextureSampleType, VertexFormat, VertexState,
             VertexStepMode,
             binding_types::{sampler, texture_2d, uniform_buffer},
@@ -26,31 +26,32 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
         view::Msaa,
     },
+    shader::Shader,
 };
 use bytemuck::{Pod, Zeroable};
 
 use crate::render::material::{BitmapMaterial, ColorMaterial, GradientMaterial};
 
 pub const OFFSCREEN_MESH2D_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("f1e2d3c4-b5a6-4978-8c9d-0e1f2a3b4c5d");
+    uuid_handle!("f1e2d3c4-b5a6-4978-8c9d-0e1f2a3b4c5d");
 
 pub const OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("a1b2c3d4-e5f6-4789-8a9b-0c1d2e3f4a5b");
+    uuid_handle!("a1b2c3d4-e5f6-4789-8a9b-0c1d2e3f4a5b");
 
 pub const OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("e3f4a5b6-c7d8-4e9f-0a1b-2c3d4e5f6a7b");
+    uuid_handle!("e3f4a5b6-c7d8-4e9f-0a1b-2c3d4e5f6a7b");
 
 pub const BLUR_FILTER_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("f59e3d1c-7a24-4b8c-82a3-1d94e6f2c705");
+    uuid_handle!("f59e3d1c-7a24-4b8c-82a3-1d94e6f2c705");
 
 pub const COLOR_MATRIX_FILTER_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("1a2b3c4d-5e6f-4789-0123-456789abcdef");
+    uuid_handle!("1a2b3c4d-5e6f-4789-0123-456789abcdef");
 
 pub const GLOW_FILTER_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("c1d2e3f4-a5b6-4789-0123-456789abcdef");
+    uuid_handle!("c1d2e3f4-a5b6-4789-0123-456789abcdef");
 
 pub const BEVEL_FILTER_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("e2f8a9d6-3c7b-42f1-8e9d-5a6b4c3d2e1f");
+    uuid_handle!("e2f8a9d6-3c7b-42f1-8e9d-5a6b4c3d2e1f");
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -85,31 +86,25 @@ pub struct OffscreenMesh2dPipeline {
     pub sampler: Sampler,
 }
 
-impl FromWorld for OffscreenMesh2dPipeline {
-    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
-        let mut system_state: SystemState<Res<RenderDevice>> = SystemState::new(world);
-        let render_device = system_state.get_mut(world);
-        let render_device = render_device.into_inner();
+pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Res<RenderDevice>) {
+    let view_bind_group_layout = render_device.create_bind_group_layout(
+        "纹理变换矩阵布局",
+        &BindGroupLayoutEntries::single(ShaderStages::VERTEX, uniform_buffer::<Mat4>(true)),
+    );
 
-        let view_bind_group_layout = render_device.create_bind_group_layout(
-            "纹理变换矩阵布局",
-            &BindGroupLayoutEntries::single(ShaderStages::VERTEX, uniform_buffer::<Mat4>(true)),
-        );
+    let color_bind_group_layout = ColorMaterial::bind_group_layout(&render_device);
+    let gradient_bind_group_layout = GradientMaterial::bind_group_layout(&render_device);
+    let bitmap_bind_group_layout = BitmapMaterial::bind_group_layout(&render_device);
 
-        let color_bind_group_layout = ColorMaterial::bind_group_layout(render_device);
-        let gradient_bind_group_layout = GradientMaterial::bind_group_layout(render_device);
-        let bitmap_bind_group_layout = BitmapMaterial::bind_group_layout(render_device);
+    let sampler = render_device.create_sampler(&SamplerDescriptor::default());
 
-        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
-
-        OffscreenMesh2dPipeline {
-            view_bind_group_layout,
-            color_bind_group_layout,
-            gradient_bind_group_layout,
-            bitmap_bind_group_layout,
-            sampler,
-        }
-    }
+    commands.insert_resource(OffscreenMesh2dPipeline {
+        view_bind_group_layout,
+        color_bind_group_layout,
+        gradient_bind_group_layout,
+        bitmap_bind_group_layout,
+        sampler,
+    });
 }
 
 impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
@@ -118,7 +113,7 @@ impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
     fn specialize(
         &self,
         key: Self::Key,
-        layout: &bevy::render::mesh::MeshVertexBufferLayoutRef,
+        layout: &bevy::mesh::MeshVertexBufferLayoutRef,
     ) -> Result<RenderPipelineDescriptor, bevy::render::render_resource::SpecializedMeshPipelineError>
     {
         let mut vertex_attributes = Vec::new();
@@ -234,7 +229,7 @@ impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
             vertex: VertexState {
                 shader: shader.clone(),
                 shader_defs: vec![],
-                entry_point: "vertex".into(),
+                entry_point: Some("vertex".into()),
                 buffers: vec![vertex_buffer_layout],
             },
             primitive: PrimitiveState {
@@ -255,7 +250,7 @@ impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
             fragment: Some(FragmentState {
                 shader,
                 shader_defs: vec![],
-                entry_point: "fragment".into(),
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format,
                     blend,
@@ -325,9 +320,9 @@ pub struct BlurFilterPipeline {
 }
 
 impl FromWorld for BlurFilterPipeline {
-    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
-        let render_device = world.resource::<RenderDevice>();
-        let pipeline_cache = world.resource::<PipelineCache>();
+    fn from_world(render_world: &mut bevy::ecs::world::World) -> Self {
+        let render_device = render_world.resource::<RenderDevice>();
+        let pipeline_cache = render_world.resource::<PipelineCache>();
         let layout = render_device.create_bind_group_layout(
             "blur_filter_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
@@ -339,20 +334,21 @@ impl FromWorld for BlurFilterPipeline {
                 ),
             ),
         );
+        let fullscreen_shader = render_world.resource::<FullscreenShader>().clone();
         let sampler = render_device.create_sampler(&SamplerDescriptor::default());
 
         let descriptor = RenderPipelineDescriptor {
             label: Some(Cow::from("blur_filter_render_pipeline")),
             layout: vec![layout.clone()],
             push_constant_ranges: vec![],
-            vertex: fullscreen_shader_vertex_state(),
+            vertex: fullscreen_shader.to_vertex_state(),
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
             fragment: Some(FragmentState {
                 shader: BLUR_FILTER_SHADER_HANDLE,
                 shader_defs: vec![],
-                entry_point: "fragment".into(),
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: None,
@@ -380,9 +376,9 @@ pub struct ColorMatrixFilterPipeline {
 }
 
 impl FromWorld for ColorMatrixFilterPipeline {
-    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
-        let render_device = world.resource::<RenderDevice>();
-        let pipeline_cache = world.resource::<PipelineCache>();
+    fn from_world(render_world: &mut bevy::ecs::world::World) -> Self {
+        let render_device = render_world.resource::<RenderDevice>();
+        let pipeline_cache = render_world.resource::<PipelineCache>();
         let layout = render_device.create_bind_group_layout(
             "color_matrix_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
@@ -394,20 +390,21 @@ impl FromWorld for ColorMatrixFilterPipeline {
                 ),
             ),
         );
+        let fullscreen_shader = render_world.resource::<FullscreenShader>().clone();
         let sampler = render_device.create_sampler(&SamplerDescriptor::default());
 
         let descriptor = RenderPipelineDescriptor {
             label: Some(Cow::from("color_matrix_filter_render_pipeline")),
             layout: vec![layout.clone()],
             push_constant_ranges: vec![],
-            vertex: fullscreen_shader_vertex_state(),
+            vertex: fullscreen_shader.to_vertex_state(),
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
             fragment: Some(FragmentState {
                 shader: COLOR_MATRIX_FILTER_SHADER_HANDLE,
                 shader_defs: vec![],
-                entry_point: "fragment".into(),
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: None,
@@ -435,9 +432,9 @@ pub struct GlowFilterPipeline {
 }
 
 impl FromWorld for GlowFilterPipeline {
-    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
-        let render_device = world.resource::<RenderDevice>();
-        let pipeline_cache = world.resource::<PipelineCache>();
+    fn from_world(render_world: &mut bevy::ecs::world::World) -> Self {
+        let render_device = render_world.resource::<RenderDevice>();
+        let pipeline_cache = render_world.resource::<PipelineCache>();
         let layout = render_device.create_bind_group_layout(
             "glow_filter_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
@@ -450,20 +447,21 @@ impl FromWorld for GlowFilterPipeline {
                 ),
             ),
         );
+        let fullscreen_shader = render_world.resource::<FullscreenShader>().clone();
         let sampler = render_device.create_sampler(&SamplerDescriptor::default());
 
         let descriptor = RenderPipelineDescriptor {
             label: Some(Cow::from("glow_filter_filter_render_pipeline")),
             layout: vec![layout.clone()],
             push_constant_ranges: vec![],
-            vertex: fullscreen_shader_vertex_state(),
+            vertex: fullscreen_shader.to_vertex_state(),
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
             fragment: Some(FragmentState {
                 shader: GLOW_FILTER_SHADER_HANDLE,
                 shader_defs: vec![],
-                entry_point: "fragment".into(),
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: None,
@@ -515,7 +513,7 @@ impl FromWorld for BevelFilterPipeline {
             vertex: VertexState {
                 shader: BEVEL_FILTER_SHADER_HANDLE,
                 shader_defs: vec![],
-                entry_point: "vertex".into(),
+                entry_point: Some("vertex".into()),
                 buffers: vec![VertexBufferLayout::from_vertex_formats(
                     VertexStepMode::Vertex,
                     vec![
@@ -532,7 +530,7 @@ impl FromWorld for BevelFilterPipeline {
             fragment: Some(FragmentState {
                 shader: BEVEL_FILTER_SHADER_HANDLE,
                 shader_defs: vec![],
-                entry_point: "fragment".into(),
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: None,

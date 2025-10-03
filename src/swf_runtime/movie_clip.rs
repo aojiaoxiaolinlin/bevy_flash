@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::{Values, ValuesMut};
 use std::sync::Arc;
 
-use bevy::ecs::component::Component;
 use bevy::log::{error, warn};
 use bevy::platform::collections::HashMap;
 use smallvec::SmallVec;
@@ -14,17 +13,19 @@ use swf::{
     CharacterId, Color, DefineBitsLossless, Depth, PlaceObjectAction, Rectangle, TagCode, Twips,
 };
 
-use crate::swf_runtime::decoder::{glue_tables_to_jpeg, remove_invalid_jpeg_data};
+use crate::assets::MovieLibrary;
 
 use super::character::{BitmapLibrary, Character, CompressedBitmap, instantiate_by_id};
-use super::decoder::decode_define_bits_jpeg_dimensions;
+use super::decoder::{
+    decode_define_bits_jpeg_dimensions, glue_tables_to_jpeg, remove_invalid_jpeg_data,
+};
 use super::display_object::{DisplayObject, DisplayObjectBase, FrameNumber, TDisplayObject};
 use super::graphic::Graphic;
 use super::morph_shape::MorphShape;
 use super::tag_utils;
 use super::tag_utils::{ControlFlow, Error, SwfMovie, SwfSlice};
 
-#[derive(Debug, Clone, Component)]
+#[derive(Debug, Clone)]
 pub struct MovieClip {
     id: CharacterId,
     base: DisplayObjectBase,
@@ -76,7 +77,7 @@ impl MovieClip {
 
     pub(crate) fn preload(
         &mut self,
-        characters: &mut HashMap<CharacterId, Character>,
+        library: &mut MovieLibrary,
         bitmaps: &mut BitmapLibrary,
         jpeg_tables: &mut Option<Vec<u8>>,
     ) {
@@ -84,15 +85,23 @@ impl MovieClip {
         let mut reader = Reader::new(swf.data(), swf.version());
         let tag_callback = |reader: &mut Reader<'_>, tag_code, tag_len| {
             match tag_code {
-                TagCode::DefineShape => define_shape(characters, self.movie(), reader, 1),
-                TagCode::DefineShape2 => define_shape(characters, self.movie(), reader, 2),
-                TagCode::DefineShape3 => define_shape(characters, self.movie(), reader, 3),
-                TagCode::DefineShape4 => define_shape(characters, self.movie(), reader, 4),
+                TagCode::DefineShape => {
+                    define_shape(library.characters_mut(), self.movie(), reader, 1)
+                }
+                TagCode::DefineShape2 => {
+                    define_shape(library.characters_mut(), self.movie(), reader, 2)
+                }
+                TagCode::DefineShape3 => {
+                    define_shape(library.characters_mut(), self.movie(), reader, 3)
+                }
+                TagCode::DefineShape4 => {
+                    define_shape(library.characters_mut(), self.movie(), reader, 4)
+                }
                 TagCode::DefineMorphShape => {
-                    define_morph_shape(characters, self.movie(), reader, 1)
+                    define_morph_shape(library.characters_mut(), self.movie(), reader, 1)
                 }
                 TagCode::DefineMorphShape2 => {
-                    define_morph_shape(characters, self.movie(), reader, 2)
+                    define_morph_shape(library.characters_mut(), self.movie(), reader, 2)
                 }
                 TagCode::DefineBits => define_bits(bitmaps, jpeg_tables, reader),
                 TagCode::DefineBitsJpeg2 => define_bits_jpeg_2(bitmaps, reader),
@@ -100,10 +109,11 @@ impl MovieClip {
                 TagCode::DefineBitsJpeg4 => define_bits_jpeg_3_or_4(bitmaps, reader, 4),
                 TagCode::DefineBitsLossless => define_bits_lossless(bitmaps, reader, 1),
                 TagCode::DefineBitsLossless2 => define_bits_lossless(bitmaps, reader, 2),
+                TagCode::ExportAssets => export_assets(library.export_characters_mut(), reader),
                 TagCode::FrameLabel => self.frame_label(reader, self.current_frame()),
                 TagCode::DefineSprite => {
                     return define_sprite(
-                        characters,
+                        library,
                         bitmaps,
                         jpeg_tables,
                         &self.swf_slice,
@@ -540,6 +550,10 @@ impl TDisplayObject for MovieClip {
     fn id(&self) -> CharacterId {
         self.id
     }
+
+    fn allow_as_mask(&self) -> bool {
+        !self.depth_list.is_empty()
+    }
 }
 
 impl From<MovieClip> for DisplayObject {
@@ -562,7 +576,7 @@ enum NextFrame {
 }
 
 fn define_sprite(
-    characters: &mut HashMap<CharacterId, Character>,
+    library: &mut MovieLibrary,
     bitmaps: &mut BitmapLibrary,
     jpeg_tables: &mut Option<Vec<u8>>,
     swf_slice: &SwfSlice,
@@ -578,8 +592,10 @@ fn define_sprite(
         swf_slice.resize_to_reader(reader, tag_len - num_read),
         num_frames,
     );
-    movie_clip.preload(characters, bitmaps, jpeg_tables);
-    characters.insert(id, Character::MovieClip(movie_clip));
+    movie_clip.preload(library, bitmaps, jpeg_tables);
+    library
+        .characters_mut()
+        .insert(id, Character::MovieClip(movie_clip));
     Ok(ControlFlow::Continue)
 }
 
@@ -712,6 +728,19 @@ fn define_bits_lossless(
             data: Cow::Owned(bits_lossless.data.into_owned()),
         }),
     );
+    Ok(())
+}
+
+#[inline]
+fn export_assets(
+    export_characters: &mut HashMap<String, CharacterId>,
+    reader: &mut Reader,
+) -> Result<(), Error> {
+    let exports = reader.read_export_assets()?;
+    for export in exports {
+        let name = export.name.to_string_lossy(reader.encoding());
+        export_characters.insert(name, export.id);
+    }
     Ok(())
 }
 

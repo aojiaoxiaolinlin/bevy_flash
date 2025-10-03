@@ -2,10 +2,10 @@ use bevy::{
     asset::Handle,
     ecs::component::Component,
     math::Vec2,
+    mesh::Mesh,
     prelude::{Deref, DerefMut},
-    render::{extract_component::ExtractComponent, mesh::Mesh},
+    render::extract_component::ExtractComponent,
 };
-use swf::CharacterId;
 
 use crate::{
     render::{
@@ -14,6 +14,8 @@ use crate::{
     },
     swf_runtime::transform::Transform,
 };
+
+use swf::CharacterId;
 
 #[derive(Debug)]
 pub(crate) enum ShapeCommand {

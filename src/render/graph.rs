@@ -7,13 +7,13 @@ use bevy::{
     app::Plugin,
     asset::AssetId,
     ecs::{resource::Resource, schedule::IntoScheduleConfigs},
+    mesh::Mesh,
     platform::collections::hash_map::Entry,
     prelude::{Deref, DerefMut},
     render::{
-        Render, RenderApp, RenderSet,
+        Render, RenderApp, RenderSystems,
         graph::CameraDriverLabel,
-        mesh::Mesh,
-        render_graph::{RenderGraph, RenderGraphApp, RenderLabel, RenderSubGraph, ViewNodeRunner},
+        render_graph::{RenderGraph, RenderGraphExt, RenderLabel, RenderSubGraph, ViewNodeRunner},
         render_resource::CachedRenderPipelineId,
         sync_world::{MainEntity, MainEntityHashMap},
     },
@@ -50,9 +50,9 @@ pub enum OffscreenNode2d {
     Upscaling,
 }
 
-pub struct FlashFilterRenderGraphPlugin;
+pub struct FlashFilterRenderPlugin;
 
-impl Plugin for FlashFilterRenderGraphPlugin {
+impl Plugin for FlashFilterRenderPlugin {
     fn build(&self, app: &mut bevy::app::App) {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -60,7 +60,7 @@ impl Plugin for FlashFilterRenderGraphPlugin {
         render_app.add_systems(
             Render,
             upscaling::prepare_offscreen_view_upscaling_pipelines
-                .in_set(RenderSet::Prepare)
+                .in_set(RenderSystems::Prepare)
                 .ambiguous_with_all(),
         );
         render_app

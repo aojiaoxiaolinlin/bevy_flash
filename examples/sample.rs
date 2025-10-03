@@ -2,8 +2,7 @@ use bevy::{dev_tools::fps_overlay::FpsOverlayPlugin, prelude::*};
 use bevy_flash::{
     FlashCompleteEvent, FlashFrameEvent, FlashPlugin,
     assets::Swf,
-    player::{Flash, FlashPlayer},
-    swf_runtime::movie_clip::MovieClip,
+    player::{Flash, FlashPlayer, McRoot},
 };
 
 fn main() {
@@ -50,7 +49,7 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
             font_size: 24.0,
             ..default()
         },
-        TextLayout::new_with_justify(JustifyText::Center),
+        TextLayout::new_with_justify(Justify::Center),
         Node {
             position_type: PositionType::Absolute,
             bottom: Val::Px(5.0),
@@ -63,7 +62,7 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
 /// 按下 Space 控制动画跳转
 fn animation_control(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut player: Query<(&Name, &mut FlashPlayer, &mut MovieClip, &Flash)>,
+    mut player: Query<(&Name, &mut FlashPlayer, &mut McRoot, &Flash)>,
     swf_res: Res<Assets<Swf>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Space) {
@@ -81,23 +80,22 @@ fn animation_control(
 }
 
 fn flash_complete(
-    trigger: Trigger<FlashCompleteEvent>,
-    mut player: Query<(&mut FlashPlayer, &Flash, &mut MovieClip)>,
+    complete: On<FlashCompleteEvent>,
+    mut player: Query<(&mut FlashPlayer, &Flash, &mut McRoot)>,
     swf_res: Res<Assets<Swf>>,
 ) {
-    let Ok((mut player, flash, mut root)) = player.get_mut(trigger.target()) else {
+    let Ok((mut player, flash, mut root)) = player.get_mut(complete.event_target()) else {
         return;
     };
-    if let Some(animation_name) = &trigger.event().animation_name {
+    if let Some(animation_name) = &complete.event().name() {
         info!(
             "实体: {}, 动画: {:?}, 播放完毕",
-            trigger.target(),
+            complete.event_target(),
             animation_name
         );
         let Some(swf) = swf_res.get(flash.id()) else {
             return;
         };
-
         player.set_play("WAI", swf, root.as_mut());
         player.set_looping(true);
     }
@@ -105,10 +103,14 @@ fn flash_complete(
 
 /// 需要在 Flash 动画中添加标签，标签名称为事件名称。
 /// 事件标签格式: `event_<EventName>`
-fn frame_event(trigger: Trigger<FlashFrameEvent>, mut player: Query<&mut FlashPlayer>) {
-    let Ok(_player) = player.get_mut(trigger.target()) else {
+fn frame_event(frame_event: On<FlashFrameEvent>, mut player: Query<&mut FlashPlayer>) {
+    let Ok(_player) = player.get_mut(frame_event.event_target()) else {
         return;
     };
-    let event_name = trigger.event().name();
-    info!("实体: {}, 触发帧事件: {:?}", trigger.target(), event_name);
+    let event_name = frame_event.event().name();
+    info!(
+        "实体: {}, 触发帧事件: {:?}",
+        frame_event.event_target(),
+        event_name
+    );
 }

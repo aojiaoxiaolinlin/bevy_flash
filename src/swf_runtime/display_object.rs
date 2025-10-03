@@ -1,9 +1,10 @@
 use std::collections::btree_map::ValuesMut;
 use std::sync::Arc;
+use std::time::Instant;
 
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::image::Image;
-use bevy::log::warn_once;
+use bevy::log::{info, warn_once};
 use bevy::math::{IVec2, UVec2};
 use bevy::platform::collections::HashMap;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
@@ -22,18 +23,30 @@ use super::{filter::Filter, movie_clip::MovieClip, transform::Transform};
 
 pub(crate) type FrameNumber = u16;
 
+type ImageCaches = HashMap<(u16, u16), Handle<Image>>;
+
 #[derive(Debug, Clone, Default)]
 pub struct ImageCacheInfo {
     width: u16,
     height: u16,
-    handle: Handle<Image>,
+    caches: ImageCaches,
 }
 impl ImageCacheInfo {
     pub fn handle(&self) -> Handle<Image> {
-        self.handle.clone()
+        self.caches.get(&(self.width, self.height)).unwrap().clone()
     }
     pub fn size(&self) -> UVec2 {
         UVec2::new(self.width as u32, self.height as u32)
+    }
+    pub fn has_cache(&mut self, width: u16, height: u16) -> bool {
+        if self.caches.contains_key(&(width, height)) {
+            // 缓存命中
+            self.width = width;
+            self.height = height;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -95,8 +108,7 @@ impl ImageCache {
         self.draw_offset = draw_offset;
 
         if let Some(current) = self.image.as_mut()
-            && current.width == width
-            && current.height == height
+            && current.has_cache(actual_width, actual_height)
         {
             // 缓存命中，不需要重新渲染
             return;
@@ -108,25 +120,24 @@ impl ImageCache {
             actual_width < 2880 && actual_height < 2880
         };
         if actual_width > 0 && actual_height > 0 && acceptable_size {
-            let mut image = Image::new_fill(
-                Extent3d {
-                    width: actual_width as u32,
-                    height: actual_height as u32,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                &[0, 0, 0, 0],
+            let image = Image::new_target_texture(
+                actual_width as u32,
+                actual_height as u32,
                 TextureFormat::Rgba8Unorm,
-                RenderAssetUsages::default(),
             );
-            image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT;
-            self.image = Some(ImageCacheInfo {
-                width: actual_width,
-                height: actual_height,
-                handle: images.add(image),
-            })
+            if let Some(image_cache_info) = &mut self.image {
+                image_cache_info
+                    .caches
+                    .insert((actual_width, actual_height), images.add(image));
+            } else {
+                let mut caches = HashMap::new();
+                caches.insert((actual_width, actual_height), images.add(image));
+                self.image = Some(ImageCacheInfo {
+                    width: actual_width,
+                    height: actual_height,
+                    caches,
+                });
+            }
         } else {
             self.image = None;
         }
@@ -148,6 +159,7 @@ pub struct DisplayObjectBase {
     name: Option<Box<str>>,
     place_frame: FrameNumber,
     depth: Depth,
+    clip_depth: Depth,
     transform: Transform,
     filters: Vec<Filter>,
     blend_mode: BlendMode,
@@ -214,6 +226,10 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         self.base_mut().depth = depth;
     }
 
+    fn set_clip_depth(&mut self, clip_depth: Depth) {
+        self.base_mut().clip_depth = clip_depth;
+    }
+
     fn set_matrix(&mut self, matrix: Matrix) {
         self.base_mut().set_matrix(matrix);
     }
@@ -250,6 +266,10 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
 
     fn depth(&self) -> Depth {
         self.base().depth
+    }
+
+    fn clip_depth(&self) -> Depth {
+        self.base().clip_depth
     }
 
     fn place_frame(&self) -> FrameNumber {
@@ -327,6 +347,9 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         if let Some(blend_mode) = place_object.blend_mode {
             self.set_blend_mode(blend_mode);
         }
+        if let Some(clip_depth) = place_object.clip_depth {
+            self.set_clip_depth(clip_depth);
+        }
         if let Some(_is_bitmap_cached) = place_object.is_bitmap_cached {
             //TODO:
             warn_once!(
@@ -366,6 +389,10 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
 
     fn children_mut(&mut self) -> Option<ValuesMut<'_, u16, DisplayObject>> {
         None
+    }
+
+    fn allow_as_mask(&self) -> bool {
+        true
     }
 
     fn as_morph_shape(&mut self) -> Option<&mut MorphShape> {

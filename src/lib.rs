@@ -6,44 +6,54 @@ pub mod swf_runtime;
 
 use std::collections::btree_map::ValuesMut;
 
-use crate::assets::{ShapeMaterialType, Swf, SwfLoader};
-use crate::commands::{MaterialType, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw};
-use crate::player::{Flash, FlashPlayer};
-use crate::render::blend_pipeline::BlendMode;
-use crate::render::material::{
-    BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial, SwfMaterial,
+use crate::{
+    assets::{ShapeMaterialType, Swf, SwfLoader},
+    commands::{MaterialType, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw},
+    player::{Flash, FlashPlayer, McRoot},
+    render::{
+        FilterTextureMesh, FlashRenderPlugin,
+        blend_pipeline::BlendMode,
+        material::{
+            BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial, SwfMaterial,
+        },
+        offscreen_texture::OffscreenTexture,
+    },
+    swf_runtime::{
+        display_object::{DisplayObject, ImageCache, ImageCacheInfo, TDisplayObject},
+        filter::Filter,
+        matrix::Matrix,
+        morph_shape::Frame,
+        movie_clip::MovieClip,
+        transform::{Transform as SwfTransform, TransformStack},
+    },
 };
-use crate::render::offscreen_texture::OffscreenTexture;
-use crate::render::{FilterTextureMesh, FlashRenderPlugin};
-use crate::swf_runtime::display_object::{
-    DisplayObject, ImageCache, ImageCacheInfo, TDisplayObject,
-};
-use crate::swf_runtime::filter::Filter;
-use crate::swf_runtime::matrix::Matrix;
-use crate::swf_runtime::morph_shape::Frame;
-use crate::swf_runtime::movie_clip::MovieClip;
-use crate::swf_runtime::transform::{Transform as SwfTransform, TransformStack};
 
-use bevy::app::{App, PostUpdate, Update};
-use bevy::asset::{AssetEvent, Assets, Handle};
-use bevy::color::Color;
-use bevy::ecs::component::Component;
-use bevy::ecs::entity::{Entity, EntityHashMap};
-use bevy::ecs::event::{Event, EventReader};
-use bevy::ecs::query::With;
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, EntityCommands, Local, Query, Res, ResMut};
-use bevy::image::Image;
-use bevy::log::{info, warn_once};
-use bevy::math::{IVec2, Mat4, UVec2, Vec2, Vec3, Vec3Swizzles};
-use bevy::platform::collections::{HashMap, HashSet};
-use bevy::prelude::{Deref, DerefMut};
-use bevy::render::mesh::{Mesh, Mesh2d};
-use bevy::render::view::{NoFrustumCulling, Visibility};
-use bevy::sprite::MeshMaterial2d;
-use bevy::time::{Time, Timer, TimerMode};
-use bevy::transform::components::{GlobalTransform, Transform};
-use bevy::{app::Plugin, asset::AssetApp};
+use bevy::{
+    app::{App, Plugin, PostUpdate},
+    asset::{AssetApp, Assets, Handle},
+    camera::visibility::{NoFrustumCulling, Visibility},
+    color::Color,
+    ecs::{
+        component::Component,
+        entity::{Entity, EntityHashMap},
+        event::EntityEvent,
+        hierarchy::ChildOf,
+        query::{With, Without},
+        resource::Resource,
+        schedule::IntoScheduleConfigs,
+        system::{Commands, EntityCommands, Local, Query, Res, ResMut},
+    },
+    image::Image,
+    log::{info, warn_once},
+    math::{IVec2, Mat4, UVec2, Vec2, Vec3, Vec3Swizzles},
+    mesh::{Mesh, Mesh2d},
+    platform::collections::{HashMap, HashSet},
+    prelude::{Deref, DerefMut},
+    sprite_render::MeshMaterial2d,
+    time::{Time, Timer, TimerMode},
+    transform::components::{GlobalTransform, Transform},
+};
+
 use swf::{CharacterId, Rectangle, Twips};
 
 /// 用于缓存每个实体对应的显示对象
@@ -64,8 +74,7 @@ impl Plugin for FlashPlugin {
             .init_asset::<Swf>()
             .init_asset_loader::<SwfLoader>()
             .init_resource::<FlashPlayerTimer>()
-            .add_systems(Update, prepare_root_clip)
-            .add_systems(PostUpdate, advance_animation);
+            .add_systems(PostUpdate, (prepare_root_clip, advance_animation).chain());
     }
 }
 
@@ -171,40 +180,51 @@ impl<'a> RenderContext<'a> {
 pub struct ShapeMesh;
 
 /// 为 Flash 动画添加完成事件
-#[derive(Event, Clone, Deref)]
+#[derive(EntityEvent, Clone)]
 pub struct FlashCompleteEvent {
+    /// 实体
+    entity: Entity,
     /// 当前播放的动画名
-    pub animation_name: Option<String>,
+    name: Option<String>,
+}
+
+impl FlashCompleteEvent {
+    /// 实体
+    pub fn entity(&self) -> Entity {
+        self.entity
+    }
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
 }
 
 /// 为 Flash 动画添加帧事件
-#[derive(Event, Clone, Deref, DerefMut)]
-pub struct FlashFrameEvent(String);
+#[derive(EntityEvent, Clone)]
+pub struct FlashFrameEvent {
+    /// 实体
+    entity: Entity,
+    /// 帧事件名
+    name: String,
+}
 impl FlashFrameEvent {
     pub fn name(&self) -> &str {
-        self.0.as_str()
+        &self.name
     }
 }
 
 /// 为Player实体添加Root MovieClip 组件
 fn prepare_root_clip(
     mut commands: Commands,
-    mut player: Query<(Entity, &mut FlashPlayer, &Flash)>,
+    mut player: Query<(Entity, &mut FlashPlayer, &Flash), Without<McRoot>>,
     swf_res: Res<Assets<Swf>>,
-    mut asset_event: EventReader<AssetEvent<Swf>>,
 ) {
-    for event in asset_event.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = event
-            && let Some((entity, mut player, _)) =
-                player.iter_mut().find(|(_, _, flash)| flash.id() == *id)
-        {
-            let Some(swf) = swf_res.get(*id) else {
-                continue;
-            };
-            let mut root = MovieClip::new(swf.swf_movie.clone());
-            player.play_target_animation(swf, &mut root);
-            commands.entity(entity).insert(root);
-        }
+    for (entity, mut player, flash) in player.iter_mut() {
+        let Some(swf) = swf_res.get(flash.id()) else {
+            continue;
+        };
+        let mut root = McRoot(MovieClip::new(swf.swf_movie.clone()));
+        player.play_target_animation(swf, &mut root);
+        commands.entity(entity).insert(root);
     }
 }
 
@@ -226,8 +246,9 @@ fn handle_animation_complete(
     if !player.is_looping() && player.is_completed() {
         // 触发完成事件
         if !player.completed() {
-            commands.entity(entity).trigger(FlashCompleteEvent {
-                animation_name: player.current_animation().map(|s| s.into()),
+            commands.trigger(FlashCompleteEvent {
+                entity,
+                name: player.current_animation().map(|s| s.into()),
             });
             player.set_completed(true);
         }
@@ -237,7 +258,7 @@ fn handle_animation_complete(
 }
 
 /// 处理循环播放逻辑
-fn handle_animation_loop(player: &mut FlashPlayer, root: &mut MovieClip, swf: &Swf) {
+fn handle_animation_loop(player: &mut FlashPlayer, root: &mut McRoot, swf: &Swf) {
     if player.is_looping() && player.is_completed() {
         // 循环播放，跳回当前动画第一帧
         player.play_target_animation(swf, root);
@@ -252,23 +273,23 @@ fn update_animation_frame(
     root: &mut MovieClip,
     swf: &Swf,
 ) {
-    let characters = &swf.characters;
+    let characters = &swf.characters();
     // 进入一帧
     root.enter_frame(characters);
     player.incr_frame();
 
     // 触发帧事件
     if let Some(event) = swf.frame_events().get(&root.current_frame()) {
-        commands
-            .entity(entity)
-            .trigger(FlashFrameEvent(event.as_ref().into()));
+        commands.trigger(FlashFrameEvent {
+            entity,
+            name: event.as_ref().into(),
+        });
     }
 }
 
 /// 创建渲染上下文
 fn create_render_context<'a>(
     transform_stack: &'a mut TransformStack,
-    global_scale: Vec3,
     cache_draws: &'a mut Vec<ImageCacheDraw>,
     swf: &'a mut Swf,
     meshes: &'a mut Assets<Mesh>,
@@ -277,6 +298,7 @@ fn create_render_context<'a>(
     bitmap_materials: &'a mut Assets<BitmapMaterial>,
     morph_shape_cache: &'a mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
     image_cache: &'a mut HashMap<CharacterId, ImageCache>,
+    global_scale: Vec3,
 ) -> RenderContext<'a> {
     RenderContext::new(
         transform_stack,
@@ -295,11 +317,15 @@ fn create_render_context<'a>(
 
 /// 更新实体可见性
 fn update_entity_visibility(
-    shape_meshes: &mut Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    entity: Entity,
+    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
 ) {
-    shape_meshes.iter_mut().for_each(|(_, mut visibility)| {
-        *visibility = Visibility::Hidden;
-    });
+    shape_meshes
+        .iter_mut()
+        .filter(|(child_of, _, _)| child_of.parent() == entity)
+        .for_each(|(_, _, mut visibility)| {
+            *visibility = Visibility::Hidden;
+        });
 }
 
 /// 推进Flash动画
@@ -313,11 +339,11 @@ fn advance_animation(
     mut player: Query<(
         Entity,
         &mut FlashPlayer,
-        &mut MovieClip,
+        &mut McRoot,
         &Flash,
         &GlobalTransform,
     )>,
-    mut shape_meshes: Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    mut shape_meshes: Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     mut offscreen_textures: Query<&mut OffscreenTexture>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -327,13 +353,10 @@ fn advance_animation(
     mut display_object_entity_caches: Local<EntityHashMap<DisplayObjectCache>>,
 ) {
     let mut current_live_player = vec![];
+    // 1. 将动画的每一帧将离屏渲染实体列为不活跃
+    mark_offscreen_textures_inactive(&mut offscreen_textures);
     if timer.tick(time.delta()).just_finished() {
-        // 1. 将动画的每一帧将离屏渲染实体列为不活跃
-        mark_offscreen_textures_inactive(&mut offscreen_textures);
-        // 将所有形状实体标记为不活跃
-        update_entity_visibility(&mut shape_meshes);
-
-        // 2. 更新动画
+        // 2. 更新动画帧
         for (entity, mut player, mut root, swf, global_transform) in player.iter_mut() {
             current_live_player.push(entity);
 
@@ -342,6 +365,8 @@ fn advance_animation(
                 continue;
             }
 
+            // 将所有形状实体标记为不活跃
+            update_entity_visibility(entity, &mut shape_meshes);
             let Some(swf) = swf_res.get_mut(swf.id()) else {
                 continue;
             };
@@ -365,7 +390,6 @@ fn advance_animation(
             // 创建渲染上下文
             let mut context = create_render_context(
                 &mut transform_stack,
-                global_scale,
                 &mut cache_draws,
                 swf,
                 meshes.as_mut(),
@@ -374,8 +398,8 @@ fn advance_animation(
                 bitmap_materials.as_mut(),
                 morph_shape_cache,
                 image_cache,
+                global_scale,
             );
-
             process_display_list(
                 root.render_list_mut(),
                 &mut context,
@@ -401,9 +425,6 @@ fn advance_animation(
                 display_object_cache,
                 global_scale,
             );
-
-            // 更新实体可见性
-            // update_entity_visibility(&mut commands, children, &current_live_shape_entity);
         }
         display_object_entity_caches.retain(|entity, _| current_live_player.contains(entity));
     }
@@ -453,7 +474,7 @@ fn process_display_list(
             );
         } else {
             // 直接渲染显示对象
-            render_display_object(display_object, context, blend_mode, shape_depth_layer);
+            render_child(display_object, context, blend_mode, &shape_depth_layer);
         }
 
         // TODO:处理复杂混合模式
@@ -518,6 +539,7 @@ fn process_cache_and_filters(
     let draw_offset = IVec2::new(filter_rect.x_min, filter_rect.y_min);
     let actual_width = (filter_rect.width() as f32 * context.scale.x) as u16;
     let actual_height = (filter_rect.height() as f32 * context.scale.y) as u16;
+
     // 更新缓存
     if cache.is_dirty(&base_transform.matrix, width, height) || display_object.cache_dirty() {
         cache.update(
@@ -659,11 +681,11 @@ fn render_to_offscreen_texture(
     );
 
     // 渲染显示对象到离屏上下文
-    render_display_object(
+    render_child(
         display_object,
         &mut offscreen_context,
         blend_mode,
-        shape_depth_layer.to_string(),
+        &shape_depth_layer,
     );
 
     // 将离屏上下文的绘制命令添加到缓存绘制列表
@@ -718,6 +740,23 @@ fn render_cached_texture_to_view(
     });
 }
 
+fn render_child(
+    child: &mut DisplayObject,
+    context: &mut RenderContext<'_>,
+    blend_mode: swf::BlendMode,
+    shape_depth_layer: &str,
+) {
+    if child.clip_depth() > 0 && child.allow_as_mask() {
+        warn_once!("Mass is not supported. TODO!");
+        // 作为遮罩处理
+        // 1. 标记为遮罩TODO:
+        // 2. 渲染
+        // 3. 标记遮罩活跃
+    } else {
+        render_display_object(child, context, blend_mode, shape_depth_layer.to_string());
+    }
+}
+
 fn render_display_object(
     display_object: &mut DisplayObject,
     context: &mut RenderContext<'_>,
@@ -737,6 +776,7 @@ fn render_display_object(
             graphic.render_self(context, blend_mode, shape_depth_layer);
         }
         DisplayObject::MorphShape(morph_shape) => {
+            info!("处理变形形状 {} 渲染", morph_shape.id());
             morph_shape.render_self(context, blend_mode, shape_depth_layer);
         }
     }
@@ -754,7 +794,7 @@ fn spawn_or_update_shape(
     entity: Entity,
     filter_texture_mesh: &FilterTextureMesh,
     (color_materials, gradient_materials, bitmap_materials): ShapeMaterialAssets<'_>,
-    shape_meshes: &mut Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     cache_draw: Vec<ImageCacheDraw>,
     shape_commands: Vec<ShapeCommand>,
     shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
@@ -921,7 +961,7 @@ fn process_direct_shapes(
     entity: Entity,
     filter_texture_mesh: &FilterTextureMesh,
     (color_materials, gradient_materials, bitmap_materials): ShapeMaterialAssets<'_>,
-    shape_meshes: &mut Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     shape_commands: &[ShapeCommand],
     shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
@@ -975,7 +1015,7 @@ fn process_render_shape_command(
     shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
     current_live_shape_depth_layers: &mut HashSet<String>,
-    shape_meshes: &mut Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     materials: ShapeMaterialAssets<'_>,
     z_index: &mut f32,
 ) {
@@ -1034,7 +1074,7 @@ fn process_render_shape_command(
 #[allow(clippy::too_many_arguments)]
 fn update_cached_shapes(
     shape_material_handle_cache: &[(Entity, MaterialType)],
-    shape_meshes: &mut Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     color_materials: &mut Assets<ColorMaterial>,
     gradient_materials: &mut Assets<GradientMaterial>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
@@ -1045,7 +1085,7 @@ fn update_cached_shapes(
     for (index, (entity, handle)) in shape_material_handle_cache.iter().enumerate() {
         *z_index += index as f32 * 0.001;
 
-        let Ok((mut transform, mut visibility)) = shape_meshes.get_mut(*entity) else {
+        let Ok((_, mut transform, mut visibility)) = shape_meshes.get_mut(*entity) else {
             continue;
         };
         transform.translation.z = *z_index;
@@ -1137,7 +1177,7 @@ fn process_render_bitmap_command(
     commands: &mut EntityCommands,
     shape_command: &ShapeCommand,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    shape_meshes: &mut Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
     filter_texture_mesh: &FilterTextureMesh,
     z_index: f32,
@@ -1204,7 +1244,7 @@ fn update_shape_material(
 fn spawn_or_update_bitmap(
     shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
     shape_depth_layer: &String,
-    shape_meshes: &mut Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
     bitmap_material: &BitmapMaterial,
     size: Vec2,
@@ -1241,14 +1281,14 @@ fn spawn_or_update_bitmap(
 fn update_existing_bitmap(
     entity: &Entity,
     bitmap_material_handle: &Handle<BitmapMaterial>,
-    shape_meshes: &mut Query<(&mut Transform, &mut Visibility), With<ShapeMesh>>,
+    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
     bitmap_material: &BitmapMaterial,
     size: Vec2,
     z_index: f32,
 ) {
     // 更新变换
-    let Ok((mut transform, mut visibility)) = shape_meshes.get_mut(*entity) else {
+    let Ok((_, mut transform, mut visibility)) = shape_meshes.get_mut(*entity) else {
         return;
     };
     transform.translation.z = z_index;

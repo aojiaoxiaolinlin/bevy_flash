@@ -1,17 +1,15 @@
 use std::sync::Arc;
 
 use bevy::{
-    asset::{Asset, AssetLoader, Handle, LoadContext, RenderAssetUsages, io::Reader},
+    asset::{Asset, AssetLoader, AssetPath, Handle, LoadContext, RenderAssetUsages, io::Reader},
     color::{Color, ColorToComponents},
     image::Image,
     log::error,
     math::{Mat3, Mat4},
+    mesh::{Indices, Mesh, PrimitiveTopology},
     platform::collections::HashMap,
     reflect::TypePath,
-    render::{
-        mesh::{Indices, Mesh, PrimitiveTopology},
-        render_resource::{Extent3d, TextureDimension, TextureFormat},
-    },
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use copyless::VecHelper;
 use swf::{CharacterId, GradientInterpolation};
@@ -31,11 +29,33 @@ use crate::{
 /// 制作多大得渐变纹理，越大细节越丰富，但是内存占用也越大
 const GRADIENT_SIZE: usize = 256;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwfAssetLabel {
+    MC(CharacterId),
+}
+
+impl std::fmt::Display for SwfAssetLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SwfAssetLabel::MC(id) => f.write_str(&format!("MC{id}")),
+        }
+    }
+}
+
+impl SwfAssetLabel {
+    pub fn from_asset(&self, path: impl Into<AssetPath<'static>>) -> AssetPath<'static> {
+        path.into().with_label(self.to_string())
+    }
+}
+
+#[derive(Asset, TypePath)]
+pub struct SwfMC {}
+
 /// SWF 资产结构体，包含了 SWF 文件的相关信息。
 #[derive(Asset, TypePath)]
 pub struct Swf {
     pub shape_mesh_materials: HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
-    pub characters: HashMap<CharacterId, Character>,
+    pub library: MovieLibrary,
     /// 动画名称，以及动画的起始帧和总帧长
     pub animations: HashMap<Box<str>, (FrameNumber, FrameNumber)>,
     pub frame_events: HashMap<FrameNumber, Box<str>>,
@@ -52,7 +72,22 @@ impl Swf {
     }
 
     pub fn characters(&self) -> &HashMap<CharacterId, Character> {
-        &self.characters
+        &self.library.characters
+    }
+}
+
+#[derive(Default, Asset, TypePath)]
+pub struct MovieLibrary {
+    characters: HashMap<CharacterId, Character>,
+    export_characters: HashMap<String, CharacterId>,
+}
+
+impl MovieLibrary {
+    pub fn characters_mut(&mut self) -> &mut HashMap<CharacterId, Character> {
+        &mut self.characters
+    }
+    pub fn export_characters_mut(&mut self) -> &mut HashMap<String, CharacterId> {
+        &mut self.export_characters
     }
 }
 
@@ -75,18 +110,18 @@ impl AssetLoader for SwfLoader {
         reader.read_to_end(&mut swf_data).await?;
         let swf_movie = Arc::new(SwfMovie::from_data(&swf_data)?);
         let mut root = MovieClip::new(swf_movie.clone());
-        let mut characters = HashMap::new();
+        let mut library = MovieLibrary::default();
 
         // 解析定义的资源
         let mut bitmaps = HashMap::new();
         let mut jpeg_tables = None;
-        root.preload(&mut characters, &mut bitmaps, &mut jpeg_tables);
+        root.preload(&mut library, &mut bitmaps, &mut jpeg_tables);
 
         let mut mesh_index = 0;
         let mut image_index = 0;
         let mut material_index = 0;
         let mut shape_mesh_materials = HashMap::new();
-        characters.values_mut().for_each(|v| {
+        library.characters.values_mut().for_each(|v| {
             if let Character::Graphic(graphic) = v {
                 shape_mesh_materials.insert(
                     graphic.id(),
@@ -102,6 +137,10 @@ impl AssetLoader for SwfLoader {
                 // 生成Mesh 后清除图形记录数据，后续不在需要。
                 graphic.shape_mut().shape.clear();
             }
+        });
+        // 加载子资源
+        library.export_characters.values().for_each(|v| {
+            if let Character::MovieClip(mc) = library.characters.get(v).unwrap() {}
         });
 
         let mut animations = <HashMap<_, _>>::default();
@@ -128,10 +167,9 @@ impl AssetLoader for SwfLoader {
             let last: usize = anim_frames.len() - 1;
             anim_frames[last].1 = root.total_frames() - anim_frames[last].0;
         }
-
         Ok(Swf {
             shape_mesh_materials,
-            characters,
+            library,
             animations,
             frame_events,
             swf_movie,
@@ -266,7 +304,7 @@ fn load_shape_mesh(
                         TextureDimension::D2,
                         bitmap.data().to_vec(),
                         TextureFormat::Rgba8UnormSrgb,
-                        RenderAssetUsages::default(),
+                        RenderAssetUsages::RENDER_WORLD,
                     );
                     let texture =
                         load_context.add_labeled_asset(format!("texture_{image_index}"), texture);
@@ -381,7 +419,7 @@ pub fn create_gradient_textures(gradients: Vec<Gradient>) -> Vec<(Image, Gradien
             TextureDimension::D2,
             colors,
             TextureFormat::Rgba8UnormSrgb,
-            RenderAssetUsages::default(),
+            RenderAssetUsages::RENDER_WORLD,
         );
         let gradient_uniforms = GradientUniforms::from(gradient);
         gradient_textures.push((texture, gradient_uniforms));
@@ -396,7 +434,7 @@ fn lerp(a: f32, b: f32, factor: f32) -> f32 {
 
 /// TODO: 只有实现Skew组件这里才能使用Handle应用材质。
 /// 不然当Shape被多次引用时，会导致SwfTransform修改同一个材质。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Asset, TypePath)]
 pub enum ShapeMaterialType {
     // 待实现Skew组件后这里使用Handle处理
     // Color(Handle<ColorMaterial>),

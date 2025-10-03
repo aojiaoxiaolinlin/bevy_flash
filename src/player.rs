@@ -89,12 +89,12 @@ impl FlashPlayer {
         self.current_frame += 1;
     }
 
-    pub fn set_play(&mut self, name: &str, swf: &Swf, root: &mut MovieClip) {
+    pub fn set_play(&mut self, name: &str, swf: &Swf, root: &mut McRoot) {
         self.current_animation = Some(name.to_owned());
         self.play_target_animation(swf, root);
     }
 
-    pub(crate) fn play_target_animation(&mut self, swf: &Swf, root: &mut MovieClip) {
+    pub(crate) fn play_target_animation(&mut self, swf: &Swf, root: &mut McRoot) {
         if let Some(name) = &self.current_animation {
             match swf.animations().get(name.as_str()) {
                 Some((frame, total_frames)) => {
@@ -112,6 +112,10 @@ impl FlashPlayer {
         }
     }
 }
+
+/// Flash 动画中的根 影片 需要通过它来控制动画的播放
+#[derive(Debug, Clone, Component, DerefMut, Deref)]
+pub struct McRoot(pub MovieClip);
 
 #[derive(Debug, Clone, Component, Default, Reflect, Deref, DerefMut)]
 #[require(FlashPlayer, Transform, Visibility)]

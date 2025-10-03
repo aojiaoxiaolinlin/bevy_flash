@@ -19,9 +19,24 @@
 ---
 
 ## ✨ Features
+
 - ✅ Animation control (pause / seek / loop etc.)  
-- 🟡 Blend rendering (partially supported, basic modes only)  
-- 🟡 Filter rendering (partially supported, available in `filter_render_dev` branch)
+
+### Blend Modes
+- ✅ Add
+- ✅ Subtract
+- ✅ Screen
+- ✅ Lighten
+- ✅ Darken
+- ✅ Multiply
+- 🟡 Remaining blend modes require the screen texture feature from  `Bevy`
+
+### Filter Rendering
+- ✅ Color Transform Filter
+- ✅ Blur Filter
+- ✅ Glow Filter
+- ✅ Bevel Filter
+- 🟡 Remaining filters are pending implementation
 
 ## Goals
 
