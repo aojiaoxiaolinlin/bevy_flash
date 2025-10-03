@@ -1,13 +1,12 @@
 use std::collections::btree_map::ValuesMut;
 use std::sync::Arc;
-use std::time::Instant;
 
-use bevy::asset::{Assets, Handle, RenderAssetUsages};
+use bevy::asset::{Assets, Handle};
 use bevy::image::Image;
-use bevy::log::{info, warn_once};
+use bevy::log::warn_once;
 use bevy::math::{IVec2, UVec2};
 use bevy::platform::collections::HashMap;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+use bevy::render::render_resource::TextureFormat;
 use swf::{BlendMode, CharacterId, ColorTransform, Depth, Rectangle, Twips};
 
 use crate::RenderContext;
