@@ -164,6 +164,7 @@ pub struct DisplayObjectBase {
     transform: Transform,
     filters: Vec<Filter>,
     blend_mode: BlendMode,
+    as_bitmap_cached: bool,
     cache_dirty: bool,
 }
 impl DisplayObjectBase {
@@ -189,7 +190,7 @@ impl DisplayObjectBase {
     }
 
     fn recheck_cache(&self, id: CharacterId, image_caches: &mut HashMap<CharacterId, ImageCache>) {
-        if !self.filters.is_empty() && image_caches.get(&id).is_none() {
+        if !self.filters.is_empty() && image_caches.get(&id).is_none() || self.as_bitmap_cached {
             image_caches.insert(id, ImageCache::default());
         }
     }
@@ -347,25 +348,15 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         if let Some(clip_depth) = place_object.clip_depth {
             self.set_clip_depth(clip_depth);
         }
-        if let Some(_is_bitmap_cached) = place_object.is_bitmap_cached {
-            //TODO:
-            warn_once!(
-                "is_bitmap_cached is not supported. id: {}. TODO!",
-                self.id()
-            );
+        if let Some(is_bitmap_cached) = place_object.is_bitmap_cached {
+            self.base_mut().as_bitmap_cached = is_bitmap_cached;
         }
         if version >= 11 {
             if let Some(_visible) = place_object.is_visible {
                 //TODO:
                 warn_once!("visible is not supported. id: {}. TODO!", self.id());
             }
-            if let Some(_color) = place_object.background_color {
-                //TODO:
-                warn_once!(
-                    "background_color is not supported. id: {}. TODO!",
-                    self.id()
-                );
-            }
+            if let Some(_color) = place_object.background_color {}
         }
         if let Some(filters) = &place_object.filters {
             self.set_filters(filters.iter().map(Filter::from).collect())

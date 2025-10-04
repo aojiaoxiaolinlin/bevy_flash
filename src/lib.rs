@@ -118,7 +118,8 @@ pub struct RenderContext<'a> {
     /// 变形形状纹理缓存，
     /// TODO: 需要储存在SWF Assets 中
     morph_shape_cache: &'a mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
-    /// Image 缓存
+    /// Image 缓存,
+    /// TODO: 为了避免同一帧多次引用同一个资源id，这里需要使用layer作为key
     image_caches: &'a mut HashMap<CharacterId, ImageCache>,
 }
 
