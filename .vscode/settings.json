@@ -1,13 +1,19 @@
 {
     "cSpell.words": [
         "Bgra",
+        "bitflags",
+        "bytemuck",
         "copyless",
         "GFBD",
         "msaa",
+        "mult",
+        "Multisample",
+        "repr",
         "Srgb",
         "srgba",
         "tessellator",
         "Twips",
-        "Unorm"
+        "Unorm",
+        "Zeroable"
     ]
 }

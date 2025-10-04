@@ -140,7 +140,7 @@ impl AssetLoader for SwfLoader {
         });
         // 加载子资源
         library.export_characters.values().for_each(|v| {
-            if let Character::MovieClip(mc) = library.characters.get(v).unwrap() {}
+            if let Character::MovieClip(_mc) = library.characters.get(v).unwrap() {}
         });
 
         let mut animations = <HashMap<_, _>>::default();

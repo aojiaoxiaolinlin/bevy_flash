@@ -92,7 +92,6 @@ impl Default for FlashPlayerTimer {
 #[derive(Debug)]
 pub struct ImageCacheDraw {
     layer: String,
-    id: CharacterId,
     handle: Handle<Image>,
     clear_color: Color,
     filters: Vec<Filter>,
@@ -469,7 +468,6 @@ fn process_display_list(
                 context,
                 cache_info,
                 blend_mode,
-                id,
                 &shape_depth_layer,
             );
         } else {
@@ -609,7 +607,6 @@ fn render_with_cache(
     context: &mut RenderContext<'_>,
     cache_info: CacheInfo,
     blend_mode: swf::BlendMode,
-    id: CharacterId,
     shape_depth_layer: &str,
 ) {
     // 计算偏移
@@ -627,7 +624,6 @@ fn render_with_cache(
             offset_x,
             offset_y,
             blend_mode,
-            id,
             shape_depth_layer,
         );
     }
@@ -651,7 +647,6 @@ fn render_to_offscreen_texture(
     offset_x: Twips,
     offset_y: Twips,
     blend_mode: swf::BlendMode,
-    id: CharacterId,
     shape_depth_layer: &str,
 ) {
     // 创建新的变换栈
@@ -691,7 +686,6 @@ fn render_to_offscreen_texture(
     // 将离屏上下文的绘制命令添加到缓存绘制列表
     offscreen_context.cache_draws.push(ImageCacheDraw {
         layer: shape_depth_layer.to_string(),
-        id,
         handle: cache_info.image_info.handle(),
         clear_color: Color::NONE,
         commands: offscreen_context.commands,

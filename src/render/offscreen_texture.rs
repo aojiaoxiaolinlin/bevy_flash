@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bevy::{
     app::Plugin,
-    asset::load_internal_asset,
     camera::{NormalizedRenderTarget, RenderTarget},
     color::{Color, LinearRgba},
     ecs::{
@@ -36,7 +35,6 @@ use bevy::{
         texture::{GpuImage, OutputColorAttachment, TextureCache},
         view::{Msaa, PostProcessWrite, ViewTargetAttachments, prepare_windows},
     },
-    shader::Shader,
 };
 
 use crate::{
@@ -44,10 +42,7 @@ use crate::{
     render::{
         graph::{DrawPhase, DrawType, OffscreenCore2d, OffscreenFlashShapeRenderPhases},
         pipeline::{
-            BEVEL_FILTER_SHADER_HANDLE, BLUR_FILTER_SHADER_HANDLE, BlurFilterUniformBuffer,
-            COLOR_MATRIX_FILTER_SHADER_HANDLE, FilterUniformBuffers, GLOW_FILTER_SHADER_HANDLE,
-            OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE, OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE,
-            OFFSCREEN_MESH2D_SHADER_HANDLE, OffscreenMesh2dKey, OffscreenMesh2dPipeline,
+            FilterUniformBuffers, OffscreenMesh2dKey, OffscreenMesh2dPipeline,
             init_offscreen_texture_pipeline,
         },
         texture_attachment::ColorAttachment,
@@ -248,49 +243,6 @@ pub struct OffscreenTexturePlugin;
 
 impl Plugin for OffscreenTexturePlugin {
     fn build(&self, app: &mut bevy::app::App) {
-        load_internal_asset!(
-            app,
-            OFFSCREEN_MESH2D_SHADER_HANDLE,
-            "shaders/offscreen_mesh2d/color.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE,
-            "shaders/offscreen_mesh2d/gradient.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE,
-            "shaders/offscreen_mesh2d/bitmap.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            BLUR_FILTER_SHADER_HANDLE,
-            "shaders/filters/blur.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            COLOR_MATRIX_FILTER_SHADER_HANDLE,
-            "shaders/filters/color_matrix.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            GLOW_FILTER_SHADER_HANDLE,
-            "shaders/filters/glow.wgsl",
-            Shader::from_wgsl
-        );
-        load_internal_asset!(
-            app,
-            BEVEL_FILTER_SHADER_HANDLE,
-            "shaders/filters/bevel.wgsl",
-            Shader::from_wgsl
-        );
-
         app.add_plugins(ExtractComponentPlugin::<OffscreenDrawCommands>::default());
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -301,7 +253,6 @@ impl Plugin for OffscreenTexturePlugin {
             .init_resource::<OffscreenFlashShapeRenderPhases>()
             .init_resource::<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>()
             .init_resource::<FilterUniformBuffers>()
-            .init_resource::<BlurFilterUniformBuffer>()
             .add_systems(ExtractSchedule, extract_offscreen_textures)
             .add_systems(
                 Render,

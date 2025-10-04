@@ -36,10 +36,6 @@ use crate::{
     },
 };
 
-use super::pipeline::{
-    BevelFilterPipeline, BlurFilterPipeline, ColorMatrixFilterPipeline, GlowFilterPipeline,
-};
-
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderSubGraph)]
 pub struct OffscreenCore2d;
 
@@ -96,18 +92,6 @@ impl Plugin for FlashFilterRenderPlugin {
             OffscreenTextureMultiPassPostProcessingDriverLabel,
             CameraDriverLabel,
         );
-    }
-
-    fn finish(&self, app: &mut bevy::app::App) {
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
-            return;
-        };
-
-        render_app
-            .init_resource::<BlurFilterPipeline>()
-            .init_resource::<ColorMatrixFilterPipeline>()
-            .init_resource::<GlowFilterPipeline>()
-            .init_resource::<BevelFilterPipeline>();
     }
 }
 
