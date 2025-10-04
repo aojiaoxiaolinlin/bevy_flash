@@ -125,6 +125,8 @@ impl ImageCache {
                 TextureFormat::Rgba8Unorm,
             );
             if let Some(image_cache_info) = &mut self.image {
+                image_cache_info.width = actual_width;
+                image_cache_info.height = actual_height;
                 image_cache_info
                     .caches
                     .insert((actual_width, actual_height), images.add(image));
@@ -313,11 +315,7 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         if let Some(children) = self.children_mut() {
             for child in children {
                 let matrix = *matrix * *child.matrix();
-                bounds = bounds.union(&child.render_bounds_with_transform(
-                    &matrix,
-                    include_own_filters,
-                    context,
-                ));
+                bounds = bounds.union(&child.render_bounds_with_transform(&matrix, true, context));
             }
         }
 
