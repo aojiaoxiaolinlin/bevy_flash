@@ -62,10 +62,6 @@ cargo run --example sample
 
 ### 2. Add bevy_flash to your project
 
-```toml
-[dependencies]
-bevy_flash = { git = "https://github.com/aojiaoxiaolinlin/bevy_flash.git" }
-```
 Minimal usage:
 
 ```rust

@@ -57,11 +57,7 @@ cargo run --example sample
 ```
 
 ### 2. 在项目中使用
-```toml
-[dependencies]
-bevy_flash = { git = "https://github.com/aojiaoxiaolinlin/bevy_flash.git" }
-```
-最小使用示例
+
 ```rust
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
