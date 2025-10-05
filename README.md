@@ -2,7 +2,8 @@
 
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/aojiaoxiaolinlin/bevy_flash/#license)
 [![Crates.io](https://img.shields.io/crates/v/bevy_flash.svg)](https://crates.io/crates/bevy_flash)
-[![deepwiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aojiaoxiaolinlin/bevy_flash)
+[![Downloads](https://img.shields.io/crates/d/bevy_flash.svg)](https://crates.io/crates/bevy_flash)
+[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aojiaoxiaolinlin/bevy_flash)
 [![Bevy Tracking](https://img.shields.io/badge/Bevy%20tracking-main-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
 Bring Flash animations into the Bevy game engine, fully WASM compatible!

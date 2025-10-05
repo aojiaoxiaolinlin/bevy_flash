@@ -8,10 +8,6 @@ use bevy::{
     reflect::Reflect,
 };
 
-#[derive(Default, Component)]
-#[require(Transform, Visibility)]
-pub struct SwfGraph;
-
 /// Flash 播放器组件模块，定义了与 Flash 动画播放相关的组件和逻辑。
 #[derive(Component, Default, Debug, Clone, Reflect)]
 #[reflect(Component, Default, Debug)]

@@ -1,8 +1,28 @@
+//! Load Flash animations into the Bevy game engine.
+//! This plugin supports loading Flash animations from SWF files and playing them in Bevy.
+//! It also provides a player component to control the animation playback.
+//!
+//! ## Example
+//! ```
+//! use bevy::prelude::*;
+//! use bevy_flash::FlashPlugin, Flash;
+//!
+//! let mut app = App::new();
+//! app.add_plugins((DefaultPlugins, FlashPlugin))
+//!    .add_systems(Startup, setup)
+//!     .run();
+//!
+//! fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+//!     let swf_handle = asset_server.load("path/to/animation.swf");
+//!     commands.spawn(Flash(swf_handle));
+//! }
+//! ```
+
 pub mod assets;
 mod commands;
 pub mod player;
 mod render;
-pub mod swf_runtime;
+pub(crate) mod swf_runtime;
 
 use std::collections::btree_map::ValuesMut;
 
@@ -11,12 +31,12 @@ use crate::{
     commands::{MaterialType, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw},
     player::{Flash, FlashPlayer, McRoot},
     render::{
-        FilterTextureMesh, FlashRenderPlugin,
         blend_pipeline::BlendMode,
         material::{
             BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial, SwfMaterial,
         },
         offscreen_texture::OffscreenTexture,
+        FilterTextureMesh, FlashRenderPlugin,
     },
     swf_runtime::{
         display_object::{DisplayObject, ImageCache, ImageCacheInfo, TDisplayObject},
@@ -65,7 +85,7 @@ struct DisplayObjectCache {
     layer_offscreen_cache: HashMap<String, Entity>,
     image_cache: HashMap<CharacterId, ImageCache>,
 }
-/// Flash 插件模块，为 Bevy 引入 Flash 动画。
+/// Flash 插件，为 Bevy 引入 Flash 动画。
 pub struct FlashPlugin;
 
 impl Plugin for FlashPlugin {
@@ -78,7 +98,7 @@ impl Plugin for FlashPlugin {
     }
 }
 
-/// 所有Flash动画都设置为30FPS
+/// Flash动画都默认设置为30FPS
 #[derive(Resource, Debug, Clone, Deref, DerefMut)]
 pub struct FlashPlayerTimer(Timer);
 
@@ -90,7 +110,7 @@ impl Default for FlashPlayerTimer {
 }
 
 #[derive(Debug)]
-pub struct ImageCacheDraw {
+struct ImageCacheDraw {
     layer: String,
     handle: Handle<Image>,
     clear_color: Color,
@@ -100,7 +120,7 @@ pub struct ImageCacheDraw {
     size: UVec2,
 }
 
-pub struct RenderContext<'a> {
+struct RenderContext<'a> {
     // 系统资源
     meshes: &'a mut Assets<Mesh>,
     images: &'a mut Assets<Image>,
@@ -177,9 +197,9 @@ impl<'a> RenderContext<'a> {
 
 /// 标记Mesh2d实体为ShapeMesh
 #[derive(Component)]
-pub struct ShapeMesh;
+struct ShapeMesh;
 
-/// 为 Flash 动画添加完成事件
+/// Flash 动画完成事件，非循环播放时触发
 #[derive(EntityEvent, Clone)]
 pub struct FlashCompleteEvent {
     /// 实体
@@ -198,7 +218,7 @@ impl FlashCompleteEvent {
     }
 }
 
-/// 为 Flash 动画添加帧事件
+/// Flash 动画帧事件
 #[derive(EntityEvent, Clone)]
 pub struct FlashFrameEvent {
     /// 实体
@@ -431,7 +451,7 @@ fn advance_animation(
 }
 
 /// 缓存信息
-pub struct CacheInfo {
+struct CacheInfo {
     image_info: ImageCacheInfo,
     dirty: bool,
     base_transform: SwfTransform,
