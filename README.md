@@ -72,23 +72,18 @@ Minimal usage:
 fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
     commands.spawn((
-        Name::new("冲霄"),
         Flash(assert_server.load("spirit2159src.swf")),
-        FlashPlayer::from_animation_name("WAI"),
+        FlashPlayer::from_animation_name("WAI").with_loop(true),
         Transform::from_scale(Vec3::splat(2.0)),
     ));
-
-    commands.spawn((
-        Flash(assert_server.load("埃及太阳神.swf")),
-        Transform::from_scale(Vec3::splat(2.0)),
-    ));
-
     commands.spawn(Flash(assert_server.load("loading_event_test.swf")));
 }
 ```
 
-> [!WARNING]
-> This project is still in the early stages of development.
+## Compatibility
+|bevy|bevy_flash|
+|--|--|
+|0.17|0.1|
 
 
 ## Contributing

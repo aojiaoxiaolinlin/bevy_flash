@@ -81,8 +81,10 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
 }
 ```
 
-> [!WARNING]
-> 该项目目前仍处于开发的早期阶段。
+## 兼容性
+|bevy|bevy_flash|
+|--|--|
+|0.17|0.1|
 
 ## 🤝 贡献
 

@@ -1,7 +1,9 @@
 [package]
 name = "bevy_flash"
-version = "0.1.0-alpha"
+version = "0.1.0"
 edition = "2024"
+description = "A Bevy plugin for Flash Animation."
+repository = "https://github.com/aojiaoxiaolinlin/bevy_flash"
 
 [dependencies]
 smallvec = { version = "1.14.0", features = ["union"] }
@@ -9,8 +11,10 @@ bytemuck = { version = "1.21.0", features = ["derive"] }
 bevy = { version = "0.17", default-features = false, features = [
     "bevy_asset",
     "bevy_render",
+    "bevy_core_pipeline",
     "bevy_mesh",
     "bevy_sprite",
+    "bevy_sprite_render",
     "bevy_shader",
     "bevy_log",
 ] }

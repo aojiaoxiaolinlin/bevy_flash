@@ -4,16 +4,22 @@
         "bitflags",
         "bytemuck",
         "copyless",
+        "flate",
         "GFBD",
+        "indexmap",
         "msaa",
         "mult",
         "Multisample",
+        "radsort",
         "repr",
+        "smallvec",
         "Srgb",
         "srgba",
         "tessellator",
+        "thiserror",
         "Twips",
         "Unorm",
+        "Vsync",
         "Zeroable"
     ]
 }
