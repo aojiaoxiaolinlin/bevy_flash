@@ -31,12 +31,12 @@ use crate::{
     commands::{MaterialType, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw},
     player::{Flash, FlashPlayer, McRoot},
     render::{
+        FilterTextureMesh, FlashRenderPlugin,
         blend_pipeline::BlendMode,
         material::{
             BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial, SwfMaterial,
         },
         offscreen_texture::OffscreenTexture,
-        FilterTextureMesh, FlashRenderPlugin,
     },
     swf_runtime::{
         display_object::{DisplayObject, ImageCache, ImageCacheInfo, TDisplayObject},
