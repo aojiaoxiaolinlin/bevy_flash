@@ -6,6 +6,8 @@
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aojiaoxiaolinlin/bevy_flash)
 [![Bevy Tracking](https://img.shields.io/badge/Bevy%20tracking-main-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
+English | [中文](./README.zh_CN.md)
+
 Bring Flash animations into the Bevy game engine, fully WASM compatible!
 
 ## ✨ Features
