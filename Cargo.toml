@@ -3,6 +3,7 @@ name = "bevy_flash"
 version = "0.1.0"
 edition = "2024"
 description = "A Bevy plugin for Flash Animation."
+authors = ["aojiaoxiaolinlin"]
 repository = "https://github.com/aojiaoxiaolinlin/bevy_flash"
 keywords = ["bevy", "flash", "swf", "animation"]
 license = "MIT OR Apache-2.0"
