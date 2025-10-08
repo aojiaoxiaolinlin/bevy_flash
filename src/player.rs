@@ -6,14 +6,17 @@ use bevy::{
         Component, Deref, DerefMut, ReflectComponent, ReflectDefault, Transform, Visibility,
     },
     reflect::Reflect,
+    time::{Timer, TimerMode},
 };
 
 /// Flash 播放器组件模块，定义了与 Flash 动画播放相关的组件和逻辑。
-#[derive(Component, Default, Debug, Clone, Reflect)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[require(FlashPlayerTimer)]
 #[reflect(Component, Default, Debug)]
 pub struct FlashPlayer {
-    pub looping: bool,
-    pub current_animation: Option<String>,
+    looping: bool,
+    current_animation: Option<String>,
+    speed: f32,
     total_frames: u16,
     current_frame: u16,
     /// 是否完成，用于标记触发一次触发完成事件
@@ -28,16 +31,41 @@ impl FlashPlayer {
         }
     }
 
-    pub fn with_looping(mut self, looping: bool) -> Self {
-        self.looping = looping;
-        self
-    }
-
     pub fn from_looping(looping: bool) -> Self {
         Self {
             looping,
             ..Default::default()
         }
+    }
+
+    pub fn from_speed(speed: f32) -> Self {
+        if speed <= 0.0 {
+            error!("Speed must be greater than 0.0");
+            return Self::default();
+        }
+        Self {
+            speed,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_looping(mut self, looping: bool) -> Self {
+        self.looping = looping;
+        self
+    }
+
+    pub fn with_speed(mut self, speed: f32) -> Self {
+        if speed <= 0.0 {
+            error!("Speed must be greater than 0.0");
+            return self;
+        }
+        self.speed = speed;
+        self
+    }
+
+    pub fn with_animation_name(mut self, animation_name: impl Into<String>) -> Self {
+        self.current_animation = Some(animation_name.into());
+        self
     }
 
     pub fn reset(&mut self) {
@@ -90,6 +118,10 @@ impl FlashPlayer {
         self.play_target_animation(swf, root);
     }
 
+    pub fn speed(&self) -> f32 {
+        self.speed
+    }
+
     pub(crate) fn play_target_animation(&mut self, swf: &Swf, root: &mut McRoot) {
         if let Some(name) = &self.current_animation {
             match swf.animations().get(name.as_str()) {
@@ -109,6 +141,18 @@ impl FlashPlayer {
     }
 }
 
+impl Default for FlashPlayer {
+    fn default() -> Self {
+        Self {
+            looping: false,
+            current_animation: None,
+            speed: 1.0,
+            total_frames: 0,
+            current_frame: 0,
+            completed: false,
+        }
+    }
+}
 /// Flash 动画中的根 影片 需要通过它来控制动画的播放
 #[derive(Debug, Clone, Component, DerefMut, Deref)]
 pub struct McRoot(pub MovieClip);
@@ -117,3 +161,14 @@ pub struct McRoot(pub MovieClip);
 #[require(FlashPlayer, Transform, Visibility)]
 #[reflect(Component, Default)]
 pub struct Flash(pub Handle<Swf>);
+
+/// Flash动画都默认设置为30FPS
+#[derive(Component, Debug, Clone, Deref, DerefMut)]
+pub struct FlashPlayerTimer(Timer);
+
+impl Default for FlashPlayerTimer {
+    /// 动画定时器，默认30fps
+    fn default() -> Self {
+        Self(Timer::from_seconds(1. / 30., TimerMode::Repeating))
+    }
+}

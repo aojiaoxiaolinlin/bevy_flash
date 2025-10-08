@@ -29,7 +29,7 @@ use std::collections::btree_map::ValuesMut;
 use crate::{
     assets::{ShapeMaterialType, Swf, SwfLoader},
     commands::{MaterialType, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw},
-    player::{Flash, FlashPlayer, McRoot},
+    player::{Flash, FlashPlayer, FlashPlayerTimer, McRoot},
     render::{
         FilterTextureMesh, FlashRenderPlugin,
         blend_pipeline::BlendMode,
@@ -59,7 +59,6 @@ use bevy::{
         event::EntityEvent,
         hierarchy::ChildOf,
         query::{With, Without},
-        resource::Resource,
         schedule::IntoScheduleConfigs,
         system::{Commands, EntityCommands, Local, Query, Res, ResMut},
     },
@@ -68,9 +67,8 @@ use bevy::{
     math::{IVec2, Mat4, UVec2, Vec2, Vec3, Vec3Swizzles},
     mesh::{Mesh, Mesh2d},
     platform::collections::{HashMap, HashSet},
-    prelude::{Deref, DerefMut},
     sprite_render::MeshMaterial2d,
-    time::{Time, Timer, TimerMode},
+    time::Time,
     transform::components::{GlobalTransform, Transform},
 };
 
@@ -93,19 +91,7 @@ impl Plugin for FlashPlugin {
         app.add_plugins(FlashRenderPlugin)
             .init_asset::<Swf>()
             .init_asset_loader::<SwfLoader>()
-            .init_resource::<FlashPlayerTimer>()
             .add_systems(PostUpdate, (prepare_root_clip, advance_animation).chain());
-    }
-}
-
-/// Flash动画都默认设置为30FPS
-#[derive(Resource, Debug, Clone, Deref, DerefMut)]
-pub struct FlashPlayerTimer(Timer);
-
-impl Default for FlashPlayerTimer {
-    /// 动画定时器，默认30fps
-    fn default() -> Self {
-        Self(Timer::from_seconds(1. / 30., TimerMode::Repeating))
     }
 }
 
@@ -355,10 +341,10 @@ fn advance_animation(
     filter_texture_mesh: Res<FilterTextureMesh>,
     mut swf_res: ResMut<Assets<Swf>>,
     mut commands: Commands,
-    mut timer: ResMut<FlashPlayerTimer>,
     mut player: Query<(
         Entity,
         &mut FlashPlayer,
+        &mut FlashPlayerTimer,
         &mut McRoot,
         &Flash,
         &GlobalTransform,
@@ -375,11 +361,13 @@ fn advance_animation(
     let mut current_live_player = vec![];
     // 1. 将动画的每一帧将离屏渲染实体列为不活跃
     mark_offscreen_textures_inactive(&mut offscreen_textures);
-    if timer.tick(time.delta()).just_finished() {
-        // 2. 更新动画帧
-        for (entity, mut player, mut root, swf, global_transform) in player.iter_mut() {
-            current_live_player.push(entity);
-
+    // 2. 更新动画帧
+    for (entity, mut player, mut timer, mut root, swf, global_transform) in player.iter_mut() {
+        current_live_player.push(entity);
+        if timer
+            .tick(time.delta().mul_f32(player.speed()))
+            .just_finished()
+        {
             // 处理动画完成事件
             if handle_animation_complete(&mut commands, entity, &mut player) {
                 continue;
