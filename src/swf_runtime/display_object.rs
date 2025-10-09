@@ -1,7 +1,7 @@
 use std::collections::btree_map::ValuesMut;
 use std::sync::Arc;
 
-use bevy::asset::{Assets, Handle};
+use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::image::Image;
 use bevy::log::warn_once;
 use bevy::math::{IVec2, UVec2};
@@ -119,11 +119,12 @@ impl ImageCache {
             actual_width < 2880 && actual_height < 2880
         };
         if actual_width > 0 && actual_height > 0 && acceptable_size {
-            let image = Image::new_target_texture(
+            let mut image = Image::new_target_texture(
                 actual_width as u32,
                 actual_height as u32,
                 TextureFormat::Rgba8Unorm,
             );
+            image.asset_usage = RenderAssetUsages::RENDER_WORLD;
             if let Some(image_cache_info) = &mut self.image {
                 image_cache_info.width = actual_width;
                 image_cache_info.height = actual_height;
