@@ -5,6 +5,7 @@
 [![Downloads](https://img.shields.io/crates/d/bevy_flash.svg)](https://crates.io/crates/bevy_flash)
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aojiaoxiaolinlin/bevy_flash)
 [![Bevy Tracking](https://img.shields.io/badge/Bevy%20tracking-main-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
+[![Discord](https://img.shields.io/discord/1420207300710236180.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/aDzUKVE4)
 
 [English](./README.md) | 中文
 将 Flash 动画引入 Bevy 引擎，兼容 WASM！
