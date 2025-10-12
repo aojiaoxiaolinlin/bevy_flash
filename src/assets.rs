@@ -8,6 +8,7 @@ use bevy::{
     math::{Mat3, Mat4},
     mesh::{Indices, Mesh, PrimitiveTopology},
     platform::collections::HashMap,
+    prelude::Deref,
     reflect::TypePath,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
@@ -31,13 +32,13 @@ const GRADIENT_SIZE: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwfAssetLabel {
-    MC(CharacterId),
+    Shape(CharacterId),
 }
 
 impl std::fmt::Display for SwfAssetLabel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SwfAssetLabel::MC(id) => f.write_str(&format!("MC{id}")),
+            SwfAssetLabel::Shape(id) => f.write_str(&format!("Shape{id}")),
         }
     }
 }
@@ -48,8 +49,8 @@ impl SwfAssetLabel {
     }
 }
 
-#[derive(Asset, TypePath)]
-pub struct SwfMC {}
+#[derive(Asset, TypePath, Deref)]
+pub struct Shape(pub Vec<(ShapeMaterialType, Handle<Mesh>)>);
 
 /// SWF 资产结构体，包含了 SWF 文件的相关信息。
 #[derive(Asset, TypePath)]
@@ -121,6 +122,7 @@ impl AssetLoader for SwfLoader {
         let mut image_index = 0;
         let mut material_index = 0;
         let mut shape_mesh_materials = HashMap::new();
+
         library.characters.values_mut().for_each(|v| {
             if let Character::Graphic(graphic) = v {
                 shape_mesh_materials.insert(
