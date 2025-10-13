@@ -55,7 +55,8 @@ pub struct Shape(pub Vec<(ShapeMaterialType, Handle<Mesh>)>);
 /// SWF 资产结构体，包含了 SWF 文件的相关信息。
 #[derive(Asset, TypePath)]
 pub struct Swf {
-    pub shape_mesh_materials: HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    /// 存储角色ID与形状资源句柄的映射关系
+    pub shape_handles: HashMap<CharacterId, Handle<Shape>>,
     pub library: MovieLibrary,
     /// 动画名称，以及动画的起始帧和总帧长
     pub animations: HashMap<Box<str>, (FrameNumber, FrameNumber)>,
@@ -121,19 +122,23 @@ impl AssetLoader for SwfLoader {
         let mut mesh_index = 0;
         let mut image_index = 0;
         let mut material_index = 0;
-        let mut shape_mesh_materials = HashMap::new();
+        let mut shape_handles = HashMap::new();
 
         library.characters.values_mut().for_each(|v| {
             if let Character::Graphic(graphic) = v {
-                shape_mesh_materials.insert(
+                let shape = load_shape_mesh(
+                    load_context,
+                    graphic,
+                    &bitmaps,
+                    &mut image_index,
+                    &mut mesh_index,
+                    &mut material_index,
+                );
+                shape_handles.insert(
                     graphic.id(),
-                    load_shape_mesh(
-                        load_context,
-                        graphic,
-                        &bitmaps,
-                        &mut image_index,
-                        &mut mesh_index,
-                        &mut material_index,
+                    load_context.add_labeled_asset(
+                        SwfAssetLabel::Shape(graphic.id()).to_string(),
+                        Shape(shape),
                     ),
                 );
                 // 生成Mesh 后清除图形记录数据，后续不在需要。
@@ -170,7 +175,7 @@ impl AssetLoader for SwfLoader {
             anim_frames[last].1 = root.total_frames() - anim_frames[last].0;
         }
         Ok(Swf {
-            shape_mesh_materials,
+            shape_handles,
             library,
             animations,
             frame_events,

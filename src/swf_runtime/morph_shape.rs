@@ -8,7 +8,7 @@ use copyless::VecHelper;
 use std::sync::Arc;
 use swf::{CharacterId, Color, Fixed8, Fixed16, Point, Rectangle, Twips};
 
-use crate::assets::{ShapeMaterialType, create_gradient_textures};
+use crate::assets::{Shape, ShapeMaterialType, create_gradient_textures};
 use crate::render::material::{ColorMaterial, GradientMaterial};
 use crate::swf_runtime::shape_utils::calculate_shape_bounds;
 use crate::swf_runtime::tessellator::{DrawType, ShapeTessellator};
@@ -21,7 +21,7 @@ use super::display_object::{DisplayObject, DisplayObjectBase, TDisplayObject};
 #[derive(Debug, Clone)]
 
 pub struct Frame {
-    shape_mesh_material: Option<Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    handle: Option<Handle<Shape>>,
     shape: swf::Shape,
     bounds: Rectangle<Twips>,
 }
@@ -65,10 +65,8 @@ impl MorphShape {
 
     fn get_shape(&mut self, ratio: u16, context: &mut crate::RenderContext) {
         let frame = self.get_frame(ratio, context.morph_shape_cache);
-        if let Some(shape_mesh_material) = frame.shape_mesh_material.clone() {
-            context
-                .shape_mesh_materials
-                .insert(self.id, shape_mesh_material);
+        if let Some(shape) = frame.handle.clone() {
+            context.shape_handles.insert(self.id, shape);
         } else {
             let bitmaps = HashMap::new();
             let mut tessellator = ShapeTessellator::default();
@@ -78,7 +76,7 @@ impl MorphShape {
             for (texture, gradient_uniforms) in create_gradient_textures(lyon_mesh.gradients) {
                 gradient_texture.push((context.images.add(texture), gradient_uniforms));
             }
-            let mut shape_mesh_material = Vec::new();
+            let mut shape = Vec::new();
             for draw in lyon_mesh.draws {
                 match &draw.draw_type {
                     DrawType::Color => {
@@ -104,14 +102,7 @@ impl MorphShape {
                         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
                         .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
                         let mesh = context.meshes.add(mesh);
-                        // let material = load_context.add_labeled_asset(
-                        //     format!("material_{}", material_index),
-                        //     ColorMaterial::default(),
-                        // );
-                        // *material_index += 1;
-                        // shape_mesh_material.push((ShapeMaterialType::Color(material), mesh));
-                        shape_mesh_material
-                            .push((ShapeMaterialType::Color(ColorMaterial::default()), mesh));
+                        shape.push((ShapeMaterialType::Color(ColorMaterial::default()), mesh));
                     }
                     DrawType::Gradient { matrix, gradient } => {
                         let Some((handle, gradient)) = gradient_texture.get(*gradient).cloned()
@@ -130,18 +121,7 @@ impl MorphShape {
                         .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
                         let mesh = context.meshes.add(mesh);
 
-                        // let material = load_context.add_labeled_asset(
-                        //     format!("material_{}", material_index),
-                        //     GradientMaterial {
-                        //         gradient,
-                        //         texture: handle,
-                        //         texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&matrix)),
-                        //         ..Default::default()
-                        //     },
-                        // );
-                        // *material_index += 1;
-                        // shape_mesh_material.push((ShapeMaterialType::Gradient(material), mesh));
-                        shape_mesh_material.push((
+                        shape.push((
                             ShapeMaterialType::Gradient(GradientMaterial {
                                 gradient,
                                 texture: handle,
@@ -156,10 +136,9 @@ impl MorphShape {
                     _ => {}
                 }
             }
-            frame.shape_mesh_material = Some(shape_mesh_material.clone());
-            context
-                .shape_mesh_materials
-                .insert(self.id, shape_mesh_material);
+            let shape_handle = context.shapes.add(Shape(shape));
+            frame.handle = Some(shape_handle.clone());
+            context.shape_handles.insert(self.id, shape_handle);
         }
     }
 
@@ -284,7 +263,7 @@ impl MorphShape {
         };
 
         Frame {
-            shape_mesh_material: None,
+            handle: None,
             shape,
             bounds,
         }

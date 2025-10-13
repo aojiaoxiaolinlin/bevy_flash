@@ -22,12 +22,13 @@ pub mod assets;
 mod commands;
 pub mod player;
 mod render;
+pub mod shape;
 pub(crate) mod swf_runtime;
 
 use std::collections::btree_map::ValuesMut;
 
 use crate::{
-    assets::{ShapeMaterialType, Swf, SwfLoader},
+    assets::{Shape, ShapeMaterialType, Swf, SwfLoader},
     commands::{MaterialType, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw},
     player::{Flash, FlashPlayer, FlashPlayerTimer, McRoot},
     render::{
@@ -38,6 +39,7 @@ use crate::{
         },
         offscreen_texture::OffscreenTexture,
     },
+    shape::FlashShape,
     swf_runtime::{
         display_object::{DisplayObject, ImageCache, ImageCacheInfo, TDisplayObject},
         filter::Filter,
@@ -96,8 +98,56 @@ impl Plugin for FlashPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FlashRenderPlugin)
             .init_asset::<Swf>()
+            .init_asset::<Shape>()
             .init_asset_loader::<SwfLoader>()
+            .add_systems(PostUpdate, prepare_shape_mesh)
             .add_systems(PostUpdate, (prepare_root_clip, advance_animation).chain());
+    }
+}
+
+#[derive(Debug, Component)]
+struct Generated;
+
+fn prepare_shape_mesh(
+    mut commands: Commands,
+    shapes: Res<Assets<Shape>>,
+    mut colors: ResMut<Assets<ColorMaterial>>,
+    mut gradients: ResMut<Assets<GradientMaterial>>,
+    mut bitmaps: ResMut<Assets<BitmapMaterial>>,
+    mut query: Query<(Entity, &FlashShape), Without<Generated>>,
+) {
+    for (entity, shape) in query.iter_mut() {
+        let Some(shape) = shapes.get(shape.id()) else {
+            continue;
+        };
+        let mut commands = commands.entity(entity);
+        commands.insert(Generated);
+        for (material_type, mesh) in shape.iter() {
+            let mesh = mesh.clone();
+            match material_type {
+                ShapeMaterialType::Color(color) => {
+                    commands.with_child((
+                        Mesh2d(mesh),
+                        MeshMaterial2d(colors.add(*color)),
+                        NoFrustumCulling,
+                    ));
+                }
+                ShapeMaterialType::Gradient(gradient) => {
+                    commands.with_child((
+                        Mesh2d(mesh),
+                        MeshMaterial2d(gradients.add(gradient.clone())),
+                        NoFrustumCulling,
+                    ));
+                }
+                ShapeMaterialType::Bitmap(bitmap) => {
+                    commands.with_child((
+                        Mesh2d(mesh),
+                        MeshMaterial2d(bitmaps.add(bitmap.clone())),
+                        NoFrustumCulling,
+                    ));
+                }
+            }
+        }
     }
 }
 
@@ -114,6 +164,7 @@ struct ImageCacheDraw {
 
 struct RenderContext<'w> {
     // 系统资源
+    shapes: &'w mut Assets<Shape>,
     meshes: &'w mut Assets<Mesh>,
     images: &'w mut Assets<Image>,
     gradients: &'w mut Assets<GradientMaterial>,
@@ -122,7 +173,7 @@ struct RenderContext<'w> {
     // 渲染需要的数据
     transform_stack: &'w mut TransformStack,
     cache_draws: &'w mut Vec<ImageCacheDraw>,
-    shape_mesh_materials: &'w mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shape_handles: &'w mut HashMap<CharacterId, Handle<Shape>>,
     commands: Vec<ShapeCommand>,
     scale: Vec3,
 
@@ -138,6 +189,7 @@ struct RenderContext<'w> {
 impl<'w> RenderContext<'w> {
     #[allow(clippy::too_many_arguments)]
     fn new(
+        shapes: &'w mut Assets<Shape>,
         meshes: &'w mut Assets<Mesh>,
         images: &'w mut Assets<Image>,
         gradients: &'w mut Assets<GradientMaterial>,
@@ -146,17 +198,18 @@ impl<'w> RenderContext<'w> {
         transform_stack: &'w mut TransformStack,
         image_cache: &'w mut HashMap<CharacterId, ImageCache>,
         cache_draws: &'w mut Vec<ImageCacheDraw>,
-        shape_mesh_materials: &'w mut HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+        shape_handles: &'w mut HashMap<CharacterId, Handle<Shape>>,
         scale: Vec3,
     ) -> Self {
         Self {
+            shapes,
             meshes,
             images,
             gradients,
             bitmaps,
             transform_stack,
             cache_draws,
-            shape_mesh_materials,
+            shape_handles,
             commands: Vec::new(),
             scale,
             morph_shape_cache,
@@ -321,6 +374,7 @@ fn advance_animation(
     )>,
     mut shape_meshes: Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     mut offscreen_textures: Query<&mut OffscreenTexture>,
+    mut shapes: ResMut<Assets<Shape>>,
     mut swf_res: ResMut<Assets<Swf>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -368,6 +422,7 @@ fn advance_animation(
 
             // 创建渲染上下文
             let mut context = RenderContext::new(
+                shapes.as_mut(),
                 meshes.as_mut(),
                 images.as_mut(),
                 gradients.as_mut(),
@@ -376,7 +431,7 @@ fn advance_animation(
                 &mut transform_stack,
                 image_cache,
                 &mut cache_draws,
-                &mut swf.shape_mesh_materials,
+                &mut swf.shape_handles,
                 global_scale,
             );
             process_display_list(
@@ -391,18 +446,19 @@ fn advance_animation(
                 &mut commands,
                 entity,
                 filter_texture_mesh.as_ref(),
+                shapes.as_mut(),
                 &mut (colors.as_mut(), gradients.as_mut(), bitmaps.as_mut()),
                 &mut shape_meshes,
                 cache_draws,
                 shape_commands,
-                &swf.shape_mesh_materials,
+                &swf.shape_handles,
                 &mut offscreen_textures,
                 display_object_cache,
                 global_scale,
             );
         }
-        display_object_entity_caches.retain(|entity, _| current_live_player.contains(entity));
     }
+    display_object_entity_caches.retain(|entity, _| current_live_player.contains(entity));
 }
 
 /// 缓存信息
@@ -422,6 +478,12 @@ fn process_display_list(
     blend_mode: swf::BlendMode,
     shape_depth_layer: String,
 ) {
+    // TODO:混合模式也有多个MC合成的情况，这里暂时没实现多MC合成的情况，暂时只出来单个图形的情况
+    let blend_mode = if display_list.len() > 1 {
+        swf::BlendMode::Normal
+    } else {
+        blend_mode
+    };
     for display_object in display_list {
         let id = display_object.id();
         let shape_depth_layer = format!("{}_{}_{}", shape_depth_layer, display_object.depth(), id);
@@ -638,6 +700,7 @@ fn render_to_offscreen_texture(
 
     // 创建离屏渲染上下文
     let mut offscreen_context = RenderContext::new(
+        context.shapes,
         context.meshes,
         context.images,
         context.gradients,
@@ -646,7 +709,7 @@ fn render_to_offscreen_texture(
         &mut transform_stack,
         context.image_cache,
         context.cache_draws,
-        context.shape_mesh_materials,
+        context.shape_handles,
         context.scale,
     );
 
@@ -761,11 +824,12 @@ fn spawn_or_update_shape(
     commands: &mut Commands,
     entity: Entity,
     filter_texture_mesh: &FilterTextureMesh,
+    shapes: &mut Assets<Shape>,
     materials: &mut ShapeMaterialAssets<'_>,
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     cache_draw: Vec<ImageCacheDraw>,
     shape_commands: Vec<ShapeCommand>,
-    shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     offscreen_textures: &mut Query<&mut OffscreenTexture>,
     display_object_cache: &mut DisplayObjectCache,
     scale: Vec3,
@@ -784,8 +848,9 @@ fn spawn_or_update_shape(
         commands,
         &cache_draw,
         filter_texture_mesh,
+        shapes,
         materials,
-        shape_mesh_materials,
+        shape_handles,
         layer_offscreen_shape_draw_cache,
         layer_offscreen_cache,
         &mut current_live_shape_depth_layers,
@@ -798,10 +863,11 @@ fn spawn_or_update_shape(
         commands,
         entity,
         filter_texture_mesh,
+        shapes,
         materials,
         shape_meshes,
         &shape_commands,
-        shape_mesh_materials,
+        shape_handles,
         layer_shape_material_cache,
         &mut current_live_shape_depth_layers,
         scale,
@@ -814,8 +880,9 @@ fn process_offscreen_textures(
     commands: &mut Commands,
     cache_draws: &[ImageCacheDraw],
     filter_texture_mesh: &FilterTextureMesh,
+    shapes: &mut Assets<Shape>,
     materials: &mut ShapeMaterialAssets<'_>,
-    shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
     layer_offscreen_cache: &mut HashMap<String, Entity>,
     current_live_shape_depth_layers: &mut HashSet<String>,
@@ -834,8 +901,9 @@ fn process_offscreen_textures(
         let current_frame_shape_mesh_draws = process_offscreen_draw_commands(
             &cache_draw.commands,
             filter_texture_mesh,
+            shapes,
             materials,
-            shape_mesh_materials,
+            shape_handles,
             layer_offscreen_shape_draw_cache,
             current_live_shape_depth_layers,
         );
@@ -928,10 +996,11 @@ fn process_direct_shapes(
     commands: &mut Commands,
     entity: Entity,
     filter_texture_mesh: &FilterTextureMesh,
+    shapes: &mut Assets<Shape>,
     materials: &mut ShapeMaterialAssets<'_>,
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     shape_commands: &[ShapeCommand],
-    shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
     current_live_shape_depth_layers: &mut HashSet<String>,
     scale: Vec3,
@@ -951,7 +1020,8 @@ fn process_direct_shapes(
                 process_render_shape_command(
                     &mut commands,
                     shape_command,
-                    shape_mesh_materials,
+                    shapes,
+                    shape_handles,
                     layer_shape_material_cache,
                     current_live_shape_depth_layers,
                     shape_meshes,
@@ -980,7 +1050,8 @@ fn process_direct_shapes(
 fn process_render_shape_command(
     commands: &mut EntityCommands,
     shape_command: &ShapeCommand,
-    shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shapes: &mut Assets<Shape>,
+    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
     current_live_shape_depth_layers: &mut HashSet<String>,
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
@@ -997,7 +1068,10 @@ fn process_render_shape_command(
     } = shape_command
     {
         // 获取形状的网格材质
-        let Some(shape_mesh_materials) = shape_mesh_materials.get(id) else {
+        let Some(handle) = shape_handles.get(id) else {
+            return;
+        };
+        let Some(shape) = shapes.get(handle) else {
             return;
         };
 
@@ -1025,7 +1099,7 @@ fn process_render_shape_command(
         // 该Shape没有生成过，需要生成
         create_new_shapes(
             commands,
-            shape_mesh_materials,
+            shape,
             shape_depth_layer,
             layer_shape_material_cache,
             color_materials,
@@ -1073,7 +1147,7 @@ fn update_cached_shapes(
 #[allow(clippy::too_many_arguments)]
 fn create_new_shapes(
     commands: &mut EntityCommands,
-    shape_mesh_materials: &[(ShapeMaterialType, Handle<Mesh>)],
+    shape: &Shape,
     shape_depth_layer: &String,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
     color_materials: &mut Assets<ColorMaterial>,
@@ -1089,7 +1163,7 @@ fn create_new_shapes(
         .or_default();
 
     // 为每种材质类型创建形状
-    for (material_type, mesh) in shape_mesh_materials {
+    for (material_type, mesh) in shape.iter() {
         let mesh = mesh.clone();
 
         match material_type {
@@ -1402,8 +1476,9 @@ fn record_current_live_layer(
 fn process_offscreen_draw_commands(
     commands: &[ShapeCommand],
     filter_texture_mesh: &FilterTextureMesh,
+    shapes: &mut Assets<Shape>,
     materials: &mut ShapeMaterialAssets<'_>,
-    shape_mesh_materials: &HashMap<CharacterId, Vec<(ShapeMaterialType, Handle<Mesh>)>>,
+    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
     current_live_shape_depth_layers: &mut HashSet<String>,
 ) -> Vec<ShapeMeshDraw> {
@@ -1439,13 +1514,16 @@ fn process_offscreen_draw_commands(
                 }
                 current_frame_shape_mesh_draws.extend(cache.clone());
             } else {
-                let Some(material_type_mesh_cache) = shape_mesh_materials.get(id) else {
+                let Some(shape_cache) = shape_handles.get(id) else {
+                    return;
+                };
+                let Some(shape) = shapes.get(shape_cache) else {
                     return;
                 };
                 let shape_mesh_draws = layer_offscreen_shape_draw_cache
                     .entry(shape_depth_layer.to_owned())
                     .or_default();
-                for (material_type, mesh) in material_type_mesh_cache {
+                for (material_type, mesh) in shape.iter() {
                     match material_type {
                         ShapeMaterialType::Color(color) => {
                             handle_offscreen_draw(

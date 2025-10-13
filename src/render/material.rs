@@ -241,7 +241,7 @@ pub struct BitmapMaterial {
 material2d!(BitmapMaterial, BITMAP_MATERIAL_SHADER_HANDLE);
 swf_material!(BitmapMaterial);
 
-#[derive(Debug, Clone, Copy, Default, ShaderType)]
+#[derive(Debug, Clone, Copy, ShaderType)]
 pub struct MaterialTransform {
     pub world_transform: Mat4,
     pub mult_color: Vec4,
@@ -276,6 +276,16 @@ impl From<Transform> for MaterialTransform {
             ]),
             mult_color: Vec4::from_array(color_transform.mult_rgba_normalized()),
             add_color: Vec4::from_array(color_transform.add_rgba_normalized()),
+        }
+    }
+}
+
+impl Default for MaterialTransform {
+    fn default() -> Self {
+        Self {
+            world_transform: Mat4::IDENTITY,
+            mult_color: Vec4::ONE,
+            add_color: Vec4::ZERO,
         }
     }
 }
