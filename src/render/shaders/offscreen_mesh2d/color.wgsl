@@ -1,4 +1,4 @@
-#import bevy_flash::common::{MaterialTransform}
+#import bevy_flash::common::{MaterialTransform,linear_to_srgb}
 
 struct Vertex {
     @location(0) position: vec3<f32>,
@@ -19,7 +19,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.position = view_matrix * material_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
     out.position.x = out.position.x - out.position.w;
     out.position.y = out.position.y + out.position.w;
-    let color = saturate(vertex.color * material_transform.mult_color + material_transform.add_color);
+    let color = saturate(linear_to_srgb(vertex.color) * material_transform.mult_color + material_transform.add_color);
     out.color = vec4<f32>(color.rgb * color.a, color.a);
     return out;
 }
