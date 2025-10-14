@@ -71,10 +71,7 @@ use bevy::{
     platform::collections::{HashMap, HashSet},
     sprite_render::MeshMaterial2d,
     time::Time,
-    transform::{
-        commands::BuildChildrenTransformExt,
-        components::{GlobalTransform, Transform},
-    },
+    transform::components::{GlobalTransform, Transform},
 };
 
 use swf::{CharacterId, Rectangle, Twips};
