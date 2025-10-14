@@ -71,7 +71,10 @@ use bevy::{
     platform::collections::{HashMap, HashSet},
     sprite_render::MeshMaterial2d,
     time::Time,
-    transform::components::{GlobalTransform, Transform},
+    transform::{
+        commands::BuildChildrenTransformExt,
+        components::{GlobalTransform, Transform},
+    },
 };
 
 use swf::{CharacterId, Rectangle, Twips};
@@ -849,6 +852,7 @@ fn spawn_or_update_shape(
     // 1. 处理需要绘制中间纹理的Shape（离屏渲染）
     process_offscreen_textures(
         commands,
+        entity,
         &cache_draw,
         filter_texture_mesh,
         shapes,
@@ -881,6 +885,7 @@ fn spawn_or_update_shape(
 #[allow(clippy::too_many_arguments)]
 fn process_offscreen_textures(
     commands: &mut Commands,
+    parent: Entity,
     cache_draws: &[ImageCacheDraw],
     filter_texture_mesh: &FilterTextureMesh,
     shapes: &mut Assets<Shape>,
@@ -924,6 +929,7 @@ fn process_offscreen_textures(
         } else {
             create_new_offscreen_texture(
                 commands,
+                parent,
                 layer_offscreen_cache,
                 &cache_draw.layer,
                 cache_draw,
@@ -964,6 +970,7 @@ fn update_existing_offscreen_texture(
 /// 创建新的离屏纹理实体
 fn create_new_offscreen_texture(
     commands: &mut Commands,
+    parent: Entity,
     layer_offscreen_cache: &mut HashMap<String, Entity>,
     layer_key: &str,
     cache_draw: &ImageCacheDraw,
@@ -972,25 +979,24 @@ fn create_new_offscreen_texture(
     scale: Vec3,
 ) {
     *order += 1;
-
-    // 创建新的离屏纹理实体
-    let entity = commands
-        .spawn((
-            OffscreenTexture {
-                target: cache_draw.handle.clone().into(),
-                is_active: true,
-                size: cache_draw.size,
-                clear_color: cache_draw.clear_color,
-                order: *order,
-                filters: cache_draw.filters.clone(),
-                scale,
-            },
-            OffscreenDrawCommands(current_frame_shape_mesh_draws),
-        ))
-        .id();
-
-    // 缓存新创建的实体
-    layer_offscreen_cache.insert(layer_key.to_owned(), entity);
+    commands.entity(parent).with_children(|parent| {
+        let entity = parent
+            .spawn((
+                OffscreenTexture {
+                    target: cache_draw.handle.clone().into(),
+                    is_active: true,
+                    size: cache_draw.size,
+                    clear_color: cache_draw.clear_color,
+                    order: *order,
+                    filters: cache_draw.filters.clone(),
+                    scale,
+                },
+                OffscreenDrawCommands(current_frame_shape_mesh_draws),
+            ))
+            .id();
+        // 缓存新创建的实体
+        layer_offscreen_cache.insert(layer_key.to_owned(), entity);
+    });
 }
 
 /// 处理直接渲染的形状（不需要离屏渲染）
