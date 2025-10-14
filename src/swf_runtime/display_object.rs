@@ -190,9 +190,15 @@ impl DisplayObjectBase {
         }
     }
 
-    fn recheck_cache(&self, id: CharacterId, image_caches: &mut HashMap<CharacterId, ImageCache>) {
-        if !self.filters.is_empty() && image_caches.get(&id).is_none() || self.as_bitmap_cached {
-            image_caches.insert(id, ImageCache::default());
+    fn recheck_cache(
+        &self,
+        shape_depth_layer: &str,
+        image_caches: &mut HashMap<String, ImageCache>,
+    ) {
+        if !self.filters.is_empty() && image_caches.get(shape_depth_layer).is_none()
+            || self.as_bitmap_cached
+        {
+            image_caches.insert(shape_depth_layer.to_owned(), ImageCache::default());
         }
     }
 
@@ -255,8 +261,12 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         self.base_mut().invalidate_cached_bitmap();
     }
 
-    fn recheck_cache(&self, id: CharacterId, image_caches: &mut HashMap<CharacterId, ImageCache>) {
-        self.base().recheck_cache(id, image_caches);
+    fn recheck_cache(
+        &self,
+        shape_depth_layer: &str,
+        image_caches: &mut HashMap<String, ImageCache>,
+    ) {
+        self.base().recheck_cache(shape_depth_layer, image_caches);
     }
 
     fn set_name(&mut self, name: Option<Box<str>>) {

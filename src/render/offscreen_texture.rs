@@ -13,7 +13,6 @@ use bevy::{
         schedule::IntoScheduleConfigs,
         system::{Commands, Query, Res, ResMut},
     },
-    image::BevyDefault,
     log::error,
     math::{Mat4, UVec2, Vec3},
     platform::collections::{HashMap, HashSet, hash_map::Entry},
@@ -194,7 +193,7 @@ impl ViewTarget {
         self.out_texture.format
     }
 
-    pub fn post_process_write(&self) -> PostProcessWrite {
+    pub fn post_process_write(&self) -> PostProcessWrite<'_> {
         let old_is_a_main_texture = self.main_texture.fetch_xor(1, Ordering::SeqCst);
         // if the old main texture is a, then the post processing must write from a to b
         if old_is_a_main_texture == 0 {
@@ -340,7 +339,7 @@ fn prepare_offscreen_texture_view_target(
             depth_or_array_layers: 1,
         };
 
-        let main_texture_format = TextureFormat::bevy_default();
+        let main_texture_format = TextureFormat::Rgba8Unorm;
         let msaa = Msaa::default();
         let clear_color = offscreen_texture.clear_color;
         let texture_usage = TextureUsages::RENDER_ATTACHMENT

@@ -223,7 +223,7 @@ fn load_shape_mesh(
 
                 let mesh = Mesh::new(
                     PrimitiveTopology::TriangleList,
-                    RenderAssetUsages::default(),
+                    RenderAssetUsages::RENDER_WORLD,
                 )
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
@@ -249,7 +249,7 @@ fn load_shape_mesh(
                 }
                 let mesh = Mesh::new(
                     PrimitiveTopology::TriangleList,
-                    RenderAssetUsages::default(),
+                    RenderAssetUsages::RENDER_WORLD,
                 )
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                 .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
@@ -285,7 +285,7 @@ fn load_shape_mesh(
 
                 let mesh = Mesh::new(
                     PrimitiveTopology::TriangleList,
-                    RenderAssetUsages::default(),
+                    RenderAssetUsages::RENDER_WORLD,
                 )
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                 .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
@@ -367,7 +367,6 @@ pub fn create_gradient_textures(gradients: Vec<Gradient>) -> Vec<(Image, Gradien
         } else {
             let mut colors = vec![0; GRADIENT_SIZE * 4];
             let convert = if gradient.interpolation == GradientInterpolation::LinearRgb {
-                println!("线性");
                 |color| color
             } else {
                 |color| color

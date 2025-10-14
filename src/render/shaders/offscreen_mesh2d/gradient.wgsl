@@ -1,4 +1,4 @@
-#import bevy_flash::common::{MaterialTransform}
+#import bevy_flash::common::{MaterialTransform, linear_to_srgb}
 
 struct Gradient {
     focal_point: f32,
@@ -35,7 +35,7 @@ struct TextureTransforms {
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     let matrix_ = texture_transforms.texture_matrix;
-    out.uv = (mat3x3<f32>(matrix_[0].xyz, matrix_[1].xyz, matrix_[2].xyz) * vertex.position).xy;
+    out.uv = (mat3x3<f32>(matrix_[0].xyz, matrix_[1].xyz, matrix_[2].xyz) * vec3<f32>(vertex.position.xy, 1.0)).xy;
     out.position = view_matrix * material_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
     out.position.x = out.position.x - out.position.w;
     out.position.y = out.position.y + out.position.w;
@@ -85,21 +85,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var color = textureSample(texture, texture_sampler, vec2<f32>(t, 0.0));
     if gradient.interpolation != 0 {
-        color = common__linear_to_srgb(color);
+        color = linear_to_srgb(color);
     }
     let out = saturate(color * material_transform.mult_color + material_transform.add_color);
     let alpha = saturate(out.a);
     return vec4<f32>(out.rgb * alpha, alpha);
-}
-
-/// Converts a color from linear to sRGB color space.
-fn common__linear_to_srgb(linear_: vec4<f32>) -> vec4<f32> {
-    var rgb: vec3<f32> = linear_.rgb;
-    if linear_.a > 0.0 {
-        rgb = rgb / linear_.a;
-    }
-    let a = 12.92 * rgb;
-    let b = 1.055 * pow(rgb, vec3<f32>(1.0 / 2.4)) - 0.055;
-    let c = step(vec3<f32>(0.0031308), rgb);
-    return vec4<f32>(mix(a, b, c) * linear_.a, linear_.a);
 }

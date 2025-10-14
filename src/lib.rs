@@ -89,7 +89,7 @@ struct DisplayObjectCache {
     layer_shape_material_cache: HashMap<String, Vec<(Entity, MaterialType)>>,
     layer_offscreen_shape_draw_cache: HashMap<String, Vec<ShapeMeshDraw>>,
     layer_offscreen_cache: HashMap<String, Entity>,
-    image_cache: HashMap<CharacterId, ImageCache>,
+    image_cache: HashMap<String, ImageCache>,
 }
 /// Flash 插件，为 Bevy 引入 Flash 动画。
 pub struct FlashPlugin;
@@ -181,9 +181,8 @@ struct RenderContext<'w> {
     /// 变形形状纹理缓存，
     /// TODO: 需要储存在SWF Assets 中
     morph_shape_cache: &'w mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
-    /// Image 缓存,
-    /// TODO: 为了避免同一帧多次引用同一个资源id，这里需要使用layer作为key
-    image_cache: &'w mut HashMap<CharacterId, ImageCache>,
+    /// Image 缓存,这里需要使用深度层级作为key
+    image_cache: &'w mut HashMap<String, ImageCache>,
 }
 
 impl<'w> RenderContext<'w> {
@@ -196,7 +195,7 @@ impl<'w> RenderContext<'w> {
         bitmaps: &'w mut Assets<BitmapMaterial>,
         morph_shape_cache: &'w mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
         transform_stack: &'w mut TransformStack,
-        image_cache: &'w mut HashMap<CharacterId, ImageCache>,
+        image_cache: &'w mut HashMap<String, ImageCache>,
         cache_draws: &'w mut Vec<ImageCacheDraw>,
         shape_handles: &'w mut HashMap<CharacterId, Handle<Shape>>,
         scale: Vec3,
@@ -478,7 +477,9 @@ fn process_display_list(
     blend_mode: swf::BlendMode,
     shape_depth_layer: String,
 ) {
-    // TODO:混合模式也有多个MC合成的情况，这里暂时没实现多MC合成的情况，暂时只出来单个图形的情况
+    // TODO:混合模式也有多个MC合成的情况，这里暂时没实现多MC合成的情况，暂时只实现单个图形的情况
+    // 实现方案：参考 Ruffle 中的处理方式，由多个Shape合成的MC上实现Blend模式需要渲染到一个OffscreenTexture中，
+    // 然后将OffscreenTexture渲染到屏幕上，这样做又需要使用OffscreenDrawCommand在渲染图中实现。
     let blend_mode = if display_list.len() > 1 {
         swf::BlendMode::Normal
     } else {
@@ -497,7 +498,7 @@ fn process_display_list(
         let blend_mode = determine_blend_mode(blend_mode, display_object);
 
         // 处理缓存和滤镜
-        let cache_info = process_cache_and_filters(display_object, context, id);
+        let cache_info = process_cache_and_filters(display_object, context, id, &shape_depth_layer);
 
         // 根据是否有缓存信息选择渲染方式
         if let Some(cache_info) = cache_info {
@@ -537,6 +538,7 @@ fn process_cache_and_filters(
     display_object: &mut DisplayObject,
     context: &mut RenderContext<'_>,
     id: CharacterId,
+    shape_depth_layer: &str,
 ) -> Option<CacheInfo> {
     // 获取基本变换和边界
     let base_transform = context.transform_stack.transform();
@@ -548,11 +550,12 @@ fn process_cache_and_filters(
     let swf_version = display_object.swf_version();
     filters.retain(|f| !f.impotent());
 
-    // 检查缓存
-    display_object.recheck_cache(id, context.image_cache);
+    // 检查缓存,TODO: 该问题同RenderContext中image_cache的问题，当存在使用同一个shape资源时，一个有滤镜，一个没有滤镜，
+    // 会导致渲染引用同一个缓存，不需要滤镜的也进入了滤镜渲染
+    display_object.recheck_cache(shape_depth_layer, context.image_cache);
 
     // 如果没有缓存，直接返回None
-    let cache = context.image_cache.get_mut(&id)?;
+    let cache = context.image_cache.get_mut(shape_depth_layer)?;
 
     // 计算尺寸
     let width = bounds.width().to_pixels().ceil().max(0.);

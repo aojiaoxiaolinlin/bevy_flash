@@ -1,5 +1,5 @@
 #import bevy_sprite::{mesh2d_functions as mesh_functions, mesh2d_vertex_output::VertexOutput}
-#import bevy_flash::common::{view_matrix,MaterialTransform}
+#import bevy_flash::common::{view_matrix, MaterialTransform}
 
 @group(2) @binding(0) var<uniform> material_transform: MaterialTransform;
 

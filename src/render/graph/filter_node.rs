@@ -300,7 +300,6 @@ fn apply_blur<'w>(
     let height = size.y as f32;
     for _ in 0..(blur_filter.num_passes() as usize) {
         for i in 0..2 {
-            let post_process = view_target.post_process_write();
             let horizontal = i % 2 == 0;
             let strength = if horizontal {
                 blur_filter.blur_x.to_f32()
@@ -337,6 +336,7 @@ fn apply_blur<'w>(
                 usage: BufferUsages::UNIFORM,
             });
 
+            let post_process = view_target.post_process_write();
             let bind_group = render_device.create_bind_group(
                 Some("blur_filter_bind_group"),
                 &blur_filter_pipeline.layout,

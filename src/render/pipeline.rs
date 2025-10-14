@@ -7,7 +7,6 @@ use bevy::{
         resource::Resource,
         system::{Commands, Res},
     },
-    image::BevyDefault,
     math::{Mat4, Vec2},
     mesh::{Mesh, PrimitiveTopology, VertexBufferLayout},
     render::{
@@ -129,7 +128,7 @@ impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
         }
 
         let vertex_buffer_layout = layout.0.get_layout(&vertex_attributes)?;
-        let format = TextureFormat::bevy_default();
+        let format = TextureFormat::Rgba8Unorm;
 
         let label;
         let bind_group_layout = if key.contains(OffscreenMesh2dKey::COLOR) {
@@ -350,7 +349,7 @@ pub(crate) fn init_blur_filter_pipeline(
             shader_defs: vec![],
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: TextureFormat::Rgba8Unorm,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -406,7 +405,7 @@ pub(crate) fn init_color_matrix_filter_pipeline(
             shader_defs: vec![],
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: TextureFormat::Rgba8Unorm,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -463,7 +462,7 @@ pub(crate) fn init_glow_filter_pipeline(
             shader_defs: vec![],
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: TextureFormat::Rgba8Unorm,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -532,7 +531,7 @@ pub(crate) fn init_bevel_filter_pipeline(
             shader_defs: vec![],
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: TextureFormat::Rgba8Unorm,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
