@@ -870,7 +870,7 @@ fn spawn_or_update_shape(
         shapes,
         materials,
         shape_meshes,
-        &shape_commands,
+        shape_commands,
         shape_handles,
         layer_shape_material_cache,
         &mut current_live_shape_depth_layers,
@@ -1005,20 +1005,20 @@ fn process_direct_shapes(
     shapes: &mut Assets<Shape>,
     materials: &mut ShapeMaterialAssets<'_>,
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-    shape_commands: &[ShapeCommand],
+    shape_commands: Vec<ShapeCommand>,
     shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
     current_live_shape_depth_layers: &mut HashSet<String>,
     scale: Vec3,
 ) {
     // 记录当前帧Shape Command 中使用到的Shape层级用于复用实体
-    record_current_live_layer(shape_commands, current_live_shape_depth_layers);
+    record_current_live_layer(&shape_commands, current_live_shape_depth_layers);
 
     let mut commands = commands.entity(entity);
     let mut z_index = 0.;
 
     // 处理每个形状命令
-    for (index, shape_command) in shape_commands.iter().enumerate() {
+    for (index, shape_command) in shape_commands.into_iter().enumerate() {
         z_index += index as f32 * 0.001;
 
         match shape_command {
@@ -1055,7 +1055,7 @@ fn process_direct_shapes(
 #[allow(clippy::too_many_arguments)]
 fn process_render_shape_command(
     commands: &mut EntityCommands,
-    shape_command: &ShapeCommand,
+    shape_command: ShapeCommand,
     shapes: &mut Assets<Shape>,
     shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
@@ -1074,7 +1074,7 @@ fn process_render_shape_command(
     } = shape_command
     {
         // 获取形状的网格材质
-        let Some(handle) = shape_handles.get(id) else {
+        let Some(handle) = shape_handles.get(&id) else {
             return;
         };
         let Some(shape) = shapes.get(handle) else {
@@ -1083,8 +1083,8 @@ fn process_render_shape_command(
 
         // 尝试查找缓存的形状材质
         if let Some(shape_material_handle_cache) = find_cached_shape_material(
-            id,
-            shape_depth_layer,
+            &id,
+            &shape_depth_layer,
             layer_shape_material_cache,
             current_live_shape_depth_layers,
         ) {
@@ -1126,8 +1126,8 @@ fn update_cached_shapes(
     color_materials: &mut Assets<ColorMaterial>,
     gradient_materials: &mut Assets<GradientMaterial>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
-    swf_transform: &SwfTransform,
-    blend_mode: &BlendMode,
+    swf_transform: SwfTransform,
+    blend_mode: BlendMode,
     z_index: &mut f32,
 ) {
     for (index, (entity, handle)) in shape_material_handle_cache.iter().enumerate() {
@@ -1154,13 +1154,13 @@ fn update_cached_shapes(
 fn create_new_shapes(
     commands: &mut EntityCommands,
     shape: &Shape,
-    shape_depth_layer: &String,
+    shape_depth_layer: String,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
     color_materials: &mut Assets<ColorMaterial>,
     gradient_materials: &mut Assets<GradientMaterial>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
-    swf_transform: &SwfTransform,
-    blend_mode: &BlendMode,
+    swf_transform: SwfTransform,
+    blend_mode: BlendMode,
     z_index: f32,
 ) {
     // 获取或创建形状材质缓存
@@ -1223,7 +1223,7 @@ fn create_new_shapes(
 #[allow(clippy::too_many_arguments)]
 fn process_render_bitmap_command(
     commands: &mut EntityCommands,
-    shape_command: &ShapeCommand,
+    shape_command: ShapeCommand,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
@@ -1237,7 +1237,7 @@ fn process_render_bitmap_command(
         size,
     } = shape_command
     {
-        let raw_size = *size / scale.xy();
+        let raw_size = size / scale.xy();
 
         spawn_or_update_bitmap(
             layer_shape_material_cache,
@@ -1272,8 +1272,8 @@ fn update_shape_material(
     color_materials: &mut Assets<ColorMaterial>,
     gradient_materials: &mut Assets<GradientMaterial>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
-    swf_transform: &SwfTransform,
-    blend_mode: &BlendMode,
+    swf_transform: SwfTransform,
+    blend_mode: BlendMode,
 ) {
     match handle {
         MaterialType::Color(color) => {
@@ -1291,16 +1291,16 @@ fn update_shape_material(
 /// 更新或创建位图
 fn spawn_or_update_bitmap(
     shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    shape_depth_layer: &String,
+    shape_depth_layer: String,
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
-    bitmap_material: &BitmapMaterial,
+    bitmap_material: BitmapMaterial,
     size: Vec2,
     z_index: f32,
     func: impl FnOnce(Handle<BitmapMaterial>, &mut Vec<(Entity, MaterialType)>),
 ) {
     // 尝试查找并更新已有位图
-    if let Some(shape_material_handle_cache) = shape_material_cache.get(shape_depth_layer)
+    if let Some(shape_material_handle_cache) = shape_material_cache.get(&shape_depth_layer)
         && let Some((entity, bitmap_material_handle)) = shape_material_handle_cache.first()
         && let MaterialType::Bitmap(bitmap_material_handle) = bitmap_material_handle
     {
@@ -1331,7 +1331,7 @@ fn update_existing_bitmap(
     bitmap_material_handle: &Handle<BitmapMaterial>,
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
-    bitmap_material: &BitmapMaterial,
+    bitmap_material: BitmapMaterial,
     size: Vec2,
     z_index: f32,
 ) {
@@ -1357,18 +1357,16 @@ fn update_existing_bitmap(
 /// 创建新位图
 fn create_new_bitmap(
     shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    shape_depth_layer: &String,
+    shape_depth_layer: String,
     bitmap_materials: &mut Assets<BitmapMaterial>,
-    bitmap_material: &BitmapMaterial,
+    bitmap_material: BitmapMaterial,
     func: impl FnOnce(Handle<BitmapMaterial>, &mut Vec<(Entity, MaterialType)>),
 ) {
     // 获取或创建形状材质缓存
-    let shape_material_handle_cache = shape_material_cache
-        .entry(shape_depth_layer.to_owned())
-        .or_default();
+    let shape_material_handle_cache = shape_material_cache.entry(shape_depth_layer).or_default();
 
     // 添加位图材质并创建实体
-    let bitmap_material_handle = bitmap_materials.add(bitmap_material.clone());
+    let bitmap_material_handle = bitmap_materials.add(bitmap_material);
     func(bitmap_material_handle.clone(), shape_material_handle_cache);
 }
 
@@ -1379,8 +1377,8 @@ fn spawn_shape_mesh<T: SwfMaterial>(
     materials: &mut Assets<T>,
     mesh: Handle<Mesh>,
     material: T,
-    swf_transform: &SwfTransform,
-    blend_mode: &BlendMode,
+    swf_transform: SwfTransform,
+    blend_mode: BlendMode,
     z_index: f32,
     func: impl FnOnce(Entity, Handle<T>),
 ) {
@@ -1390,8 +1388,8 @@ fn spawn_shape_mesh<T: SwfMaterial>(
     // material.transform = (*transform).into();
 
     let mut material = material;
-    material.update_swf_material((*swf_transform).into());
-    material.set_blend_key((*blend_mode).into());
+    material.update_swf_material(swf_transform.into());
+    material.set_blend_key(blend_mode.into());
     let handle = materials.add(material);
     commands.with_children(|parent| {
         let entity = parent
@@ -1426,13 +1424,13 @@ fn handle_offscreen_draw<T: SwfMaterial>(
 fn update_material<T: SwfMaterial>(
     handle: &Handle<T>,
     swf_materials: &mut Assets<T>,
-    swf_transform: &SwfTransform,
-    blend_mode: &BlendMode,
+    swf_transform: SwfTransform,
+    blend_mode: BlendMode,
 ) {
     // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质。
     if let Some(swf_material) = swf_materials.get_mut(handle) {
-        swf_material.update_swf_material((*swf_transform).into());
-        swf_material.set_blend_key((*blend_mode).into());
+        swf_material.update_swf_material(swf_transform.into());
+        swf_material.set_blend_key(blend_mode.into());
     }
 }
 
@@ -1508,13 +1506,13 @@ fn process_offscreen_draw_commands(
                 for shape_mesh_draw in cache.iter() {
                     match &shape_mesh_draw.material_type {
                         MaterialType::Color(color) => {
-                            update_material(color, color_materials, transform, blend_mode);
+                            update_material(color, color_materials, *transform, *blend_mode);
                         }
                         MaterialType::Gradient(gradient) => {
-                            update_material(gradient, gradient_materials, transform, blend_mode);
+                            update_material(gradient, gradient_materials, *transform, *blend_mode);
                         }
                         MaterialType::Bitmap(bitmap) => {
-                            update_material(bitmap, bitmap_materials, transform, blend_mode);
+                            update_material(bitmap, bitmap_materials, *transform, *blend_mode);
                         }
                     }
                 }
