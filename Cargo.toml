@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flash"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A Bevy plugin for Flash Animation."
 authors = ["aojiaoxiaolinlin"]
