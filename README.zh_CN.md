@@ -38,9 +38,9 @@
 
 > 在线 [Demo](https://aojiaoxiaolinlin.github.io/bevy_flash_demo/)
 
-![](./docs/Readme/xiao_hai_shen_long.png)
-![](./docs/Readme/bevy_flash_sample.gif)
-![](./docs/Readme/filter_effect.gif)
+![example](./docs/Readme/xiao_hai_shen_long.png)
+![example](./docs/Readme/yue_se.webp)
+![example](./docs/Readme/lei_yi.webp)
 
 
 ## 🚀 快速开始

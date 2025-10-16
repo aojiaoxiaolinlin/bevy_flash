@@ -39,9 +39,9 @@ I want to bring Flash animations into the game engine to reuse old resources and
 ## 📸 Example
 [See online demo](https://aojiaoxiaolinlin.github.io/bevy_flash_demo/)
 
-![show_case](./docs/Readme/xiao_hai_shen_long.png)
-![bevy_flash_sample](https://github.com/user-attachments/assets/8bf354d0-0c7b-4bce-bd2f-65fb0fcbc590)
-![effect](./docs/Readme/filter_effect.gif)
+![example](./docs/Readme/xiao_hai_shen_long.png)
+![example](./docs/Readme/yue_se.webp)
+![example](./docs/Readme/lei_yi.webp)
 
 ## 🚀 Quick Start
 
