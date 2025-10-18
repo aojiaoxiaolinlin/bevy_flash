@@ -24,7 +24,7 @@ struct Vertex {
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     out.uv = (mat3x3<f32>(texture_transform[0].xyz, texture_transform[1].xyz, texture_transform[2].xyz) * vec3<f32>(vertex.position.x, vertex.position.y, 1.0)).xy;
-    let position: vec4<f32> = view_matrix * material_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
+    let position: vec4<f32> = material_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
     var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh2d_position_local_to_world(
         world_from_local,
@@ -32,7 +32,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(out.world_position);
     out.position.x = out.position.x - out.position.w;
-    out.position.y = out.position.y + out.position.w;
+    out.position.y = out.position.y * -1 + out.position.w;
     return out;
 }
 
