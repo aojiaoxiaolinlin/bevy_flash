@@ -24,12 +24,9 @@ Bring Flash animations into the Bevy game engine, fully WASM compatible!
 - ✅ Multiply
 - 🟡 Remaining blend modes require the screen texture feature from  `Bevy`
 
-!!! NOTE
-
-Since GPUs perform blending in Linear Space, while Flash's blending modes default to blending in Gamma Space (or sRGB Space), 
-the blending mode colors in the current implementation are not color-accurate.
-
-!!!
+> [!NOTE]
+> Since GPUs perform blending in Linear Space, while Flash's blending modes default to blending in Gamma Space (or sRGB Space), 
+> the blending mode colors in the current implementation are not color-accurate.
 
 ### Filter Rendering
 - ✅ Color Transform Filter
