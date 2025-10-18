@@ -183,6 +183,8 @@ struct RenderContext<'w> {
     morph_shape_cache: &'w mut HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
     /// Image 缓存,这里需要使用深度层级作为key
     image_cache: &'w mut HashMap<String, ImageCache>,
+
+    flip_x: bool,
 }
 
 impl<'w> RenderContext<'w> {
@@ -199,6 +201,7 @@ impl<'w> RenderContext<'w> {
         cache_draws: &'w mut Vec<ImageCacheDraw>,
         shape_handles: &'w mut HashMap<CharacterId, Handle<Shape>>,
         scale: Vec3,
+        flip_x: bool,
     ) -> Self {
         Self {
             shapes,
@@ -213,6 +216,7 @@ impl<'w> RenderContext<'w> {
             scale,
             morph_shape_cache,
             image_cache,
+            flip_x,
         }
     }
 
@@ -418,7 +422,6 @@ fn advance_animation(
             // 处理DisplayList
             let mut cache_draws = vec![];
             let mut transform_stack = TransformStack::default();
-
             // 创建渲染上下文
             let mut context = RenderContext::new(
                 shapes.as_mut(),
@@ -432,12 +435,14 @@ fn advance_animation(
                 &mut cache_draws,
                 &mut swf.shape_handles,
                 global_scale,
+                player.flip_x(),
             );
             process_display_list(
                 root.render_list_mut(),
                 &mut context,
                 swf::BlendMode::Normal,
                 String::from("0"),
+                true,
             );
 
             let shape_commands = context.commands;
@@ -476,6 +481,7 @@ fn process_display_list(
     context: &mut RenderContext<'_>,
     blend_mode: swf::BlendMode,
     shape_depth_layer: String,
+    is_root: bool,
 ) {
     // TODO:混合模式也有多个MC合成的情况，这里暂时没实现多MC合成的情况，暂时只实现单个图形的情况
     // 实现方案：参考 Ruffle 中的处理方式，由多个Shape合成的MC上实现Blend模式需要渲染到一个OffscreenTexture中，
@@ -489,10 +495,19 @@ fn process_display_list(
         let id = display_object.id();
         let shape_depth_layer = format!("{}_{}_{}", shape_depth_layer, display_object.depth(), id);
 
+        let transform = if is_root {
+            let mut transform = *display_object.transform();
+            transform.matrix.a = if context.flip_x {
+                -transform.matrix.a
+            } else {
+                transform.matrix.a
+            };
+            transform
+        } else {
+            *display_object.transform()
+        };
         // 保存当前变换状态
-        context
-            .transform_stack
-            .push(display_object.base().transform());
+        context.transform_stack.push(&transform);
 
         // 确定混合模式
         let blend_mode = determine_blend_mode(blend_mode, display_object);
@@ -714,6 +729,7 @@ fn render_to_offscreen_texture(
         context.cache_draws,
         context.shape_handles,
         context.scale,
+        false,
     );
 
     // 渲染显示对象到离屏上下文
@@ -805,6 +821,7 @@ fn render_display_object(
                 context,
                 blend_mode,
                 shape_depth_layer,
+                false,
             );
         }
         DisplayObject::Graphic(graphic) => {

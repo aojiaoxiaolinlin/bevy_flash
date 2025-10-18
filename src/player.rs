@@ -21,6 +21,7 @@ pub struct FlashPlayer {
     current_frame: u16,
     /// 是否完成，用于标记触发一次触发完成事件
     completed: bool,
+    flip_x: bool,
 }
 
 impl FlashPlayer {
@@ -60,6 +61,11 @@ impl FlashPlayer {
             return self;
         }
         self.speed = speed;
+        self
+    }
+
+    pub fn with_flip_x(mut self, flip_x: bool) -> Self {
+        self.flip_x = flip_x;
         self
     }
 
@@ -122,6 +128,10 @@ impl FlashPlayer {
         self.speed
     }
 
+    pub fn flip_x(&self) -> bool {
+        self.flip_x
+    }
+
     pub(crate) fn play_target_animation(&mut self, swf: &Swf, root: &mut McRoot) {
         if let Some(name) = &self.current_animation {
             match swf.animations().get(name.as_str()) {
@@ -150,6 +160,7 @@ impl Default for FlashPlayer {
             total_frames: 0,
             current_frame: 0,
             completed: false,
+            flip_x: false,
         }
     }
 }

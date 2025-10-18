@@ -31,8 +31,11 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
     commands.spawn((
         Name::new("冲霄"),
         Flash(assert_server.load("spirit2159src.swf")),
-        FlashPlayer::from_animation_name("WAI"),
-        Transform::from_scale(Vec3::splat(2.0)),
+        FlashPlayer::from_animation_name("WAI").with_flip_x(true),
+        Transform::from_scale(Vec3::splat(1.0))
+            // 不要将x、y轴的缩放值设为负数，会导致显示异常，请使用FlashPlayer的with_flip_x方法
+            .with_scale(Vec3::splat(2.0))
+            .with_translation(Vec3::new(0.0, 0.0, 0.0)),
     ));
 
     commands.spawn((

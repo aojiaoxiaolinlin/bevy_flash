@@ -301,6 +301,10 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         &self.base().transform().matrix
     }
 
+    fn transform(&self) -> &Transform {
+        self.base().transform()
+    }
+
     fn swf_version(&self) -> u8 {
         self.movie().version()
     }
