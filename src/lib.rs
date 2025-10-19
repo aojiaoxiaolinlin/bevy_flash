@@ -71,7 +71,10 @@ use bevy::{
     platform::collections::{HashMap, HashSet},
     sprite_render::MeshMaterial2d,
     time::Time,
-    transform::components::{GlobalTransform, Transform},
+    transform::{
+        TransformSystems,
+        components::{GlobalTransform, Transform},
+    },
 };
 
 use swf::{CharacterId, Rectangle, Twips};
@@ -90,6 +93,11 @@ struct DisplayObjectCache {
     layer_offscreen_shape_draw_cache: HashMap<String, Vec<ShapeMeshDraw>>,
     layer_offscreen_cache: HashMap<String, Entity>,
     image_cache: HashMap<String, ImageCache>,
+
+    /// 是否需要翻转 X 轴
+    flip_x: bool,
+    /// 是否需要翻转 Y 轴
+    flip_y: bool,
 }
 /// Flash 插件，为 Bevy 引入 Flash 动画。
 pub struct FlashPlugin;
@@ -101,7 +109,12 @@ impl Plugin for FlashPlugin {
             .init_asset::<Shape>()
             .init_asset_loader::<SwfLoader>()
             .add_systems(PostUpdate, prepare_shape_mesh)
-            .add_systems(PostUpdate, (prepare_root_clip, advance_animation).chain());
+            .add_systems(
+                PostUpdate,
+                (prepare_root_clip, advance_animation)
+                    .chain()
+                    .before(TransformSystems::Propagate),
+            );
     }
 }
 
@@ -184,7 +197,10 @@ struct RenderContext<'w> {
     /// Image 缓存,这里需要使用深度层级作为key
     image_cache: &'w mut HashMap<String, ImageCache>,
 
+    /// 是否需要翻转 X 轴
     flip_x: bool,
+    /// 是否需要翻转 Y 轴
+    flip_y: bool,
 }
 
 impl<'w> RenderContext<'w> {
@@ -202,6 +218,7 @@ impl<'w> RenderContext<'w> {
         shape_handles: &'w mut HashMap<CharacterId, Handle<Shape>>,
         scale: Vec3,
         flip_x: bool,
+        flip_y: bool,
     ) -> Self {
         Self {
             shapes,
@@ -217,6 +234,7 @@ impl<'w> RenderContext<'w> {
             morph_shape_cache,
             image_cache,
             flip_x,
+            flip_y,
         }
     }
 
@@ -367,14 +385,18 @@ fn advance_animation(
     time: Res<Time>,
     filter_texture_mesh: Res<FilterTextureMesh>,
     mut commands: Commands,
-    mut player: Query<(
-        Entity,
-        &mut FlashPlayer,
-        &mut FlashPlayerTimer,
-        &mut McRoot,
-        &Flash,
-        &GlobalTransform,
-    )>,
+    mut player: Query<
+        (
+            Entity,
+            &mut FlashPlayer,
+            &mut FlashPlayerTimer,
+            &mut McRoot,
+            &mut Transform,
+            &Flash,
+            &GlobalTransform,
+        ),
+        Without<ShapeMesh>,
+    >,
     mut shape_meshes: Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     mut offscreen_textures: Query<&mut OffscreenTexture>,
     mut shapes: ResMut<Assets<Shape>>,
@@ -390,7 +412,9 @@ fn advance_animation(
     // 1. 将动画的每一帧将离屏渲染实体列为不活跃
     mark_offscreen_textures_inactive(&mut offscreen_textures);
     // 2. 更新动画帧
-    for (entity, mut player, mut timer, mut root, swf, global_transform) in player.iter_mut() {
+    for (entity, mut player, mut timer, mut root, mut transform, swf, global_transform) in
+        player.iter_mut()
+    {
         current_live_player.push(entity);
         if timer
             .tick(time.delta().mul_f32(player.speed()))
@@ -413,9 +437,19 @@ fn advance_animation(
             // 更新动画帧并触发帧事件
             update_animation_frame(&mut commands, entity, &mut player, &mut root, swf);
 
-            let global_scale = global_transform.scale();
-
             let display_object_cache = display_object_entity_caches.entry(entity).or_default();
+            let flip_x = &mut display_object_cache.flip_x;
+            let flip_y = &mut display_object_cache.flip_y;
+            let global_scale = global_transform.scale();
+            if transform.scale.x < 0.0 {
+                transform.scale.x = transform.scale.x.abs();
+                *flip_x = true;
+            }
+            if transform.scale.y < 0.0 {
+                transform.scale.y = transform.scale.y.abs();
+                *flip_y = true;
+            }
+
             let morph_shape_cache: &mut _ = &mut display_object_cache.morph_shape_frame_cache;
             let image_cache = &mut display_object_cache.image_cache;
 
@@ -435,7 +469,8 @@ fn advance_animation(
                 &mut cache_draws,
                 &mut swf.shape_handles,
                 global_scale,
-                player.flip_x(),
+                *flip_x,
+                *flip_y,
             );
             process_display_list(
                 root.render_list_mut(),
@@ -501,6 +536,11 @@ fn process_display_list(
                 -transform.matrix.a
             } else {
                 transform.matrix.a
+            };
+            transform.matrix.d = if context.flip_y {
+                -transform.matrix.d
+            } else {
+                transform.matrix.d
             };
             transform
         } else {
@@ -729,6 +769,7 @@ fn render_to_offscreen_texture(
         context.cache_draws,
         context.shape_handles,
         context.scale,
+        false,
         false,
     );
 
