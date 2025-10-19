@@ -33,15 +33,18 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
         Flash(assert_server.load("spirit2159src.swf")),
         FlashPlayer::from_animation_name("WAI").with_flip_x(true),
         Transform::from_scale(Vec3::splat(1.0))
-            // 不要将x、y轴的缩放值设为负数，会导致显示异常，请使用FlashPlayer的with_flip_x方法
+            // 不要将x、y轴的缩放值设为负数，会导致显示异常，请使用FlashPlayer的with_flip_x方法,
+            // 因为通过Transform的变换实现翻转时，会在动画推进中生成子的子实体，变换时继承这个变换。
+            // 实现翻转时并不需要那些子实体也进行翻转，即使我将父实体的GlobalTransform的缩放设置为为绝对值，也无法即使应用到子实体。子实体还是集成的负值。
+            // 因此这里目前采用多加一个参数来控制翻转，通过FlashPlayer的with_flip_x方法实现翻转。
             .with_scale(Vec3::splat(2.0))
-            .with_translation(Vec3::new(0.0, 0.0, 0.0)),
+            .with_translation(Vec3::new(-200.0, 200.0, 0.0)),
     ));
 
     commands.spawn((
         Flash(assert_server.load("埃及太阳神.swf")),
         FlashPlayer::from_looping(true),
-        Transform::from_scale(Vec3::splat(2.0)),
+        Transform::from_scale(Vec3::splat(2.0)).with_translation(Vec3::new(200.0, 200.0, 0.0)),
     ));
 
     // 提示按下空格键，触发动画 ATT 播放
