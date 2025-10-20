@@ -481,6 +481,9 @@ fn advance_animation(
             );
 
             let shape_commands = context.commands;
+
+            // TODO: 不再使用Mesh2d 实体进行，而是直接才用ShapeCommand在渲染图进行绘制，
+            // 这样就不需要考虑Mesh2d 实体复用的复杂问题，简化流程。
             spawn_or_update_shape(
                 &mut commands,
                 entity,
@@ -605,8 +608,6 @@ fn process_cache_and_filters(
     let swf_version = display_object.swf_version();
     filters.retain(|f| !f.impotent());
 
-    // 检查缓存,TODO: 该问题同RenderContext中image_cache的问题，当存在使用同一个shape资源时，一个有滤镜，一个没有滤镜，
-    // 会导致渲染引用同一个缓存，不需要滤镜的也进入了滤镜渲染
     display_object.recheck_cache(shape_depth_layer, context.image_cache);
 
     // 如果没有缓存，直接返回None
