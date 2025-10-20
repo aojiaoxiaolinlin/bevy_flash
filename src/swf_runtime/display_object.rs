@@ -1,24 +1,22 @@
 use std::collections::btree_map::ValuesMut;
 use std::sync::Arc;
 
-use bevy::asset::{Assets, Handle, RenderAssetUsages};
-use bevy::image::Image;
-use bevy::log::warn_once;
-use bevy::math::{IVec2, UVec2};
-use bevy::platform::collections::HashMap;
-use bevy::render::render_resource::TextureFormat;
+use bevy::{
+    asset::{Assets, Handle, RenderAssetUsages},
+    image::Image,
+    log::warn_once,
+    math::{IVec2, UVec2},
+    platform::collections::HashMap,
+    render::render_resource::TextureFormat,
+};
 use swf::{BlendMode, CharacterId, ColorTransform, Depth, Rectangle, Twips};
 
 use crate::RenderContext;
 
-use super::character::Character;
-use super::graphic::Graphic;
-use super::matrix::Matrix;
-use super::morph_shape::MorphShape;
-
-use super::tag_utils::SwfMovie;
-
-use super::{filter::Filter, movie_clip::MovieClip, transform::Transform};
+use super::{
+    character::Character, filter::Filter, graphic::Graphic, matrix::Matrix,
+    morph_shape::MorphShape, movie_clip::MovieClip, tag_utils::SwfMovie, transform::Transform,
+};
 
 pub(crate) type FrameNumber = u16;
 

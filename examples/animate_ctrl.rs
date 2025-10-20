@@ -37,11 +37,11 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
             .with_translation(Vec3::new(-200.0, 0.0, 0.0)),
     ));
 
-    // commands.spawn((
-    //     Flash(assert_server.load("埃及太阳神.swf")),
-    //     FlashPlayer::from_looping(true),
-    //     Transform::from_scale(Vec3::splat(2.0)).with_translation(Vec3::new(200.0, 200.0, 0.0)),
-    // ));
+    commands.spawn((
+        Flash(assert_server.load("埃及太阳神.swf")),
+        FlashPlayer::from_looping(true),
+        Transform::from_scale(Vec3::splat(2.0)),
+    ));
 
     // 提示按下空格键，触发动画 ATT 播放
     commands.spawn((

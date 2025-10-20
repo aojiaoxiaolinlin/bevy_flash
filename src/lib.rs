@@ -66,7 +66,7 @@ use bevy::{
     },
     image::Image,
     log::warn_once,
-    math::{IVec2, Mat4, UVec2, Vec2, Vec3, Vec3Swizzles},
+    math::{IVec2, Mat4, UVec2, Vec3, Vec3Swizzles},
     mesh::{Mesh, Mesh2d},
     platform::collections::{HashMap, HashSet},
     sprite_render::MeshMaterial2d,
@@ -901,9 +901,6 @@ fn spawn_or_update_shape(
         &mut display_object_cache.layer_offscreen_cache,
     );
 
-    // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
-    let mut current_live_shape_depth_layers: HashSet<String> = HashSet::new();
-
     // 1. 处理需要绘制中间纹理的Shape（离屏渲染）
     process_offscreen_textures(
         commands,
@@ -915,7 +912,6 @@ fn spawn_or_update_shape(
         shape_handles,
         layer_offscreen_shape_draw_cache,
         layer_offscreen_cache,
-        &mut current_live_shape_depth_layers,
         offscreen_textures,
         scale,
     );
@@ -931,7 +927,6 @@ fn spawn_or_update_shape(
         shape_commands,
         shape_handles,
         layer_shape_material_cache,
-        &mut current_live_shape_depth_layers,
         scale,
     );
 }
@@ -948,7 +943,6 @@ fn process_offscreen_textures(
     shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
     layer_offscreen_cache: &mut HashMap<String, Entity>,
-    current_live_shape_depth_layers: &mut HashSet<String>,
     offscreen_textures: &mut Query<&mut OffscreenTexture>,
     scale: Vec3,
 ) {
@@ -968,7 +962,6 @@ fn process_offscreen_textures(
             materials,
             shape_handles,
             layer_offscreen_shape_draw_cache,
-            current_live_shape_depth_layers,
         );
 
         // 更新或创建离屏纹理实体
@@ -1066,11 +1059,12 @@ fn process_direct_shapes(
     shape_commands: Vec<ShapeCommand>,
     shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    current_live_shape_depth_layers: &mut HashSet<String>,
     scale: Vec3,
 ) {
+    // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
+    let mut current_live_shape_depth_layers: HashSet<String> = HashSet::new();
     // 记录当前帧Shape Command 中使用到的Shape层级用于复用实体
-    record_current_live_layer(&shape_commands, current_live_shape_depth_layers);
+    record_current_live_layer(&shape_commands, &mut current_live_shape_depth_layers);
 
     let mut commands = commands.entity(entity);
     let mut z_index = 0.;
@@ -1087,7 +1081,7 @@ fn process_direct_shapes(
                     shapes,
                     shape_handles,
                     layer_shape_material_cache,
-                    current_live_shape_depth_layers,
+                    &mut current_live_shape_depth_layers,
                     shape_meshes,
                     materials,
                     &mut z_index,
@@ -1295,7 +1289,7 @@ fn process_render_bitmap_command(
         size,
     } = shape_command
     {
-        let raw_size = size / scale.xy();
+        let _raw_size = size / scale.xy();
 
         spawn_or_update_bitmap(
             layer_shape_material_cache,
@@ -1303,7 +1297,6 @@ fn process_render_bitmap_command(
             shape_meshes,
             bitmap_materials,
             bitmap_material,
-            raw_size,
             z_index,
             |bitmap_material_handle, shape_material_handle_cache| {
                 commands.with_children(|parent| {
@@ -1353,7 +1346,6 @@ fn spawn_or_update_bitmap(
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
     bitmap_material: BitmapMaterial,
-    size: Vec2,
     z_index: f32,
     func: impl FnOnce(Handle<BitmapMaterial>, &mut Vec<(Entity, MaterialType)>),
 ) {
@@ -1368,7 +1360,6 @@ fn spawn_or_update_bitmap(
             shape_meshes,
             bitmap_materials,
             bitmap_material,
-            size,
             z_index,
         );
     } else {
@@ -1390,7 +1381,6 @@ fn update_existing_bitmap(
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     bitmap_materials: &mut Assets<BitmapMaterial>,
     bitmap_material: BitmapMaterial,
-    size: Vec2,
     z_index: f32,
 ) {
     // 更新变换
@@ -1406,8 +1396,6 @@ fn update_existing_bitmap(
     };
 
     entity_bitmap_material.transform = bitmap_material.transform;
-    entity_bitmap_material.transform.world_transform.x_axis.x = size.x;
-    entity_bitmap_material.transform.world_transform.y_axis.y = size.y;
     entity_bitmap_material.blend_key = bitmap_material.blend_key;
     entity_bitmap_material.texture = bitmap_material.texture.clone();
 }
@@ -1506,8 +1494,8 @@ fn find_cached_shape_material<'w, T>(
         if let Some((k, cache)) = layer_cache
             .iter()
             .filter(|(k, _)| !current_live_shape_depth_layers.contains(k.as_str()))
-            .find(|(key, _)| {
-                key.split("_")
+            .find(|(k, _)| {
+                k.split("_")
                     .last()
                     .map(|v| v == id.to_string())
                     .unwrap_or(false)
@@ -1542,10 +1530,7 @@ fn process_offscreen_draw_commands(
     materials: &mut ShapeMaterialAssets<'_>,
     shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
-    current_live_shape_depth_layers: &mut HashSet<String>,
 ) -> Vec<ShapeMeshDraw> {
-    // 记录当前帧可以重复使用的层级
-    record_current_live_layer(commands, current_live_shape_depth_layers);
     let mut current_frame_shape_mesh_draws = vec![];
     let (color_materials, gradient_materials, bitmap_materials) = materials;
     commands.iter().for_each(|command| match command {
@@ -1555,12 +1540,7 @@ fn process_offscreen_draw_commands(
             shape_depth_layer,
             blend_mode,
         } => {
-            if let Some(cache) = find_cached_shape_material(
-                id,
-                shape_depth_layer,
-                layer_offscreen_shape_draw_cache,
-                current_live_shape_depth_layers,
-            ) {
+            if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer) {
                 for shape_mesh_draw in cache.iter() {
                     match &shape_mesh_draw.material_type {
                         MaterialType::Color(color) => {

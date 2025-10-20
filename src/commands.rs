@@ -21,7 +21,6 @@ use swf::CharacterId;
 pub(crate) enum ShapeCommand {
     RenderShape {
         transform: Transform,
-        // Graphic 对应的 CharacterId
         id: CharacterId,
         shape_depth_layer: String,
         blend_mode: BlendMode,
