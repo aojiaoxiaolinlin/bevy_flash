@@ -160,6 +160,9 @@ macro_rules! material2d {
                                 },
                                 alpha: BlendComponent::OVER,
                             });
+                        } else {
+                            // Flash 中是预乘Alpha混合
+                            target.blend = Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING)
                         }
                     }
                 }
