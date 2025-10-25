@@ -24,6 +24,8 @@ pub(crate) enum ShapeCommand {
         id: CharacterId,
         shape_depth_layer: String,
         blend_mode: BlendMode,
+        /// 通过ratio是否有值判断该Shape是否为形状补间
+        ratio: Option<u16>,
     },
     RenderBitmap {
         bitmap_material: BitmapMaterial,

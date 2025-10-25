@@ -89,6 +89,8 @@ type ShapeMaterialAssets<'w> = (
 #[derive(Default)]
 struct DisplayObjectCache {
     morph_shape_frame_cache: HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
+    morph_shape_material_cache:
+        HashMap<CharacterId, fnv::FnvHashMap<u16, Vec<(Entity, MaterialType)>>>,
     layer_shape_material_cache: HashMap<String, Vec<(Entity, MaterialType)>>,
     layer_offscreen_shape_draw_cache: HashMap<String, Vec<ShapeMeshDraw>>,
     layer_offscreen_cache: HashMap<String, Entity>,
@@ -244,12 +246,14 @@ impl<'w> RenderContext<'w> {
         transform: SwfTransform,
         shape_depth_layer: String,
         blend_mode: BlendMode,
+        ratio: Option<u16>,
     ) {
         self.commands.push(ShapeCommand::RenderShape {
             transform,
             id,
             shape_depth_layer,
             blend_mode,
+            ratio,
         });
     }
 }
@@ -896,8 +900,14 @@ fn spawn_or_update_shape(
     display_object_cache: &mut DisplayObjectCache,
     scale: Vec3,
 ) {
-    let (layer_shape_material_cache, layer_offscreen_shape_draw_cache, layer_offscreen_cache) = (
+    let (
+        layer_shape_material_cache,
+        morph_shape_material_cache,
+        layer_offscreen_shape_draw_cache,
+        layer_offscreen_cache,
+    ) = (
         &mut display_object_cache.layer_shape_material_cache,
+        &mut display_object_cache.morph_shape_material_cache,
         &mut display_object_cache.layer_offscreen_shape_draw_cache,
         &mut display_object_cache.layer_offscreen_cache,
     );
@@ -928,6 +938,7 @@ fn spawn_or_update_shape(
         shape_commands,
         shape_handles,
         layer_shape_material_cache,
+        morph_shape_material_cache,
         scale,
     );
 }
@@ -1060,6 +1071,10 @@ fn process_direct_shapes(
     shape_commands: Vec<ShapeCommand>,
     shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
+    morph_shape_material_cache: &mut HashMap<
+        CharacterId,
+        fnv::FnvHashMap<u16, Vec<(Entity, MaterialType)>>,
+    >,
     scale: Vec3,
 ) {
     // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
@@ -1082,6 +1097,7 @@ fn process_direct_shapes(
                     shapes,
                     shape_handles,
                     layer_shape_material_cache,
+                    morph_shape_material_cache,
                     &mut current_live_shape_depth_layers,
                     shape_meshes,
                     materials,
@@ -1112,6 +1128,10 @@ fn process_render_shape_command(
     shapes: &mut Assets<Shape>,
     shape_handles: &HashMap<CharacterId, Handle<Shape>>,
     layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
+    morph_shape_material_cache: &mut HashMap<
+        CharacterId,
+        fnv::FnvHashMap<u16, Vec<(Entity, MaterialType)>>,
+    >,
     current_live_shape_depth_layers: &mut HashSet<String>,
     shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
     materials: &mut ShapeMaterialAssets<'_>,
@@ -1124,6 +1144,7 @@ fn process_render_shape_command(
         id,
         shape_depth_layer,
         blend_mode,
+        ratio,
     } = shape_command
     {
         // 获取形状的网格材质
@@ -1133,7 +1154,6 @@ fn process_render_shape_command(
         let Some(shape) = shapes.get(handle) else {
             return;
         };
-
         // 尝试查找缓存的形状材质
         if let Some(shape_material_handle_cache) = find_cached_shape_material(
             &id,
@@ -1141,17 +1161,49 @@ fn process_render_shape_command(
             layer_shape_material_cache,
             current_live_shape_depth_layers,
         ) {
-            // 更新已有形状
-            update_cached_shapes(
-                shape_material_handle_cache,
-                shape_meshes,
-                color_materials,
-                gradient_materials,
-                bitmap_materials,
-                swf_transform,
-                blend_mode,
-                z_index,
-            );
+            if let Some(ratio) = ratio {
+                if let Some(frame) = morph_shape_material_cache.get(&id)
+                    && let Some(morph_material) = frame.get(&ratio)
+                {
+                    // 更新已有形状
+                    update_cached_shapes(
+                        morph_material,
+                        shape_meshes,
+                        color_materials,
+                        gradient_materials,
+                        bitmap_materials,
+                        swf_transform,
+                        blend_mode,
+                        z_index,
+                    );
+                } else {
+                    // 该Shape没有生成过，需要生成
+                    create_new_shapes(
+                        commands,
+                        shape,
+                        shape_depth_layer,
+                        layer_shape_material_cache,
+                        color_materials,
+                        gradient_materials,
+                        bitmap_materials,
+                        swf_transform,
+                        blend_mode,
+                        *z_index,
+                    );
+                }
+            } else {
+                // 更新已有形状
+                update_cached_shapes(
+                    shape_material_handle_cache,
+                    shape_meshes,
+                    color_materials,
+                    gradient_materials,
+                    bitmap_materials,
+                    swf_transform,
+                    blend_mode,
+                    z_index,
+                );
+            }
             return;
         }
 
@@ -1540,6 +1592,7 @@ fn process_offscreen_draw_commands(
             id,
             shape_depth_layer,
             blend_mode,
+            ..
         } => {
             if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer) {
                 for shape_mesh_draw in cache.iter() {

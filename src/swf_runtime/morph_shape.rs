@@ -93,10 +93,9 @@ impl MorphShape {
                             .to_linear();
                             colors.alloc().init(linear_color.to_f32_array());
                         }
-
                         let mesh = Mesh::new(
                             PrimitiveTopology::TriangleList,
-                            RenderAssetUsages::default(),
+                            RenderAssetUsages::RENDER_WORLD,
                         )
                         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
@@ -332,6 +331,7 @@ impl TDisplayObject for MorphShape {
             context.transform_stack.transform(),
             shape_depth_layer,
             blend_mode.into(),
+            Some(self.ratio),
         );
     }
 

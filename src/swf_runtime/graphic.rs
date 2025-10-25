@@ -88,6 +88,7 @@ impl TDisplayObject for Graphic {
             context.transform_stack.transform(),
             shape_depth_layer,
             blend_mode.into(),
+            None,
         );
     }
 }
