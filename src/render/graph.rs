@@ -25,7 +25,7 @@ use filter_driven_node::{
 };
 
 use crate::{
-    commands::MaterialType,
+    assets::MaterialType,
     render::{
         graph::{
             filter_node::FilterPostProcessingNode,

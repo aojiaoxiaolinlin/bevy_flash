@@ -1,21 +1,31 @@
-use bevy::asset::{Handle, RenderAssetUsages};
-use bevy::color::ColorToComponents;
-use bevy::log::warn;
-use bevy::math::{Mat3, Mat4};
-use bevy::mesh::{Indices, Mesh, PrimitiveTopology};
-use bevy::platform::collections::HashMap;
+use bevy::{
+    asset::{Handle, RenderAssetUsages},
+    color::ColorToComponents,
+    log::warn,
+    math::{Mat3, Mat4},
+    mesh::{Indices, Mesh, PrimitiveTopology},
+    platform::collections::HashMap,
+};
 use copyless::VecHelper;
 use std::sync::Arc;
 use swf::{CharacterId, Color, Fixed8, Fixed16, Point, Rectangle, Twips};
 
-use crate::assets::{Shape, ShapeMaterialType, create_gradient_textures};
-use crate::render::material::{ColorMaterial, GradientMaterial};
-use crate::swf_runtime::shape_utils::calculate_shape_bounds;
-use crate::swf_runtime::tessellator::{DrawType, ShapeTessellator};
+use crate::{
+    assets::MeshDraw,
+    swf_runtime::{
+        shape_utils::calculate_shape_bounds,
+        tessellator::{DrawType, ShapeTessellator},
+    },
+};
+use crate::{
+    assets::{MaterialType, Shape, create_gradient_textures},
+    render::material::GradientMaterial,
+};
 
-use super::tag_utils::SwfMovie;
-
-use super::display_object::{DisplayObject, DisplayObjectBase, TDisplayObject};
+use super::{
+    display_object::{DisplayObject, DisplayObjectBase, TDisplayObject},
+    tag_utils::SwfMovie,
+};
 
 /// 为变形形状预先计算的中间框架。
 #[derive(Debug, Clone)]
@@ -63,10 +73,10 @@ impl MorphShape {
             .or_insert_with(|| Self::build_morph_frame(&self.start, &self.end, ratio))
     }
 
-    fn get_shape(&mut self, ratio: u16, context: &mut crate::RenderContext) {
+    fn get_shape(&mut self, ratio: u16, context: &mut crate::RenderContext) -> Handle<Shape> {
         let frame = self.get_frame(ratio, context.morph_shape_cache);
-        if let Some(shape) = frame.handle.clone() {
-            context.shape_handles.insert(self.id, shape);
+        if let Some(handle) = &frame.handle {
+            handle.clone()
         } else {
             let bitmaps = HashMap::new();
             let mut tessellator = ShapeTessellator::default();
@@ -101,7 +111,10 @@ impl MorphShape {
                         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
                         .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
                         let mesh = context.meshes.add(mesh);
-                        shape.push((ShapeMaterialType::Color(ColorMaterial::default()), mesh));
+                        shape.push(MeshDraw {
+                            mesh,
+                            material_type: MaterialType::Color(context.color_material.clone()),
+                        });
                     }
                     DrawType::Gradient { matrix, gradient } => {
                         let Some((handle, gradient)) = gradient_texture.get(*gradient).cloned()
@@ -119,25 +132,23 @@ impl MorphShape {
                         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                         .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
                         let mesh = context.meshes.add(mesh);
-
-                        shape.push((
-                            ShapeMaterialType::Gradient(GradientMaterial {
-                                gradient,
-                                texture: handle,
-                                texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(
-                                    matrix,
-                                )),
-                                ..Default::default()
-                            }),
+                        let material = context.gradients.add(GradientMaterial {
+                            gradient,
+                            texture: handle,
+                            texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(matrix)),
+                            ..Default::default()
+                        });
+                        shape.push(MeshDraw {
                             mesh,
-                        ));
+                            material_type: MaterialType::Gradient(material),
+                        });
                     }
                     _ => {}
                 }
             }
-            let shape_handle = context.shapes.add(Shape(shape));
-            frame.handle = Some(shape_handle.clone());
-            context.shape_handles.insert(self.id, shape_handle);
+            let handle = context.shapes.add(Shape(shape));
+            frame.handle = Some(handle.clone());
+            handle
         }
     }
 
@@ -319,19 +330,12 @@ impl TDisplayObject for MorphShape {
         self.id
     }
 
-    fn render_self(
-        &mut self,
-        context: &mut crate::RenderContext,
-        blend_mode: swf::BlendMode,
-        shape_depth_layer: String,
-    ) {
-        self.get_shape(self.ratio, context);
+    fn render_self(&mut self, context: &mut crate::RenderContext, blend_mode: swf::BlendMode) {
+        let handle = self.get_shape(self.ratio, context);
         context.render_shape(
-            self.id(),
+            handle,
             context.transform_stack.transform(),
-            shape_depth_layer,
             blend_mode.into(),
-            Some(self.ratio),
         );
     }
 

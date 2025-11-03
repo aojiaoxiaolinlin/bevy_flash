@@ -26,7 +26,6 @@ pub const FLASH_COMMON_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("e53b9f82-6a4c-4d5b-91e7-4f2a63b8c5d9");
 
 pub trait SwfMaterial: AsBindGroup + TypePath + Asset + Material2d + Clone {
-    fn update_swf_material(&mut self, swf_transform: MaterialTransform);
     fn set_blend_key(&mut self, blend_key: BlendMaterialKey);
 }
 
@@ -64,9 +63,6 @@ impl From<&BitmapMaterial> for BlendMaterialKey {
 macro_rules! swf_material {
     ($name:ident) => {
         impl SwfMaterial for $name {
-            fn update_swf_material(&mut self, swf_transform: MaterialTransform) {
-                self.transform = swf_transform;
-            }
             fn set_blend_key(&mut self, blend_key: BlendMaterialKey) {
                 self.blend_key = blend_key;
             }
@@ -182,8 +178,6 @@ pub struct GradientMaterial {
     pub gradient: GradientUniforms,
     #[uniform(3)]
     pub texture_transform: Mat4,
-    #[uniform(4)]
-    pub transform: MaterialTransform,
     pub blend_key: BlendMaterialKey,
 }
 
@@ -220,8 +214,6 @@ impl From<Gradient> for GradientUniforms {
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Copy, Default)]
 #[bind_group_data(BlendMaterialKey)]
 pub struct ColorMaterial {
-    #[uniform(0)]
-    pub transform: MaterialTransform,
     pub blend_key: BlendMaterialKey,
 }
 
@@ -236,8 +228,6 @@ pub struct BitmapMaterial {
     pub texture: Handle<Image>,
     #[uniform(2)]
     pub texture_transform: Mat4,
-    #[uniform(3)]
-    pub transform: MaterialTransform,
     pub blend_key: BlendMaterialKey,
 }
 
@@ -249,16 +239,6 @@ pub struct MaterialTransform {
     pub world_transform: Mat4,
     pub mult_color: Vec4,
     pub add_color: Vec4,
-}
-
-impl MaterialTransform {
-    pub fn scale(&self) -> Vec3 {
-        Vec3::new(
-            self.world_transform.x_axis.x,
-            self.world_transform.y_axis.y,
-            1.0,
-        )
-    }
 }
 
 impl From<Transform> for MaterialTransform {

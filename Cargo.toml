@@ -12,7 +12,7 @@ exclude = ["assets/**", "docs/**"]
 [dependencies]
 smallvec = { version = "1.14.0", features = ["union"] }
 bytemuck = { version = "1.21.0", features = ["derive"] }
-bevy = { version = "0.17", default-features = false, features = [
+bevy = { path = "../bevy", default-features = false, features = [
     "bevy_asset",
     "bevy_render",
     "bevy_core_pipeline",
@@ -36,9 +36,10 @@ png = "0.17.16"
 gif = "0.13.1"
 flate2 = "1.1.1"
 radsort = "0.1.1"
+nonmax = "0.5.5"
 
 [dev-dependencies]
-bevy = { version = "0.17", features = ["bevy_dev_tools"] }
+bevy = { path = "../bevy/", features = ["bevy_dev_tools"] }
 
 [profile.dev]
 opt-level = 1

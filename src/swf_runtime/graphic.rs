@@ -77,18 +77,12 @@ impl TDisplayObject for Graphic {
         self.id
     }
 
-    fn render_self(
-        &mut self,
-        context: &mut RenderContext,
-        blend_mode: BlendMode,
-        shape_depth_layer: String,
-    ) {
+    fn render_self(&mut self, context: &mut RenderContext, blend_mode: BlendMode) {
+        let handle = context.shape_handles.get(&self.id).unwrap().clone();
         context.render_shape(
-            self.id(),
+            handle,
             context.transform_stack.transform(),
-            shape_depth_layer,
             blend_mode.into(),
-            None,
         );
     }
 }

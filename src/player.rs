@@ -1,6 +1,6 @@
 use crate::{assets::Swf, swf_runtime::movie_clip::MovieClip};
 use bevy::{
-    asset::Handle,
+    asset::{AsAssetId, AssetId, Handle},
     log::error,
     prelude::{
         Component, Deref, DerefMut, ReflectComponent, ReflectDefault, Transform, Visibility,
@@ -161,6 +161,14 @@ pub struct McRoot(pub MovieClip);
 #[require(FlashPlayer, Transform, Visibility)]
 #[reflect(Component, Default)]
 pub struct Flash(pub Handle<Swf>);
+
+impl AsAssetId for Flash {
+    type Asset = Swf;
+
+    fn as_asset_id(&self) -> AssetId<Self::Asset> {
+        self.id()
+    }
+}
 
 /// Flash动画都默认设置为30FPS
 #[derive(Component, Debug, Clone, Deref, DerefMut)]

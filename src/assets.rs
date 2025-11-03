@@ -49,8 +49,14 @@ impl SwfAssetLabel {
     }
 }
 
-#[derive(Asset, TypePath, Deref)]
-pub struct Shape(pub Vec<(ShapeMaterialType, Handle<Mesh>)>);
+#[derive(Debug, Clone)]
+pub struct MeshDraw {
+    pub mesh: Handle<Mesh>,
+    pub material_type: MaterialType,
+}
+
+#[derive(Asset, TypePath, Deref, Clone, Debug)]
+pub struct Shape(pub Vec<MeshDraw>);
 
 /// SWF 资产结构体，包含了 SWF 文件的相关信息。
 #[derive(Asset, TypePath)]
@@ -124,12 +130,16 @@ impl AssetLoader for SwfLoader {
         let mut material_index = 0;
         let mut shape_handles = HashMap::new();
 
+        let color_material =
+            load_context.add_labeled_asset(format!("color_material"), ColorMaterial::default());
+
         library.characters.values_mut().for_each(|v| {
             if let Character::Graphic(graphic) = v {
                 let shape = load_shape_mesh(
                     load_context,
                     graphic,
                     &bitmaps,
+                    &color_material,
                     &mut image_index,
                     &mut mesh_index,
                     &mut material_index,
@@ -192,17 +202,18 @@ fn load_shape_mesh(
     load_context: &mut LoadContext,
     graphic: &Graphic,
     bitmaps: &BitmapLibrary,
+    color_material: &Handle<ColorMaterial>,
     image_index: &mut usize,
     mesh_index: &mut usize,
-    _material_index: &mut usize,
-) -> Vec<(ShapeMaterialType, Handle<Mesh>)> {
+    material_index: &mut usize,
+) -> Vec<MeshDraw> {
     let mut tessellator = ShapeTessellator::default();
     let shape = graphic.shape();
     let lyon_mesh = tessellator.tessellate_shape(shape.into(), bitmaps);
 
     let gradient_texture = load_gradient_textures(lyon_mesh.gradients, load_context, image_index);
 
-    let mut shape_mesh_material = Vec::new();
+    let mut mesh_material = Vec::new();
     let draws = lyon_mesh.draws;
     for draw in draws {
         match &draw.draw_type {
@@ -230,14 +241,10 @@ fn load_shape_mesh(
                 .with_inserted_indices(Indices::U32(draw.indices.into_iter().collect()));
                 let mesh = load_context.add_labeled_asset(format!("mesh_{mesh_index}"), mesh);
                 *mesh_index += 1;
-                // let material = load_context.add_labeled_asset(
-                //     format!("material_{}", material_index),
-                //     ColorMaterial::default(),
-                // );
-                // *material_index += 1;
-                // shape_mesh_material.push((ShapeMaterialType::Color(material), mesh));
-                shape_mesh_material
-                    .push((ShapeMaterialType::Color(ColorMaterial::default()), mesh));
+                mesh_material.push(MeshDraw {
+                    mesh,
+                    material_type: MaterialType::Color(color_material.clone()),
+                });
             }
             DrawType::Gradient { matrix, gradient } => {
                 let Some((handle, gradient)) = gradient_texture.get(*gradient).cloned() else {
@@ -256,26 +263,20 @@ fn load_shape_mesh(
                 let mesh = load_context.add_labeled_asset(format!("mesh_{mesh_index}"), mesh);
                 *mesh_index += 1;
 
-                // let material = load_context.add_labeled_asset(
-                //     format!("material_{}", material_index),
-                //     GradientMaterial {
-                //         gradient,
-                //         texture: handle,
-                //         texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&matrix)),
-                //         ..Default::default()
-                //     },
-                // );
-                // *material_index += 1;
-                // shape_mesh_material.push((ShapeMaterialType::Gradient(material), mesh));
-                shape_mesh_material.push((
-                    ShapeMaterialType::Gradient(GradientMaterial {
+                let material = load_context.add_labeled_asset(
+                    format!("material_{}", material_index),
+                    GradientMaterial {
                         gradient,
                         texture: handle,
-                        texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(matrix)),
+                        texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&matrix)),
                         ..Default::default()
-                    }),
+                    },
+                );
+                *material_index += 1;
+                mesh_material.push(MeshDraw {
                     mesh,
-                ));
+                    material_type: MaterialType::Gradient(material),
+                });
             }
             DrawType::Bitmap(bitmap) => {
                 let mut positions = Vec::with_capacity(draw.vertices.len());
@@ -316,33 +317,26 @@ fn load_shape_mesh(
                     let texture =
                         load_context.add_labeled_asset(format!("texture_{image_index}"), texture);
                     *image_index += 1;
-                    // let material = load_context.add_labeled_asset(
-                    //     format!("material_{}", material_index),
-                    //     BitmapMaterial {
-                    //         texture,
-                    //         texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(
-                    //             &texture_transform,
-                    //         )),
-                    //         ..Default::default()
-                    //     },
-                    // );
-                    // *material_index += 1;
-                    // shape_mesh_material.push((ShapeMaterialType::Bitmap(material), mesh));
-                    shape_mesh_material.push((
-                        ShapeMaterialType::Bitmap(BitmapMaterial {
+                    let material = load_context.add_labeled_asset(
+                        format!("material_{}", material_index),
+                        BitmapMaterial {
                             texture,
                             texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(
                                 &texture_transform,
                             )),
                             ..Default::default()
-                        }),
+                        },
+                    );
+                    *material_index += 1;
+                    mesh_material.push(MeshDraw {
                         mesh,
-                    ));
+                        material_type: MaterialType::Bitmap(material),
+                    });
                 }
             }
         }
     }
-    shape_mesh_material
+    mesh_material
 }
 
 fn load_gradient_textures(
@@ -438,18 +432,9 @@ fn lerp(a: f32, b: f32, factor: f32) -> f32 {
     a + (b - a) * factor
 }
 
-/// TODO: 只有实现Skew组件这里才能使用Handle应用材质。
-/// 不然当Shape被多次引用时，会导致SwfTransform修改同一个材质。
-#[derive(Debug, Clone, Asset, TypePath)]
-pub enum ShapeMaterialType {
-    // 待实现Skew组件后这里使用Handle处理
-    // Color(Handle<ColorMaterial>),
-    // Gradient(Handle<GradientMaterial>),
-    // Bitmap(Handle<BitmapMaterial>),
-    /// 颜色
-    Color(ColorMaterial),
-    /// 渐变
-    Gradient(GradientMaterial),
-    /// 位图
-    Bitmap(BitmapMaterial),
+#[derive(Debug, Clone)]
+pub enum MaterialType {
+    Color(Handle<ColorMaterial>),
+    Gradient(Handle<GradientMaterial>),
+    Bitmap(Handle<BitmapMaterial>),
 }

@@ -28,11 +28,11 @@ pub(crate) mod swf_runtime;
 use std::collections::btree_map::ValuesMut;
 
 use crate::{
-    assets::{Shape, ShapeMaterialType, Swf, SwfLoader},
-    commands::{MaterialType, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw},
+    assets::{MaterialType, Shape, Swf, SwfLoader},
+    commands::{DrawShapes, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw},
     player::{Flash, FlashPlayer, FlashPlayerTimer, McRoot},
     render::{
-        FilterTextureMesh, FlashRenderPlugin,
+        ColorMaterialHandle, FilterTextureMesh, FlashRenderPlugin,
         blend_pipeline::BlendMode,
         material::{
             BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial, SwfMaterial,
@@ -53,7 +53,7 @@ use crate::{
 use bevy::{
     app::{App, Plugin, PostUpdate},
     asset::{AssetApp, Assets, Handle},
-    camera::visibility::{NoFrustumCulling, Visibility},
+    camera::visibility::{Visibility, VisibilityClass},
     color::Color,
     ecs::{
         component::Component,
@@ -67,9 +67,8 @@ use bevy::{
     image::Image,
     log::warn_once,
     math::{IVec2, Mat4, UVec2, Vec3, Vec3Swizzles},
-    mesh::{Mesh, Mesh2d},
+    mesh::Mesh,
     platform::collections::{HashMap, HashSet},
-    sprite_render::MeshMaterial2d,
     time::Time,
     transform::{
         TransformSystems,
@@ -107,6 +106,7 @@ pub struct FlashPlugin;
 impl Plugin for FlashPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FlashRenderPlugin)
+            .register_required_components::<Flash, VisibilityClass>()
             .init_asset::<Swf>()
             .init_asset::<Shape>()
             .init_asset_loader::<SwfLoader>()
@@ -127,8 +127,6 @@ fn prepare_shape_mesh(
     mut commands: Commands,
     shapes: Res<Assets<Shape>>,
     mut colors: ResMut<Assets<ColorMaterial>>,
-    mut gradients: ResMut<Assets<GradientMaterial>>,
-    mut bitmaps: ResMut<Assets<BitmapMaterial>>,
     mut query: Query<(Entity, &FlashShape), Without<Generated>>,
 ) {
     for (entity, shape) in query.iter_mut() {
@@ -137,32 +135,32 @@ fn prepare_shape_mesh(
         };
         let mut commands = commands.entity(entity);
         commands.insert(Generated);
-        for (material_type, mesh) in shape.iter() {
-            let mesh = mesh.clone();
-            match material_type {
-                ShapeMaterialType::Color(color) => {
-                    commands.with_child((
-                        Mesh2d(mesh),
-                        MeshMaterial2d(colors.add(*color)),
-                        NoFrustumCulling,
-                    ));
-                }
-                ShapeMaterialType::Gradient(gradient) => {
-                    commands.with_child((
-                        Mesh2d(mesh),
-                        MeshMaterial2d(gradients.add(gradient.clone())),
-                        NoFrustumCulling,
-                    ));
-                }
-                ShapeMaterialType::Bitmap(bitmap) => {
-                    commands.with_child((
-                        Mesh2d(mesh),
-                        MeshMaterial2d(bitmaps.add(bitmap.clone())),
-                        NoFrustumCulling,
-                    ));
-                }
-            }
-        }
+        // for (material_type, mesh) in shape.iter() {
+        //     let mesh = mesh.clone();
+        //     match material_type {
+        //         ShapeMaterialType::Color(color) => {
+        //             commands.with_child((
+        //                 Mesh2d(mesh),
+        //                 MeshMaterial2d(colors.add(*color)),
+        //                 NoFrustumCulling,
+        //             ));
+        //         }
+        //         ShapeMaterialType::Gradient(gradient) => {
+        //             commands.with_child((
+        //                 Mesh2d(mesh),
+        //                 MeshMaterial2d(gradients.add(gradient.clone())),
+        //                 NoFrustumCulling,
+        //             ));
+        //         }
+        //         ShapeMaterialType::Bitmap(bitmap) => {
+        //             commands.with_child((
+        //                 Mesh2d(mesh),
+        //                 MeshMaterial2d(bitmaps.add(bitmap.clone())),
+        //                 NoFrustumCulling,
+        //             ));
+        //         }
+        //     }
+        // }
     }
 }
 
@@ -184,6 +182,8 @@ struct RenderContext<'w> {
     images: &'w mut Assets<Image>,
     gradients: &'w mut Assets<GradientMaterial>,
     bitmaps: &'w mut Assets<BitmapMaterial>,
+    filter_texture_mesh: &'w FilterTextureMesh,
+    color_material: &'w Handle<ColorMaterial>,
 
     // 渲染需要的数据
     transform_stack: &'w mut TransformStack,
@@ -218,6 +218,8 @@ impl<'w> RenderContext<'w> {
         image_cache: &'w mut HashMap<String, ImageCache>,
         cache_draws: &'w mut Vec<ImageCacheDraw>,
         shape_handles: &'w mut HashMap<CharacterId, Handle<Shape>>,
+        filter_texture_mesh: &'w FilterTextureMesh,
+        color_material: &'w Handle<ColorMaterial>,
         scale: Vec3,
         flip_x: bool,
         flip_y: bool,
@@ -235,6 +237,8 @@ impl<'w> RenderContext<'w> {
             scale,
             morph_shape_cache,
             image_cache,
+            filter_texture_mesh,
+            color_material,
             flip_x,
             flip_y,
         }
@@ -242,18 +246,15 @@ impl<'w> RenderContext<'w> {
 
     pub fn render_shape(
         &mut self,
-        id: u16,
+        handle: Handle<Shape>,
         transform: SwfTransform,
-        shape_depth_layer: String,
         blend_mode: BlendMode,
-        ratio: Option<u16>,
     ) {
+        let draw_shape = self.shapes.get(handle.id()).unwrap().clone();
         self.commands.push(ShapeCommand::RenderShape {
+            draw_shape,
             transform,
-            id,
-            shape_depth_layer,
             blend_mode,
-            ratio,
         });
     }
 }
@@ -407,7 +408,7 @@ fn advance_animation(
     mut swf_res: ResMut<Assets<Swf>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
-    mut colors: ResMut<Assets<ColorMaterial>>,
+    color_material: Res<ColorMaterialHandle>,
     mut gradients: ResMut<Assets<GradientMaterial>>,
     mut bitmaps: ResMut<Assets<BitmapMaterial>>,
     mut display_object_entity_caches: Local<EntityHashMap<DisplayObjectCache>>,
@@ -472,6 +473,8 @@ fn advance_animation(
                 image_cache,
                 &mut cache_draws,
                 &mut swf.shape_handles,
+                filter_texture_mesh.as_ref(),
+                &color_material.0,
                 global_scale,
                 *flip_x,
                 *flip_y,
@@ -483,25 +486,26 @@ fn advance_animation(
                 String::from("0"),
                 true,
             );
+            commands.entity(entity).insert(DrawShapes(context.commands));
 
-            let shape_commands = context.commands;
+            // 处理离屏绘制
 
             // TODO: 不再使用Mesh2d 实体进行，而是直接才用ShapeCommand在渲染图进行绘制，
             // 这样就不需要考虑Mesh2d 实体复用的复杂问题，简化流程。
-            spawn_or_update_shape(
-                &mut commands,
-                entity,
-                filter_texture_mesh.as_ref(),
-                shapes.as_mut(),
-                &mut (colors.as_mut(), gradients.as_mut(), bitmaps.as_mut()),
-                &mut shape_meshes,
-                cache_draws,
-                shape_commands,
-                &swf.shape_handles,
-                &mut offscreen_textures,
-                display_object_cache,
-                global_scale,
-            );
+            // spawn_or_update_shape(
+            //     &mut commands,
+            //     entity,
+            //     filter_texture_mesh.as_ref(),
+            //     shapes.as_mut(),
+            //     &mut (colors.as_mut(), gradients.as_mut(), bitmaps.as_mut()),
+            //     &mut shape_meshes,
+            //     cache_draws,
+            //     shape_commands,
+            //     &swf.shape_handles,
+            //     &mut offscreen_textures,
+            //     display_object_cache,
+            //     global_scale,
+            // );
         }
     }
     display_object_entity_caches.retain(|entity, _| current_live_player.contains(entity));
@@ -730,14 +734,7 @@ fn render_with_cache(
     }
 
     // 将缓存的纹理作为位图渲染到主视图
-    render_cached_texture_to_view(
-        context,
-        &cache_info,
-        offset_x,
-        offset_y,
-        blend_mode,
-        shape_depth_layer,
-    );
+    render_cached_texture_to_view(context, &cache_info, offset_x, offset_y, blend_mode);
 }
 
 /// 渲染显示对象到离屏纹理
@@ -773,6 +770,8 @@ fn render_to_offscreen_texture(
         context.image_cache,
         context.cache_draws,
         context.shape_handles,
+        context.filter_texture_mesh,
+        context.color_material,
         context.scale,
         false,
         false,
@@ -805,7 +804,6 @@ fn render_cached_texture_to_view(
     offset_x: Twips,
     offset_y: Twips,
     blend_mode: swf::BlendMode,
-    shape_depth_layer: &str,
 ) {
     // 获取当前变换矩阵和缩放
     let matrix = context.transform_stack.transform().matrix;
@@ -815,6 +813,13 @@ fn render_cached_texture_to_view(
     let bitmap_material = BitmapMaterial {
         texture: cache_info.image_info.handle(),
         texture_transform: Mat4::IDENTITY,
+        blend_key: BlendMaterialKey::from(BlendMode::from(blend_mode)),
+    };
+
+    // 添加渲染位图命令
+    context.commands.push(ShapeCommand::RenderBitmap {
+        mesh: context.filter_texture_mesh.0.clone(),
+        material: context.bitmaps.add(bitmap_material),
         transform: SwfTransform {
             matrix: Matrix {
                 a: cache_info.image_info.size().x as f32 / scale.x,
@@ -826,13 +831,6 @@ fn render_cached_texture_to_view(
             color_transform: cache_info.base_transform.color_transform,
         }
         .into(),
-        blend_key: BlendMaterialKey::from(BlendMode::from(blend_mode)),
-    };
-
-    // 添加渲染位图命令
-    context.commands.push(ShapeCommand::RenderBitmap {
-        bitmap_material,
-        shape_depth_layer: shape_depth_layer.to_string(),
         size: cache_info.image_info.size().as_vec2(),
     });
 }
@@ -871,10 +869,10 @@ fn render_display_object(
             );
         }
         DisplayObject::Graphic(graphic) => {
-            graphic.render_self(context, blend_mode, shape_depth_layer);
+            graphic.render_self(context, blend_mode);
         }
         DisplayObject::MorphShape(morph_shape) => {
-            morph_shape.render_self(context, blend_mode, shape_depth_layer);
+            morph_shape.render_self(context, blend_mode);
         }
     }
 }
@@ -924,21 +922,6 @@ fn spawn_or_update_shape(
         layer_offscreen_shape_draw_cache,
         layer_offscreen_cache,
         offscreen_textures,
-        scale,
-    );
-
-    // 2. 处理不需要缓存的Shape（直接渲染）
-    process_direct_shapes(
-        commands,
-        entity,
-        filter_texture_mesh,
-        shapes,
-        materials,
-        shape_meshes,
-        shape_commands,
-        shape_handles,
-        layer_shape_material_cache,
-        morph_shape_material_cache,
         scale,
     );
 }
@@ -1059,479 +1042,33 @@ fn create_new_offscreen_texture(
     });
 }
 
-/// 处理直接渲染的形状（不需要离屏渲染）
-#[allow(clippy::too_many_arguments)]
-fn process_direct_shapes(
-    commands: &mut Commands,
-    entity: Entity,
-    filter_texture_mesh: &FilterTextureMesh,
-    shapes: &mut Assets<Shape>,
-    materials: &mut ShapeMaterialAssets<'_>,
-    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-    shape_commands: Vec<ShapeCommand>,
-    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
-    layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    morph_shape_material_cache: &mut HashMap<
-        CharacterId,
-        fnv::FnvHashMap<u16, Vec<(Entity, MaterialType)>>,
-    >,
-    scale: Vec3,
-) {
-    // 当前根据shape_commands 生成的shape layer 用于记录是否多次引用了同一个shape, 避免重复生成
-    let mut current_live_shape_depth_layers: HashSet<String> = HashSet::new();
-    // 记录当前帧Shape Command 中使用到的Shape层级用于复用实体
-    record_current_live_layer(&shape_commands, &mut current_live_shape_depth_layers);
+// #[inline]
+// fn handle_offscreen_draw<T: SwfMaterial>(
+//     materials: &mut Assets<T>,
+//     mut material: T,
+//     swf_transform: &SwfTransform,
+//     blend_mode: &BlendMode,
+//     mut func: impl FnMut(Handle<T>),
+// ) {
+//     material.update_swf_material((*swf_transform).into());
+//     material.set_blend_key((*blend_mode).into());
+//     let handle = materials.add(material);
+//     func(handle);
+// }
 
-    let mut commands = commands.entity(entity);
-    let mut z_index = 0.;
-
-    // 处理每个形状命令
-    for (index, shape_command) in shape_commands.into_iter().enumerate() {
-        z_index += index as f32 * 0.001;
-
-        match shape_command {
-            ShapeCommand::RenderShape { .. } => {
-                process_render_shape_command(
-                    &mut commands,
-                    shape_command,
-                    shapes,
-                    shape_handles,
-                    layer_shape_material_cache,
-                    morph_shape_material_cache,
-                    &mut current_live_shape_depth_layers,
-                    shape_meshes,
-                    materials,
-                    &mut z_index,
-                );
-            }
-            ShapeCommand::RenderBitmap { .. } => {
-                process_render_bitmap_command(
-                    &mut commands,
-                    shape_command,
-                    layer_shape_material_cache,
-                    shape_meshes,
-                    materials.2,
-                    filter_texture_mesh,
-                    z_index,
-                    scale,
-                );
-            }
-        }
-    }
-}
-
-/// 处理RenderShape命令
-#[allow(clippy::too_many_arguments)]
-fn process_render_shape_command(
-    commands: &mut EntityCommands,
-    shape_command: ShapeCommand,
-    shapes: &mut Assets<Shape>,
-    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
-    layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    morph_shape_material_cache: &mut HashMap<
-        CharacterId,
-        fnv::FnvHashMap<u16, Vec<(Entity, MaterialType)>>,
-    >,
-    current_live_shape_depth_layers: &mut HashSet<String>,
-    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-    materials: &mut ShapeMaterialAssets<'_>,
-    z_index: &mut f32,
-) {
-    let (color_materials, gradient_materials, bitmap_materials) = materials;
-
-    if let ShapeCommand::RenderShape {
-        transform: swf_transform,
-        id,
-        shape_depth_layer,
-        blend_mode,
-        ratio,
-    } = shape_command
-    {
-        // 获取形状的网格材质
-        let Some(handle) = shape_handles.get(&id) else {
-            return;
-        };
-        let Some(shape) = shapes.get(handle) else {
-            return;
-        };
-        // 尝试查找缓存的形状材质
-        if let Some(shape_material_handle_cache) = find_cached_shape_material(
-            &id,
-            &shape_depth_layer,
-            layer_shape_material_cache,
-            current_live_shape_depth_layers,
-        ) {
-            if let Some(ratio) = ratio {
-                if let Some(frame) = morph_shape_material_cache.get(&id)
-                    && let Some(morph_material) = frame.get(&ratio)
-                {
-                    // 更新已有形状
-                    update_cached_shapes(
-                        morph_material,
-                        shape_meshes,
-                        color_materials,
-                        gradient_materials,
-                        bitmap_materials,
-                        swf_transform,
-                        blend_mode,
-                        z_index,
-                    );
-                } else {
-                    // 该Shape没有生成过，需要生成
-                    create_new_shapes(
-                        commands,
-                        shape,
-                        shape_depth_layer,
-                        layer_shape_material_cache,
-                        color_materials,
-                        gradient_materials,
-                        bitmap_materials,
-                        swf_transform,
-                        blend_mode,
-                        *z_index,
-                    );
-                }
-            } else {
-                // 更新已有形状
-                update_cached_shapes(
-                    shape_material_handle_cache,
-                    shape_meshes,
-                    color_materials,
-                    gradient_materials,
-                    bitmap_materials,
-                    swf_transform,
-                    blend_mode,
-                    z_index,
-                );
-            }
-            return;
-        }
-
-        // 该Shape没有生成过，需要生成
-        create_new_shapes(
-            commands,
-            shape,
-            shape_depth_layer,
-            layer_shape_material_cache,
-            color_materials,
-            gradient_materials,
-            bitmap_materials,
-            swf_transform,
-            blend_mode,
-            *z_index,
-        );
-    }
-}
-
-/// 更新已缓存的形状
-#[allow(clippy::too_many_arguments)]
-fn update_cached_shapes(
-    shape_material_handle_cache: &[(Entity, MaterialType)],
-    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-    color_materials: &mut Assets<ColorMaterial>,
-    gradient_materials: &mut Assets<GradientMaterial>,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
-    swf_transform: SwfTransform,
-    blend_mode: BlendMode,
-    z_index: &mut f32,
-) {
-    for (index, (entity, handle)) in shape_material_handle_cache.iter().enumerate() {
-        *z_index += index as f32 * 0.001;
-
-        let Ok((_, mut transform, mut visibility)) = shape_meshes.get_mut(*entity) else {
-            continue;
-        };
-        transform.translation.z = *z_index;
-        *visibility = Visibility::Inherited;
-        update_shape_material(
-            handle,
-            color_materials,
-            gradient_materials,
-            bitmap_materials,
-            swf_transform,
-            blend_mode,
-        );
-    }
-}
-
-/// 创建新的形状
-#[allow(clippy::too_many_arguments)]
-fn create_new_shapes(
-    commands: &mut EntityCommands,
-    shape: &Shape,
-    shape_depth_layer: String,
-    layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    color_materials: &mut Assets<ColorMaterial>,
-    gradient_materials: &mut Assets<GradientMaterial>,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
-    swf_transform: SwfTransform,
-    blend_mode: BlendMode,
-    z_index: f32,
-) {
-    // 获取或创建形状材质缓存
-    let shape_material_handle_cache = layer_shape_material_cache
-        .entry(shape_depth_layer.to_owned())
-        .or_default();
-
-    // 为每种材质类型创建形状
-    for (material_type, mesh) in shape.iter() {
-        let mesh = mesh.clone();
-
-        match material_type {
-            ShapeMaterialType::Color(color) => {
-                spawn_shape_mesh(
-                    commands,
-                    color_materials,
-                    mesh,
-                    *color,
-                    swf_transform,
-                    blend_mode,
-                    z_index,
-                    |entity, handle| {
-                        shape_material_handle_cache.push((entity, MaterialType::Color(handle)));
-                    },
-                );
-            }
-            ShapeMaterialType::Gradient(gradient) => {
-                spawn_shape_mesh(
-                    commands,
-                    gradient_materials,
-                    mesh,
-                    gradient.clone(),
-                    swf_transform,
-                    blend_mode,
-                    z_index,
-                    |entity, handle| {
-                        shape_material_handle_cache.push((entity, MaterialType::Gradient(handle)));
-                    },
-                );
-            }
-            ShapeMaterialType::Bitmap(bitmap) => {
-                spawn_shape_mesh(
-                    commands,
-                    bitmap_materials,
-                    mesh,
-                    bitmap.clone(),
-                    swf_transform,
-                    blend_mode,
-                    z_index,
-                    |entity, handle| {
-                        shape_material_handle_cache.push((entity, MaterialType::Bitmap(handle)));
-                    },
-                );
-            }
-        }
-    }
-}
-
-/// 处理RenderBitmap命令
-#[allow(clippy::too_many_arguments)]
-fn process_render_bitmap_command(
-    commands: &mut EntityCommands,
-    shape_command: ShapeCommand,
-    layer_shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
-    filter_texture_mesh: &FilterTextureMesh,
-    z_index: f32,
-    scale: Vec3,
-) {
-    if let ShapeCommand::RenderBitmap {
-        bitmap_material,
-        shape_depth_layer,
-        size,
-    } = shape_command
-    {
-        let _raw_size = size / scale.xy();
-
-        spawn_or_update_bitmap(
-            layer_shape_material_cache,
-            shape_depth_layer,
-            shape_meshes,
-            bitmap_materials,
-            bitmap_material,
-            z_index,
-            |bitmap_material_handle, shape_material_handle_cache| {
-                commands.with_children(|parent| {
-                    let entity = parent
-                        .spawn((
-                            Mesh2d(filter_texture_mesh.0.clone()),
-                            MeshMaterial2d(bitmap_material_handle.clone()),
-                            Transform::from_translation(Vec3::Z * z_index),
-                            ShapeMesh,
-                            NoFrustumCulling,
-                        ))
-                        .id();
-                    shape_material_handle_cache
-                        .push((entity, MaterialType::Bitmap(bitmap_material_handle)));
-                });
-            },
-        );
-    }
-}
-
-/// 更新形状材质
-fn update_shape_material(
-    handle: &MaterialType,
-    color_materials: &mut Assets<ColorMaterial>,
-    gradient_materials: &mut Assets<GradientMaterial>,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
-    swf_transform: SwfTransform,
-    blend_mode: BlendMode,
-) {
-    match handle {
-        MaterialType::Color(color) => {
-            update_material(color, color_materials, swf_transform, blend_mode);
-        }
-        MaterialType::Gradient(gradient) => {
-            update_material(gradient, gradient_materials, swf_transform, blend_mode);
-        }
-        MaterialType::Bitmap(bitmap) => {
-            update_material(bitmap, bitmap_materials, swf_transform, blend_mode);
-        }
-    }
-}
-
-/// 更新或创建位图
-fn spawn_or_update_bitmap(
-    shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    shape_depth_layer: String,
-    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
-    bitmap_material: BitmapMaterial,
-    z_index: f32,
-    func: impl FnOnce(Handle<BitmapMaterial>, &mut Vec<(Entity, MaterialType)>),
-) {
-    // 尝试查找并更新已有位图
-    if let Some(shape_material_handle_cache) = shape_material_cache.get(&shape_depth_layer)
-        && let Some((entity, bitmap_material_handle)) = shape_material_handle_cache.first()
-        && let MaterialType::Bitmap(bitmap_material_handle) = bitmap_material_handle
-    {
-        update_existing_bitmap(
-            entity,
-            bitmap_material_handle,
-            shape_meshes,
-            bitmap_materials,
-            bitmap_material,
-            z_index,
-        );
-    } else {
-        // 创建新位图
-        create_new_bitmap(
-            shape_material_cache,
-            shape_depth_layer,
-            bitmap_materials,
-            bitmap_material,
-            func,
-        );
-    }
-}
-
-/// 更新已有位图
-fn update_existing_bitmap(
-    entity: &Entity,
-    bitmap_material_handle: &Handle<BitmapMaterial>,
-    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
-    bitmap_material: BitmapMaterial,
-    z_index: f32,
-) {
-    // 更新变换
-    let Ok((_, mut transform, mut visibility)) = shape_meshes.get_mut(*entity) else {
-        return;
-    };
-    transform.translation.z = z_index;
-    *visibility = Visibility::Inherited;
-
-    // 更新材质
-    let Some(entity_bitmap_material) = bitmap_materials.get_mut(bitmap_material_handle) else {
-        return;
-    };
-
-    entity_bitmap_material.transform = bitmap_material.transform;
-    entity_bitmap_material.blend_key = bitmap_material.blend_key;
-    entity_bitmap_material.texture = bitmap_material.texture.clone();
-}
-
-/// 创建新位图
-fn create_new_bitmap(
-    shape_material_cache: &mut HashMap<String, Vec<(Entity, MaterialType)>>,
-    shape_depth_layer: String,
-    bitmap_materials: &mut Assets<BitmapMaterial>,
-    bitmap_material: BitmapMaterial,
-    func: impl FnOnce(Handle<BitmapMaterial>, &mut Vec<(Entity, MaterialType)>),
-) {
-    // 获取或创建形状材质缓存
-    let shape_material_handle_cache = shape_material_cache.entry(shape_depth_layer).or_default();
-
-    // 添加位图材质并创建实体
-    let bitmap_material_handle = bitmap_materials.add(bitmap_material);
-    func(bitmap_material_handle.clone(), shape_material_handle_cache);
-}
-
-#[inline]
-#[allow(clippy::too_many_arguments)]
-fn spawn_shape_mesh<T: SwfMaterial>(
-    commands: &mut EntityCommands,
-    materials: &mut Assets<T>,
-    mesh: Handle<Mesh>,
-    material: T,
-    swf_transform: SwfTransform,
-    blend_mode: BlendMode,
-    z_index: f32,
-    func: impl FnOnce(Entity, Handle<T>),
-) {
-    // let Some(material) = bitmap_materials.get_mut(bitmap.id()) else {
-    //     continue;
-    // };
-    // material.transform = (*transform).into();
-
-    let mut material = material;
-    material.update_swf_material(swf_transform.into());
-    material.set_blend_key(blend_mode.into());
-    let handle = materials.add(material);
-    commands.with_children(|parent| {
-        let entity = parent
-            .spawn((
-                Mesh2d(mesh),
-                MeshMaterial2d(handle.clone()),
-                Transform::from_translation(Vec3::Z * z_index),
-                ShapeMesh,
-                // 由于Flash顶点特殊性不应用剔除
-                NoFrustumCulling,
-            ))
-            .id();
-        func(entity, handle);
-    });
-}
-
-#[inline]
-fn handle_offscreen_draw<T: SwfMaterial>(
-    materials: &mut Assets<T>,
-    mut material: T,
-    swf_transform: &SwfTransform,
-    blend_mode: &BlendMode,
-    mut func: impl FnMut(Handle<T>),
-) {
-    material.update_swf_material((*swf_transform).into());
-    material.set_blend_key((*blend_mode).into());
-    let handle = materials.add(material);
-    func(handle);
-}
-
-#[inline]
-fn update_material<T: SwfMaterial>(
-    handle: &Handle<T>,
-    swf_materials: &mut Assets<T>,
-    swf_transform: SwfTransform,
-    blend_mode: BlendMode,
-) {
-    // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质。
-    if let Some(swf_material) = swf_materials.get_mut(handle) {
-        swf_material.update_swf_material(swf_transform.into());
-        swf_material.set_blend_key(blend_mode.into());
-    }
-}
+// #[inline]
+// fn update_material<T: SwfMaterial>(
+//     handle: &Handle<T>,
+//     swf_materials: &mut Assets<T>,
+//     swf_transform: SwfTransform,
+//     blend_mode: BlendMode,
+// ) {
+//     // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质。
+//     if let Some(swf_material) = swf_materials.get_mut(handle) {
+//         swf_material.update_swf_material(swf_transform.into());
+//         swf_material.set_blend_key(blend_mode.into());
+//     }
+// }
 
 /// 尽量复用已经生成的实体。只有在同一帧同一个 shape被多次使用时才需要重新生成
 fn find_cached_shape_material<'w, T>(
@@ -1562,20 +1099,6 @@ fn find_cached_shape_material<'w, T>(
     }
 }
 
-fn record_current_live_layer(
-    shape_commands: &[ShapeCommand],
-    current_live_shape_depth_layers: &mut HashSet<String>,
-) {
-    shape_commands.iter().for_each(|shape_command| {
-        if let ShapeCommand::RenderShape {
-            shape_depth_layer, ..
-        } = shape_command
-        {
-            current_live_shape_depth_layers.insert(shape_depth_layer.to_owned());
-        }
-    });
-}
-
 fn process_offscreen_draw_commands(
     commands: &[ShapeCommand],
     filter_texture_mesh: &FilterTextureMesh,
@@ -1586,120 +1109,118 @@ fn process_offscreen_draw_commands(
 ) -> Vec<ShapeMeshDraw> {
     let mut current_frame_shape_mesh_draws = vec![];
     let (color_materials, gradient_materials, bitmap_materials) = materials;
-    commands.iter().for_each(|command| match command {
-        ShapeCommand::RenderShape {
-            transform,
-            id,
-            shape_depth_layer,
-            blend_mode,
-            ..
-        } => {
-            if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer) {
-                for shape_mesh_draw in cache.iter() {
-                    match &shape_mesh_draw.material_type {
-                        MaterialType::Color(color) => {
-                            update_material(color, color_materials, *transform, *blend_mode);
-                        }
-                        MaterialType::Gradient(gradient) => {
-                            update_material(gradient, gradient_materials, *transform, *blend_mode);
-                        }
-                        MaterialType::Bitmap(bitmap) => {
-                            update_material(bitmap, bitmap_materials, *transform, *blend_mode);
-                        }
-                    }
-                }
-                current_frame_shape_mesh_draws.extend(cache.clone());
-            } else {
-                let Some(shape_cache) = shape_handles.get(id) else {
-                    return;
-                };
-                let Some(shape) = shapes.get(shape_cache) else {
-                    return;
-                };
-                let shape_mesh_draws = layer_offscreen_shape_draw_cache
-                    .entry(shape_depth_layer.to_owned())
-                    .or_default();
-                for (material_type, mesh) in shape.iter() {
-                    match material_type {
-                        ShapeMaterialType::Color(color) => {
-                            handle_offscreen_draw(
-                                color_materials,
-                                *color,
-                                transform,
-                                blend_mode,
-                                |material| {
-                                    shape_mesh_draws.push(ShapeMeshDraw {
-                                        mesh: mesh.clone(),
-                                        material_type: MaterialType::Color(material),
-                                        blend: BlendMaterialKey::from(*blend_mode),
-                                    });
-                                },
-                            );
-                        }
-                        ShapeMaterialType::Gradient(gradient_material) => {
-                            handle_offscreen_draw(
-                                gradient_materials,
-                                gradient_material.clone(),
-                                transform,
-                                blend_mode,
-                                |material| {
-                                    shape_mesh_draws.push(ShapeMeshDraw {
-                                        mesh: mesh.clone(),
-                                        material_type: MaterialType::Gradient(material),
-                                        blend: BlendMaterialKey::from(*blend_mode),
-                                    });
-                                },
-                            );
-                        }
-                        ShapeMaterialType::Bitmap(bitmap_material) => {
-                            handle_offscreen_draw(
-                                bitmap_materials,
-                                bitmap_material.clone(),
-                                transform,
-                                blend_mode,
-                                |material| {
-                                    shape_mesh_draws.push(ShapeMeshDraw {
-                                        mesh: mesh.clone(),
-                                        material_type: MaterialType::Bitmap(material),
-                                        blend: BlendMaterialKey::from(*blend_mode),
-                                    });
-                                },
-                            );
-                        }
-                    }
-                }
-                current_frame_shape_mesh_draws.extend(shape_mesh_draws.clone());
-            };
-        }
-        ShapeCommand::RenderBitmap {
-            bitmap_material,
-            shape_depth_layer,
-            ..
-        } => {
-            if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer)
-                && let Some(shape_mesh_draw) = cache.first()
-                && let MaterialType::Bitmap(handle) = &shape_mesh_draw.material_type
-            {
-                let Some(bitmap) = bitmap_materials.get_mut(handle) else {
-                    return;
-                };
-                bitmap.transform = bitmap_material.transform;
-                bitmap.blend_key = bitmap_material.blend_key;
-                bitmap.texture = bitmap_material.texture.clone();
-                current_frame_shape_mesh_draws.extend(cache.clone());
-            } else {
-                let cache = layer_offscreen_shape_draw_cache
-                    .entry(shape_depth_layer.to_owned())
-                    .or_default();
-                let handle = bitmap_materials.add(bitmap_material.clone());
-                cache.push(ShapeMeshDraw {
-                    mesh: filter_texture_mesh.0.clone(),
-                    material_type: MaterialType::Bitmap(handle.clone()),
-                    blend: BlendMaterialKey::NORMAL,
-                });
-                current_frame_shape_mesh_draws.extend(cache.clone());
-            }
-        }
-    });
+    // commands.iter().for_each(|command| match command {
+    // ShapeCommand::RenderShape {
+    //     shape,
+    //     transform,
+    //     blend_mode,
+    // } => {
+    //     if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer) {
+    //         for shape_mesh_draw in cache.iter() {
+    //             match &shape_mesh_draw.material_type {
+    //                 MaterialType::Color(color) => {
+    //                     update_material(color, color_materials, *transform, *blend_mode);
+    //                 }
+    //                 MaterialType::Gradient(gradient) => {
+    //                     update_material(gradient, gradient_materials, *transform, *blend_mode);
+    //                 }
+    //                 MaterialType::Bitmap(bitmap) => {
+    //                     update_material(bitmap, bitmap_materials, *transform, *blend_mode);
+    //                 }
+    //             }
+    //         }
+    //         current_frame_shape_mesh_draws.extend(cache.clone());
+    //     } else {
+    //         let Some(shape_cache) = shape_handles.get(id) else {
+    //             return;
+    //         };
+    //         let Some(shape) = shapes.get(shape_cache) else {
+    //             return;
+    //         };
+    //         let shape_mesh_draws = layer_offscreen_shape_draw_cache
+    //             .entry(shape_depth_layer.to_owned())
+    //             .or_default();
+    //         for (material_type, mesh) in shape.iter() {
+    //             match material_type {
+    //                 ShapeMaterialType::Color(color) => {
+    //                     handle_offscreen_draw(
+    //                         color_materials,
+    //                         *color,
+    //                         transform,
+    //                         blend_mode,
+    //                         |material| {
+    //                             shape_mesh_draws.push(ShapeMeshDraw {
+    //                                 mesh: mesh.clone(),
+    //                                 material_type: MaterialType::Color(material),
+    //                                 blend: BlendMaterialKey::from(*blend_mode),
+    //                             });
+    //                         },
+    //                     );
+    //                 }
+    //                 ShapeMaterialType::Gradient(gradient_material) => {
+    //                     handle_offscreen_draw(
+    //                         gradient_materials,
+    //                         gradient_material.clone(),
+    //                         transform,
+    //                         blend_mode,
+    //                         |material| {
+    //                             shape_mesh_draws.push(ShapeMeshDraw {
+    //                                 mesh: mesh.clone(),
+    //                                 material_type: MaterialType::Gradient(material),
+    //                                 blend: BlendMaterialKey::from(*blend_mode),
+    //                             });
+    //                         },
+    //                     );
+    //                 }
+    //                 ShapeMaterialType::Bitmap(bitmap_material) => {
+    //                     handle_offscreen_draw(
+    //                         bitmap_materials,
+    //                         bitmap_material.clone(),
+    //                         transform,
+    //                         blend_mode,
+    //                         |material| {
+    //                             shape_mesh_draws.push(ShapeMeshDraw {
+    //                                 mesh: mesh.clone(),
+    //                                 material_type: MaterialType::Bitmap(material),
+    //                                 blend: BlendMaterialKey::from(*blend_mode),
+    //                             });
+    //                         },
+    //                     );
+    //                 }
+    //             }
+    //         }
+    //         current_frame_shape_mesh_draws.extend(shape_mesh_draws.clone());
+    //     };
+    // }
+    // ShapeCommand::RenderBitmap {
+    //     bitmap_material,
+    //     shape_depth_layer,
+    //     ..
+    // } => {
+    //     if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer)
+    //         && let Some(shape_mesh_draw) = cache.first()
+    //         && let MaterialType::Bitmap(handle) = &shape_mesh_draw.material_type
+    //     {
+    //         let Some(bitmap) = bitmap_materials.get_mut(handle) else {
+    //             return;
+    //         };
+    //         bitmap.transform = bitmap_material.transform;
+    //         bitmap.blend_key = bitmap_material.blend_key;
+    //         bitmap.texture = bitmap_material.texture.clone();
+    //         current_frame_shape_mesh_draws.extend(cache.clone());
+    //     } else {
+    //         let cache = layer_offscreen_shape_draw_cache
+    //             .entry(shape_depth_layer.to_owned())
+    //             .or_default();
+    //         let handle = bitmap_materials.add(bitmap_material.clone());
+    //         cache.push(ShapeMeshDraw {
+    //             mesh: filter_texture_mesh.0.clone(),
+    //             material_type: MaterialType::Bitmap(handle.clone()),
+    //             blend: BlendMaterialKey::NORMAL,
+    //         });
+    //         current_frame_shape_mesh_draws.extend(cache.clone());
+    //     }
+    // }
+    // });
     current_frame_shape_mesh_draws
 }

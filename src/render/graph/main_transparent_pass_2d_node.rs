@@ -91,26 +91,26 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                         else {
                             continue;
                         };
-                        let bind_group = match item.draw_type {
-                            super::DrawType::Color(asset_id) => {
-                                let Some(material) = color_materials.get(asset_id) else {
-                                    continue;
-                                };
-                                &material.bind_group
-                            }
-                            super::DrawType::Gradient(asset_id) => {
-                                let Some(material) = gradient_materials.get(asset_id) else {
-                                    continue;
-                                };
-                                &material.bind_group
-                            }
-                            super::DrawType::Bitmap(asset_id) => {
-                                let Some(material) = texture_materials.get(asset_id) else {
-                                    continue;
-                                };
-                                &material.bind_group
-                            }
-                        };
+                        // let bind_group = match item.draw_type {
+                        //     super::DrawType::Color(asset_id) => {
+                        //         let Some(material) = color_materials.get(asset_id) else {
+                        //             continue;
+                        //         };
+                        //         &material.bind_group
+                        //     }
+                        //     super::DrawType::Gradient(asset_id) => {
+                        //         let Some(material) = gradient_materials.get(asset_id) else {
+                        //             continue;
+                        //         };
+                        //         &material.bind_group
+                        //     }
+                        //     super::DrawType::Bitmap(asset_id) => {
+                        //         let Some(material) = texture_materials.get(asset_id) else {
+                        //             continue;
+                        //         };
+                        //         &material.bind_group
+                        //     }
+                        // };
                         render_pass.set_render_pipeline(pipeline);
                         render_pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
                         render_pass.set_bind_group(
@@ -118,7 +118,7 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                             view_bind_group,
                             &[filter_offsets.view_offset],
                         );
-                        render_pass.set_bind_group(1, bind_group, &[]);
+                        // render_pass.set_bind_group(1, bind_group, &[]);
                         let batch_range = 0..1;
                         match &gpu_mesh.buffer_info {
                             bevy::render::mesh::RenderMeshBufferInfo::Indexed {

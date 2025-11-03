@@ -8,38 +8,32 @@ use bevy::{
 };
 
 use crate::{
+    assets::{MaterialType, Shape},
     render::{
         blend_pipeline::BlendMode,
-        material::{BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial},
+        material::{BitmapMaterial, BlendMaterialKey},
     },
     swf_runtime::transform::Transform,
 };
 
-use swf::CharacterId;
-
 #[derive(Debug)]
 pub(crate) enum ShapeCommand {
     RenderShape {
+        draw_shape: Shape,
         transform: Transform,
-        id: CharacterId,
-        shape_depth_layer: String,
         blend_mode: BlendMode,
-        /// 通过ratio是否有值判断该Shape是否为形状补间
-        ratio: Option<u16>,
     },
     RenderBitmap {
-        bitmap_material: BitmapMaterial,
-        shape_depth_layer: String,
+        mesh: Handle<Mesh>,
+        material: Handle<BitmapMaterial>,
+        transform: Transform,
         size: Vec2,
     },
 }
 
-#[derive(Debug, Clone)]
-pub enum MaterialType {
-    Color(Handle<ColorMaterial>),
-    Gradient(Handle<GradientMaterial>),
-    Bitmap(Handle<BitmapMaterial>),
-}
+/// 每帧所有Shape的绘制命令
+#[derive(Component, Debug, Default, Deref, DerefMut)]
+pub(crate) struct DrawShapes(pub Vec<ShapeCommand>);
 
 #[derive(Debug, Clone)]
 pub struct ShapeMeshDraw {

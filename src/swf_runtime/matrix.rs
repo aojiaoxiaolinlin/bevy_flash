@@ -1,4 +1,4 @@
-use bevy::math::Mat4;
+use bevy::math::{Affine3A, Mat4};
 use swf::{Fixed16, Point, PointDelta, Rectangle, Twips};
 
 // TODO: Consider using portable SIMD when it's stable (https://doc.rust-lang.org/std/simd/index.html).
@@ -283,6 +283,22 @@ impl From<Matrix> for swf::Matrix {
             tx: matrix.tx,
             ty: matrix.ty,
         }
+    }
+}
+
+impl From<Matrix> for Affine3A {
+    fn from(value: Matrix) -> Self {
+        Affine3A::from_mat4(Mat4::from_cols_array_2d(&[
+            [value.a, value.b, 0.0, 0.0],
+            [value.c, value.d, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [
+                value.tx.to_pixels() as f32,
+                value.ty.to_pixels() as f32,
+                0.0,
+                1.0,
+            ],
+        ]))
     }
 }
 

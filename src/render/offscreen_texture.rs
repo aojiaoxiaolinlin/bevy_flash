@@ -36,6 +36,7 @@ use bevy::{
     },
 };
 
+use crate::assets::MaterialType;
 use crate::{
     commands::OffscreenDrawCommands,
     render::{
@@ -489,9 +490,9 @@ pub fn special_and_queue_shape_draw(
             };
             let mesh_key = mesh_key
                 | match &draw_command.material_type {
-                    crate::commands::MaterialType::Color(_) => OffscreenMesh2dKey::COLOR,
-                    crate::commands::MaterialType::Gradient(_) => OffscreenMesh2dKey::GRADIENT,
-                    crate::commands::MaterialType::Bitmap(_) => OffscreenMesh2dKey::BITMAP,
+                    MaterialType::Color(_) => OffscreenMesh2dKey::COLOR,
+                    MaterialType::Gradient(_) => OffscreenMesh2dKey::GRADIENT,
+                    MaterialType::Bitmap(_) => OffscreenMesh2dKey::BITMAP,
                 };
             let pipeline_id = pipelines.specialize(
                 &pipeline_cache,

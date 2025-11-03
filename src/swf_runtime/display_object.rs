@@ -378,13 +378,7 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
 
     fn enter_frame(&mut self, _characters: &HashMap<u16, Character>) {}
 
-    fn render_self(
-        &mut self,
-        _context: &mut RenderContext,
-        _blend_mode: BlendMode,
-        _shape_depth_layer: String,
-    ) {
-    }
+    fn render_self(&mut self, _context: &mut RenderContext, _blend_mode: BlendMode) {}
 
     fn replace_with(&mut self, _id: CharacterId, _characters: &HashMap<CharacterId, Character>) {}
 
