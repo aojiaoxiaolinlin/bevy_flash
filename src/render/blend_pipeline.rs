@@ -1,4 +1,4 @@
-use super::material::BlendMaterialKey;
+use super::material::BlendModelKey;
 
 #[derive(Debug, Copy, Clone)]
 pub enum TrivialBlend {
@@ -51,17 +51,17 @@ impl From<swf::BlendMode> for BlendMode {
     }
 }
 
-impl From<BlendMode> for BlendMaterialKey {
+impl From<BlendMode> for BlendModelKey {
     fn from(value: BlendMode) -> Self {
         match value {
-            BlendMode::Trivial(TrivialBlend::Normal) => BlendMaterialKey::NORMAL,
-            BlendMode::Trivial(TrivialBlend::Add) => BlendMaterialKey::BLEND_ADD,
-            BlendMode::Trivial(TrivialBlend::Subtract) => BlendMaterialKey::BLEND_SUBTRACT,
-            BlendMode::Trivial(TrivialBlend::Screen) => BlendMaterialKey::BLEND_SCREEN,
-            BlendMode::Trivial(TrivialBlend::Lighten) => BlendMaterialKey::BLEND_LIGHTEN,
-            BlendMode::Trivial(TrivialBlend::Multiply) => BlendMaterialKey::BLEND_MULTIPLY,
-            BlendMode::Trivial(TrivialBlend::Darken) => BlendMaterialKey::BLEND_DARKEN,
-            _ => BlendMaterialKey::NORMAL,
+            BlendMode::Trivial(TrivialBlend::Normal) => BlendModelKey::NORMAL,
+            BlendMode::Trivial(TrivialBlend::Add) => BlendModelKey::BLEND_ADD,
+            BlendMode::Trivial(TrivialBlend::Subtract) => BlendModelKey::BLEND_SUBTRACT,
+            BlendMode::Trivial(TrivialBlend::Screen) => BlendModelKey::BLEND_SCREEN,
+            BlendMode::Trivial(TrivialBlend::Lighten) => BlendModelKey::BLEND_LIGHTEN,
+            BlendMode::Trivial(TrivialBlend::Multiply) => BlendModelKey::BLEND_MULTIPLY,
+            BlendMode::Trivial(TrivialBlend::Darken) => BlendModelKey::BLEND_DARKEN,
+            _ => BlendModelKey::NORMAL,
         }
     }
 }

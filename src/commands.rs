@@ -1,7 +1,6 @@
 use bevy::{
     asset::Handle,
     ecs::component::Component,
-    math::Vec2,
     mesh::Mesh,
     prelude::{Deref, DerefMut},
     render::extract_component::ExtractComponent,

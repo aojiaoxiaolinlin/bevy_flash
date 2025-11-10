@@ -7,7 +7,6 @@ use bevy::{
         resource::Resource,
         system::{Commands, Res},
     },
-    log::info,
     math::{Mat4, Vec2},
     mesh::{Mesh, PrimitiveTopology, VertexBufferLayout},
     render::{

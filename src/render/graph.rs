@@ -32,9 +32,8 @@ use crate::{
             main_transparent_pass_2d_node::OffscreenMainTransparentPass2dNode,
             upscaling::OffscreenUpscalingNode,
         },
-        material::{BitmapMaterial, ColorMaterial, GradientMaterial, TransformUniform},
+        material::{BitmapMaterial, ColorMaterial, GradientMaterial},
     },
-    swf_runtime::transform::Transform,
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderSubGraph)]

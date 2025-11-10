@@ -6,7 +6,7 @@ pub mod part_mesh2d;
 mod pipeline;
 mod texture_attachment;
 
-use std::{hash::Hash, marker::PhantomData, usize};
+use std::{hash::Hash, marker::PhantomData};
 
 use bevy::{
     app::{App, Plugin, PostUpdate},
@@ -29,7 +29,7 @@ use bevy::{
         },
         world::{FromWorld, World},
     },
-    log::{error, info},
+    log::error,
     math::{Affine3A, FloatOrd, Mat3, Vec3},
     mesh::{Indices, Mesh, MeshVertexBufferLayoutRef, PrimitiveTopology},
     platform::collections::HashMap,
@@ -47,9 +47,10 @@ use bevy::{
             ViewSortedRenderPhases,
         },
         render_resource::{
-            AsBindGroupError, BindGroup, BindGroupLayout, BindingResources, CachedRenderPipelineId,
-            PipelineCache, RenderPipelineDescriptor, SpecializedMeshPipeline,
-            SpecializedMeshPipelineError, SpecializedMeshPipelines,
+            AsBindGroupError, BindGroup, BindGroupLayout, BindingResources, BlendComponent,
+            BlendFactor, BlendOperation, BlendState, CachedRenderPipelineId, PipelineCache,
+            RenderPipelineDescriptor, SpecializedMeshPipeline, SpecializedMeshPipelineError,
+            SpecializedMeshPipelines,
         },
         renderer::RenderDevice,
         sync_world::{MainEntity, MainEntityHashMap},
@@ -58,9 +59,8 @@ use bevy::{
     shader::{Shader, ShaderDefVal, ShaderRef},
     sprite_render::{
         EntitiesNeedingSpecialization, EntitySpecializationTicks, MATERIAL_2D_BIND_GROUP_INDEX,
-        Material2d, Material2dBindGroupId, Material2dKey, Mesh2dPipelineKey, Mesh2dTransforms,
-        MeshFlags, SetMesh2dViewBindGroup, ViewKeyCache, ViewSpecializationTicks,
-        alpha_mode_pipeline_key,
+        Material2d, Material2dBindGroupId, Mesh2dPipelineKey, Mesh2dTransforms, MeshFlags,
+        SetMesh2dViewBindGroup, ViewKeyCache, ViewSpecializationTicks, alpha_mode_pipeline_key,
     },
     transform::components::GlobalTransform,
     utils::Parallel,
@@ -75,8 +75,9 @@ use crate::{
     commands::{DrawShapes, ShapeCommand},
     player::Flash,
     render::{
+        blend_pipeline::BlendMode,
         material::{
-            BITMAP_MATERIAL_SHADER_HANDLE, FLASH_COMMON_MATERIAL_SHADER_HANDLE,
+            BITMAP_MATERIAL_SHADER_HANDLE, BlendModelKey, FLASH_COMMON_MATERIAL_SHADER_HANDLE,
             GRADIENT_MATERIAL_SHADER_HANDLE, SWF_COLOR_MATERIAL_SHADER_HANDLE,
         },
         offscreen_texture::{ExtractedOffscreenTexture, OffscreenTexturePlugin},
@@ -177,9 +178,15 @@ impl FromWorld for ColorMaterialHandle {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct RenderMaterial2dInstance<M: Material2d> {
+    pub material_id: AssetId<M>,
+    pub blend_mode: BlendMode,
+}
+
 #[derive(Resource, Deref, DerefMut)]
 pub struct RenderPartMaterial2dInstances<M: Material2d>(
-    MainEntityHashMap<IndexMap<usize, AssetId<M>>>,
+    MainEntityHashMap<IndexMap<usize, RenderMaterial2dInstance<M>>>,
 );
 
 impl<M: Material2d> Default for RenderPartMaterial2dInstances<M> {
@@ -241,7 +248,13 @@ fn extract_part_mesh2d_and_material(
                                         color_transform,
                                     },
                                 );
-                                material_color_instances.insert(index, material.id());
+                                material_color_instances.insert(
+                                    index,
+                                    RenderMaterial2dInstance {
+                                        material_id: material.id(),
+                                        blend_mode: *blend_mode,
+                                    },
+                                );
                             }
                             MaterialType::Gradient(material) => {
                                 mesh_instances.insert(
@@ -256,7 +269,13 @@ fn extract_part_mesh2d_and_material(
                                         color_transform,
                                     },
                                 );
-                                material_gradient_instances.insert(index, material.id());
+                                material_gradient_instances.insert(
+                                    index,
+                                    RenderMaterial2dInstance {
+                                        material_id: material.id(),
+                                        blend_mode: *blend_mode,
+                                    },
+                                );
                             }
                             MaterialType::Bitmap(material) => {
                                 mesh_instances.insert(
@@ -271,7 +290,13 @@ fn extract_part_mesh2d_and_material(
                                         color_transform,
                                     },
                                 );
-                                material_bitmap_instances.insert(index, material.id());
+                                material_bitmap_instances.insert(
+                                    index,
+                                    RenderMaterial2dInstance {
+                                        material_id: material.id(),
+                                        blend_mode: *blend_mode,
+                                    },
+                                );
                             }
                         }
                     });
@@ -280,7 +305,7 @@ fn extract_part_mesh2d_and_material(
                     mesh,
                     material,
                     transform,
-                    ..
+                    blend_mode,
                 } => {
                     index += 1;
 
@@ -302,7 +327,13 @@ fn extract_part_mesh2d_and_material(
                             color_transform,
                         },
                     );
-                    material_bitmap_instances.insert(index, material.id());
+                    material_bitmap_instances.insert(
+                        index,
+                        RenderMaterial2dInstance {
+                            material_id: material.id(),
+                            blend_mode: *blend_mode,
+                        },
+                    );
                 }
             }
         }
@@ -459,6 +490,12 @@ pub struct PartMaterial2dPipeline<M: Material2d> {
     marker: PhantomData<M>,
 }
 
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub struct PartMaterial2dKey {
+    pub mesh_key: Mesh2dPipelineKey,
+    pub blend_model_key: BlendModelKey,
+}
+
 impl<M: Material2d> Clone for PartMaterial2dPipeline<M> {
     fn clone(&self) -> Self {
         Self {
@@ -475,7 +512,7 @@ impl<M: Material2d> SpecializedMeshPipeline for PartMaterial2dPipeline<M>
 where
     M::Data: PartialEq + Eq + Hash + Clone,
 {
-    type Key = Material2dKey<M>;
+    type Key = PartMaterial2dKey;
 
     fn specialize(
         &self,
@@ -492,6 +529,67 @@ where
                 "MATERIAL_BIND_GROUP".into(),
                 MATERIAL_2D_BIND_GROUP_INDEX as u32,
             ));
+
+            if let Some(target) = &mut fragment.targets[0] {
+                if key.blend_model_key.contains(BlendModelKey::BLEND_ADD) {
+                    target.blend = Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::One,
+                            dst_factor: BlendFactor::One,
+                            operation: BlendOperation::Add,
+                        },
+                        alpha: BlendComponent::OVER,
+                    });
+                } else if key.blend_model_key.contains(BlendModelKey::BLEND_MULTIPLY) {
+                    target.blend = Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::Dst,
+                            dst_factor: BlendFactor::OneMinusSrcAlpha,
+                            operation: BlendOperation::Add,
+                        },
+                        alpha: BlendComponent::OVER,
+                    });
+                } else if key.blend_model_key.contains(BlendModelKey::BLEND_SUBTRACT) {
+                    target.blend = Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::One,
+                            dst_factor: BlendFactor::One,
+                            operation: BlendOperation::ReverseSubtract,
+                        },
+                        alpha: BlendComponent::OVER,
+                    });
+                } else if key.blend_model_key.contains(BlendModelKey::BLEND_SCREEN) {
+                    target.blend = Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::One,
+                            dst_factor: BlendFactor::OneMinusSrc,
+                            operation: BlendOperation::Add,
+                        },
+                        alpha: BlendComponent::OVER,
+                    });
+                } else if key.blend_model_key.contains(BlendModelKey::BLEND_LIGHTEN) {
+                    target.blend = Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::One,
+                            dst_factor: BlendFactor::One,
+                            operation: BlendOperation::Max,
+                        },
+                        alpha: BlendComponent::OVER,
+                    });
+                } else if key.blend_model_key.contains(BlendModelKey::BLEND_DARKEN) {
+                    target.blend = Some(BlendState {
+                        color: BlendComponent {
+                            src_factor: BlendFactor::One,
+                            dst_factor: BlendFactor::One,
+                            operation: BlendOperation::Min,
+                        },
+                        alpha: BlendComponent::OVER,
+                    });
+                } else {
+                    // Flash 中是预乘Alpha混合
+                    target.blend = Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING)
+                }
+            }
         }
         if let Some(vertex_shader) = &self.vertex_shader {
             descriptor.vertex.shader = vertex_shader.clone();
@@ -505,8 +603,7 @@ where
             self.mesh2d_pipeline.mesh_layout.clone(),
             self.material2d_layout.clone(),
         ];
-
-        M::specialize(&mut descriptor, layout, key)?;
+        // 不在调用Material2d 的 specialize 方法，所以这里不再需要特殊处理
         Ok(descriptor)
     }
 }
@@ -600,24 +697,26 @@ fn specialize_part_material2d<M: Material2d>(
             let mut pipeline_ids = HashMap::default();
 
             for (index, mesh_instance) in mesh_instances.iter_mut() {
-                let Some(material_asset_id) = material_instances.get(index) else {
+                let Some(material_instance) = material_instances.get(index) else {
                     continue;
                 };
                 let Some(mesh) = render_meshes.get(mesh_instance.mesh_asset_id) else {
                     continue;
                 };
-                let Some(material_2d) = render_materials.get(*material_asset_id) else {
+                let Some(material_2d) = render_materials.get(material_instance.material_id) else {
                     continue;
                 };
+                let blend_model_key = BlendModelKey::from(material_instance.blend_mode);
+
                 let mesh_key = *view_key
                     | Mesh2dPipelineKey::from_primitive_topology(mesh.primitive_topology())
                     | material_2d.properties.mesh_pipeline_key_bits;
                 let pipeline_id = pipelines.specialize(
                     &pipeline_cache,
                     &material2d_pipeline,
-                    Material2dKey {
+                    PartMaterial2dKey {
                         mesh_key,
-                        bind_group_data: material_2d.key.clone(),
+                        blend_model_key,
                     },
                     &mesh.layout,
                 );
@@ -684,13 +783,13 @@ fn queue_part_material2d_meshes<M: Material2d>(
             };
 
             for (index, mesh_instance) in mesh_instances.iter_mut() {
-                let Some(material_asset_id) = material_instances.get(index) else {
+                let Some(material_instance) = material_instances.get(index) else {
                     continue;
                 };
                 let Some(mesh) = render_meshes.get(mesh_instance.mesh_asset_id) else {
                     continue;
                 };
-                let Some(material_2d) = render_materials.get(*material_asset_id) else {
+                let Some(material_2d) = render_materials.get(material_instance.material_id) else {
                     continue;
                 };
                 let pipeline_id = pipeline_ids
@@ -763,7 +862,7 @@ impl<P: PartPhaseItem, M: Material2d, const I: usize> RenderCommand<P>
         let Some(material_instance) = material_instances.get(&item.extracted_index()) else {
             return RenderCommandResult::Skip;
         };
-        let Some(material2d) = materials.get(*material_instance) else {
+        let Some(material2d) = materials.get(material_instance.material_id) else {
             return RenderCommandResult::Skip;
         };
         pass.set_bind_group(I, &material2d.bind_group, &[]);

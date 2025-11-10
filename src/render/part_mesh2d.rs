@@ -15,7 +15,6 @@ use bevy::{
         },
     },
     image::BevyDefault,
-    log::info,
     math::Vec4,
     mesh::{Mesh, MeshVertexBufferLayoutRef},
     prelude::{Deref, DerefMut},
@@ -582,10 +581,10 @@ fn batch_and_prepare_part_sorted_render_phase<I, GBPD>(
 /// 其定义基于以下假设：
 /// - 进入渲染阶段的实体必须已完成资源准备（如管线、材质、网格等均已加载并适配 GPU），确保绘制命令的基础资源是就绪且一致的。
 /// - 对于特定绘制函数，同一渲染阶段（phase）内的视图绑定（View bindings，如视图投影矩阵等相机相关数据）是固定的
-/// —— 因为渲染阶段通常按视图（如每个相机对应一个阶段）划分，避免跨视图的绑定差异影响合并。
+/// — 因为渲染阶段通常按视图（如每个相机对应一个阶段）划分，避免跨视图的绑定差异影响合并。
 /// - `batch_and_prepare_render_phase` 是唯一执行批处理的系统，且全权负责准备每个对象的绘制数据。
-/// 因此，网格绑定（mesh binding）和动态偏移量（dynamic offsets）的变化仅由该系统导致
-/// （例如：因 uniform 缓冲区最大绑定尺寸限制，需将数据拆分到同一缓冲区的不同绑定位置）。
+///   因此，网格绑定（mesh binding）和动态偏移量（dynamic offsets）的变化仅由该系统导致
+///   （例如：因 uniform 缓冲区最大绑定尺寸限制，需将数据拆分到同一缓冲区的不同绑定位置）。
 #[derive(PartialEq)]
 struct BatchMeta<T: PartialEq> {
     /// The pipeline id encompasses all pipeline configuration including vertex

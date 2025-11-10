@@ -1,8 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bevy::log::info;
-use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::{
     app::Plugin,
     camera::{NormalizedRenderTarget, RenderTarget},
@@ -17,6 +15,7 @@ use bevy::{
     },
     log::error,
     math::{Mat4, UVec2, Vec3},
+    mesh::MeshVertexBufferLayoutRef,
     platform::collections::{HashMap, HashSet, hash_map::Entry},
     prelude::{Deref, DerefMut, ReflectComponent},
     reflect::Reflect,
@@ -40,7 +39,7 @@ use bevy::{
 
 use crate::assets::MaterialType;
 use crate::commands::ShapeCommand;
-use crate::render::material::{BlendMaterialKey, TransformUniform};
+use crate::render::material::{BlendModelKey, TransformUniform};
 use crate::{
     commands::OffscreenDrawShapes,
     render::{
@@ -298,8 +297,8 @@ fn prepare_offscreen_view_attachments(
         };
         match view_target_attachments.entry(target.clone()) {
             Entry::Occupied(_) => {}
-            Entry::Vacant(entry) => match target {
-                NormalizedRenderTarget::Image(image_target) => {
+            Entry::Vacant(entry) => {
+                if let NormalizedRenderTarget::Image(image_target) = target {
                     let view = images
                         .get(&image_target.handle)
                         .map(|image| &image.texture_view);
@@ -314,8 +313,7 @@ fn prepare_offscreen_view_attachments(
                         entry.insert(attachment);
                     }
                 }
-                _ => {}
-            },
+            }
         }
     }
 }
@@ -453,7 +451,6 @@ pub fn special_and_queue_shape_draw(
         .transform_uniform_buffer
         .get_writer(size, &render_device, &render_queue)
     else {
-        error!("获取 transform uniform buffer 写入器失败");
         return;
     };
 
@@ -476,7 +473,7 @@ pub fn special_and_queue_shape_draw(
                             continue;
                         };
                         let Some(mesh_key) = OffscreenMesh2dKey::from_bits(
-                            BlendMaterialKey::from(*blend_mode).bits() as u16,
+                            BlendModelKey::from(*blend_mode).bits() as u16,
                         ) else {
                             continue;
                         };
@@ -513,7 +510,7 @@ pub fn special_and_queue_shape_draw(
                         continue;
                     };
                     let Some(mut mesh_key) = OffscreenMesh2dKey::from_bits(
-                        BlendMaterialKey::from(*blend_mode).bits() as u16,
+                        BlendModelKey::from(*blend_mode).bits() as u16,
                     ) else {
                         continue;
                     };

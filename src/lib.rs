@@ -28,13 +28,13 @@ pub(crate) mod swf_runtime;
 use std::collections::btree_map::ValuesMut;
 
 use crate::{
-    assets::{MaterialType, Shape, Swf, SwfLoader},
+    assets::{Shape, Swf, SwfLoader},
     commands::{DrawShapes, OffscreenDrawShapes, ShapeCommand},
     player::{Flash, FlashPlayer, FlashPlayerTimer, McRoot},
     render::{
         ColorMaterialHandle, FilterTextureMesh, FlashRenderPlugin,
         blend_pipeline::BlendMode,
-        material::{BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial},
+        material::{BitmapMaterial, ColorMaterial, GradientMaterial},
         offscreen_texture::OffscreenTexture,
     },
     shape::FlashShape,
@@ -62,7 +62,7 @@ use bevy::{
         system::{Commands, Local, Query, Res, ResMut},
     },
     image::Image,
-    log::{info, warn_once},
+    log::warn_once,
     math::{IVec2, Mat4, UVec2, Vec3},
     mesh::Mesh,
     platform::collections::{HashMap, HashSet},
@@ -738,7 +738,7 @@ fn render_to_offscreen_texture(
         display_object,
         &mut offscreen_context,
         blend_mode,
-        &shape_depth_layer,
+        shape_depth_layer,
     );
 
     // 将离屏上下文的绘制命令添加到缓存绘制列表
@@ -769,7 +769,6 @@ fn render_cached_texture_to_view(
     let bitmap_material = BitmapMaterial {
         texture: cache_info.image_info.handle(),
         texture_transform: Mat4::IDENTITY,
-        blend_key: BlendMaterialKey::from(BlendMode::from(blend_mode)),
     };
 
     // 添加渲染位图命令
@@ -785,8 +784,7 @@ fn render_cached_texture_to_view(
                 ..Default::default()
             },
             color_transform: cache_info.base_transform.color_transform,
-        }
-        .into(),
+        },
         blend_mode: BlendMode::from(blend_mode),
     });
 }
@@ -879,7 +877,7 @@ fn spawn_offscreen_texture(
                             is_active: true,
                             size: cache_draw.size,
                             clear_color: cache_draw.clear_color,
-                            order: order,
+                            order,
                             filters: cache_draw.filters.clone(),
                             scale,
                         },

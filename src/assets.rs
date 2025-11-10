@@ -131,7 +131,7 @@ impl AssetLoader for SwfLoader {
         let mut shape_handles = HashMap::new();
 
         let color_material =
-            load_context.add_labeled_asset(format!("color_material"), ColorMaterial::default());
+            load_context.add_labeled_asset("color_material".to_owned(), ColorMaterial::default());
 
         library.characters.values_mut().for_each(|v| {
             if let Character::Graphic(graphic) = v {
@@ -264,11 +264,11 @@ fn load_shape_mesh(
                 *mesh_index += 1;
 
                 let material = load_context.add_labeled_asset(
-                    format!("material_{}", material_index),
+                    format!("material_{material_index}"),
                     GradientMaterial {
                         gradient,
                         texture: handle,
-                        texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&matrix)),
+                        texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(matrix)),
                         ..Default::default()
                     },
                 );
@@ -318,7 +318,7 @@ fn load_shape_mesh(
                         load_context.add_labeled_asset(format!("texture_{image_index}"), texture);
                     *image_index += 1;
                     let material = load_context.add_labeled_asset(
-                        format!("material_{}", material_index),
+                        format!("material_{material_index}"),
                         BitmapMaterial {
                             texture,
                             texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(
