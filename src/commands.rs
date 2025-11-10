@@ -8,15 +8,12 @@ use bevy::{
 };
 
 use crate::{
-    assets::{MaterialType, Shape},
-    render::{
-        blend_pipeline::BlendMode,
-        material::{BitmapMaterial, BlendMaterialKey},
-    },
+    assets::Shape,
+    render::{blend_pipeline::BlendMode, material::BitmapMaterial},
     swf_runtime::transform::Transform,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum ShapeCommand {
     RenderShape {
         draw_shape: Shape,
@@ -27,7 +24,7 @@ pub(crate) enum ShapeCommand {
         mesh: Handle<Mesh>,
         material: Handle<BitmapMaterial>,
         transform: Transform,
-        size: Vec2,
+        blend_mode: BlendMode,
     },
 }
 
@@ -35,12 +32,5 @@ pub(crate) enum ShapeCommand {
 #[derive(Component, Debug, Default, Deref, DerefMut)]
 pub(crate) struct DrawShapes(pub Vec<ShapeCommand>);
 
-#[derive(Debug, Clone)]
-pub struct ShapeMeshDraw {
-    pub material_type: MaterialType,
-    pub mesh: Handle<Mesh>,
-    pub blend: BlendMaterialKey,
-}
-
 #[derive(Component, Debug, Clone, Default, Deref, DerefMut, ExtractComponent)]
-pub struct OffscreenDrawCommands(pub Vec<ShapeMeshDraw>);
+pub(crate) struct OffscreenDrawShapes(pub Vec<ShapeCommand>);

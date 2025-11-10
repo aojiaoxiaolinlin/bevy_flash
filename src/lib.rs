@@ -29,14 +29,12 @@ use std::collections::btree_map::ValuesMut;
 
 use crate::{
     assets::{MaterialType, Shape, Swf, SwfLoader},
-    commands::{DrawShapes, OffscreenDrawCommands, ShapeCommand, ShapeMeshDraw},
+    commands::{DrawShapes, OffscreenDrawShapes, ShapeCommand},
     player::{Flash, FlashPlayer, FlashPlayerTimer, McRoot},
     render::{
         ColorMaterialHandle, FilterTextureMesh, FlashRenderPlugin,
         blend_pipeline::BlendMode,
-        material::{
-            BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial, SwfMaterial,
-        },
+        material::{BitmapMaterial, BlendMaterialKey, ColorMaterial, GradientMaterial},
         offscreen_texture::OffscreenTexture,
     },
     shape::FlashShape,
@@ -53,20 +51,19 @@ use crate::{
 use bevy::{
     app::{App, Plugin, PostUpdate},
     asset::{AssetApp, Assets, Handle},
-    camera::visibility::{Visibility, VisibilityClass},
+    camera::visibility::VisibilityClass,
     color::Color,
     ecs::{
         component::Component,
         entity::{Entity, EntityHashMap},
         event::EntityEvent,
-        hierarchy::ChildOf,
-        query::{With, Without},
+        query::Without,
         schedule::IntoScheduleConfigs,
-        system::{Commands, EntityCommands, Local, Query, Res, ResMut},
+        system::{Commands, Local, Query, Res, ResMut},
     },
     image::Image,
-    log::warn_once,
-    math::{IVec2, Mat4, UVec2, Vec3, Vec3Swizzles},
+    log::{info, warn_once},
+    math::{IVec2, Mat4, UVec2, Vec3},
     mesh::Mesh,
     platform::collections::{HashMap, HashSet},
     time::Time,
@@ -78,20 +75,10 @@ use bevy::{
 
 use swf::{CharacterId, Rectangle, Twips};
 
-type ShapeMaterialAssets<'w> = (
-    &'w mut Assets<ColorMaterial>,
-    &'w mut Assets<GradientMaterial>,
-    &'w mut Assets<BitmapMaterial>,
-);
-
 /// 用于缓存每个实体对应的显示对象
 #[derive(Default)]
 struct DisplayObjectCache {
     morph_shape_frame_cache: HashMap<CharacterId, fnv::FnvHashMap<u16, Frame>>,
-    morph_shape_material_cache:
-        HashMap<CharacterId, fnv::FnvHashMap<u16, Vec<(Entity, MaterialType)>>>,
-    layer_shape_material_cache: HashMap<String, Vec<(Entity, MaterialType)>>,
-    layer_offscreen_shape_draw_cache: HashMap<String, Vec<ShapeMeshDraw>>,
     layer_offscreen_cache: HashMap<String, Entity>,
     image_cache: HashMap<String, ImageCache>,
 
@@ -259,10 +246,6 @@ impl<'w> RenderContext<'w> {
     }
 }
 
-/// 标记Mesh2d实体为ShapeMesh
-#[derive(Component)]
-struct ShapeMesh;
-
 /// Flash 动画完成事件，非循环播放时触发
 #[derive(EntityEvent, Clone)]
 pub struct FlashCompleteEvent {
@@ -371,38 +354,21 @@ fn update_animation_frame(
     }
 }
 
-/// 更新实体可见性
-fn update_entity_visibility(
-    entity: Entity,
-    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-) {
-    shape_meshes
-        .iter_mut()
-        .filter(|(child_of, _, _)| child_of.parent() == entity)
-        .for_each(|(_, _, mut visibility)| {
-            *visibility = Visibility::Hidden;
-        });
-}
-
 /// 推进Flash动画
 #[allow(clippy::too_many_arguments)]
 fn advance_animation(
     time: Res<Time>,
     filter_texture_mesh: Res<FilterTextureMesh>,
     mut commands: Commands,
-    mut player: Query<
-        (
-            Entity,
-            &mut FlashPlayer,
-            &mut FlashPlayerTimer,
-            &mut McRoot,
-            &mut Transform,
-            &Flash,
-            &GlobalTransform,
-        ),
-        Without<ShapeMesh>,
-    >,
-    mut shape_meshes: Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
+    mut player: Query<(
+        Entity,
+        &mut FlashPlayer,
+        &mut FlashPlayerTimer,
+        &mut McRoot,
+        &mut Transform,
+        &Flash,
+        &GlobalTransform,
+    )>,
     mut offscreen_textures: Query<&mut OffscreenTexture>,
     mut shapes: ResMut<Assets<Shape>>,
     mut swf_res: ResMut<Assets<Swf>>,
@@ -430,8 +396,6 @@ fn advance_animation(
                 continue;
             }
 
-            // 将所有形状实体标记为不活跃
-            update_entity_visibility(entity, &mut shape_meshes);
             let Some(swf) = swf_res.get_mut(swf.id()) else {
                 continue;
             };
@@ -443,6 +407,7 @@ fn advance_animation(
             update_animation_frame(&mut commands, entity, &mut player, &mut root, swf);
 
             let display_object_cache = display_object_entity_caches.entry(entity).or_default();
+            // 处理翻转缩放
             let flip_x = &mut display_object_cache.flip_x;
             let flip_y = &mut display_object_cache.flip_y;
             let global_scale = global_transform.scale();
@@ -489,23 +454,14 @@ fn advance_animation(
             commands.entity(entity).insert(DrawShapes(context.commands));
 
             // 处理离屏绘制
-
-            // TODO: 不再使用Mesh2d 实体进行，而是直接才用ShapeCommand在渲染图进行绘制，
-            // 这样就不需要考虑Mesh2d 实体复用的复杂问题，简化流程。
-            // spawn_or_update_shape(
-            //     &mut commands,
-            //     entity,
-            //     filter_texture_mesh.as_ref(),
-            //     shapes.as_mut(),
-            //     &mut (colors.as_mut(), gradients.as_mut(), bitmaps.as_mut()),
-            //     &mut shape_meshes,
-            //     cache_draws,
-            //     shape_commands,
-            //     &swf.shape_handles,
-            //     &mut offscreen_textures,
-            //     display_object_cache,
-            //     global_scale,
-            // );
+            spawn_offscreen_texture(
+                &mut commands,
+                entity,
+                cache_draws,
+                &mut offscreen_textures,
+                display_object_cache,
+                global_scale,
+            );
         }
     }
     display_object_entity_caches.retain(|entity, _| current_live_player.contains(entity));
@@ -831,7 +787,7 @@ fn render_cached_texture_to_view(
             color_transform: cache_info.base_transform.color_transform,
         }
         .into(),
-        size: cache_info.image_info.size().as_vec2(),
+        blend_mode: BlendMode::from(blend_mode),
     });
 }
 
@@ -877,198 +833,65 @@ fn render_display_object(
     }
 }
 
-/// 处理形状的生成和更新，包括离屏纹理和直接渲染的形状
-///
-/// 这个函数负责：
-/// 1. 处理需要绘制到中间纹理的形状（离屏渲染）
-/// 2. 处理直接渲染的形状（更新已有形状或创建新形状）
-/// 3. 维护形状的缓存和复用
 #[allow(clippy::too_many_arguments)]
-fn spawn_or_update_shape(
+fn spawn_offscreen_texture(
     commands: &mut Commands,
     entity: Entity,
-    filter_texture_mesh: &FilterTextureMesh,
-    shapes: &mut Assets<Shape>,
-    materials: &mut ShapeMaterialAssets<'_>,
-    shape_meshes: &mut Query<(&ChildOf, &mut Transform, &mut Visibility), With<ShapeMesh>>,
-    cache_draw: Vec<ImageCacheDraw>,
-    shape_commands: Vec<ShapeCommand>,
-    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
+    cache_draws: Vec<ImageCacheDraw>,
     offscreen_textures: &mut Query<&mut OffscreenTexture>,
     display_object_cache: &mut DisplayObjectCache,
     scale: Vec3,
 ) {
-    let (
-        layer_shape_material_cache,
-        morph_shape_material_cache,
-        layer_offscreen_shape_draw_cache,
-        layer_offscreen_cache,
-    ) = (
-        &mut display_object_cache.layer_shape_material_cache,
-        &mut display_object_cache.morph_shape_material_cache,
-        &mut display_object_cache.layer_offscreen_shape_draw_cache,
-        &mut display_object_cache.layer_offscreen_cache,
-    );
+    let layer_offscreen_cache = &mut display_object_cache.layer_offscreen_cache;
 
-    // 1. 处理需要绘制中间纹理的Shape（离屏渲染）
-    process_offscreen_textures(
-        commands,
-        entity,
-        &cache_draw,
-        filter_texture_mesh,
-        shapes,
-        materials,
-        shape_handles,
-        layer_offscreen_shape_draw_cache,
-        layer_offscreen_cache,
-        offscreen_textures,
-        scale,
-    );
-}
-
-/// 处理需要绘制到中间纹理的形状（离屏渲染）
-#[allow(clippy::too_many_arguments)]
-fn process_offscreen_textures(
-    commands: &mut Commands,
-    parent: Entity,
-    cache_draws: &[ImageCacheDraw],
-    filter_texture_mesh: &FilterTextureMesh,
-    shapes: &mut Assets<Shape>,
-    materials: &mut ShapeMaterialAssets<'_>,
-    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
-    layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
-    layer_offscreen_cache: &mut HashMap<String, Entity>,
-    offscreen_textures: &mut Query<&mut OffscreenTexture>,
-    scale: Vec3,
-) {
     let mut order = isize::MIN;
 
-    for cache_draw in cache_draws {
+    for cache_draw in cache_draws.iter() {
         // 只处理需要更新的纹理
         if !cache_draw.dirty {
             continue;
         }
 
-        // 生成当前帧的形状网格绘制命令
-        let current_frame_shape_mesh_draws = process_offscreen_draw_commands(
-            &cache_draw.commands,
-            filter_texture_mesh,
-            shapes,
-            materials,
-            shape_handles,
-            layer_offscreen_shape_draw_cache,
-        );
-
         // 更新或创建离屏纹理实体
         if let Some(entity) = layer_offscreen_cache.get(&cache_draw.layer) {
-            update_existing_offscreen_texture(
-                commands,
-                *entity,
-                offscreen_textures,
-                cache_draw,
-                current_frame_shape_mesh_draws,
-                scale,
-            );
+            let Ok(mut offscreen_texture) = offscreen_textures.get_mut(*entity) else {
+                return;
+            };
+
+            // 更新离屏纹理属性
+            offscreen_texture.is_active = true;
+            offscreen_texture.target = cache_draw.handle.clone().into();
+            offscreen_texture.size = cache_draw.size;
+            offscreen_texture.scale = scale;
+            offscreen_texture.filters = cache_draw.filters.clone();
+
+            // 更新绘制命令
+            commands
+                .entity(*entity)
+                .insert(OffscreenDrawShapes(cache_draw.commands.clone()));
         } else {
-            create_new_offscreen_texture(
-                commands,
-                parent,
-                layer_offscreen_cache,
-                &cache_draw.layer,
-                cache_draw,
-                current_frame_shape_mesh_draws,
-                &mut order,
-                scale,
-            );
+            order += 1;
+            commands.entity(entity).with_children(|parent| {
+                let entity = parent
+                    .spawn((
+                        OffscreenTexture {
+                            target: cache_draw.handle.clone().into(),
+                            is_active: true,
+                            size: cache_draw.size,
+                            clear_color: cache_draw.clear_color,
+                            order: order,
+                            filters: cache_draw.filters.clone(),
+                            scale,
+                        },
+                        OffscreenDrawShapes(cache_draw.commands.clone()),
+                    ))
+                    .id();
+                // 缓存新创建的实体
+                layer_offscreen_cache.insert(cache_draw.layer.to_owned(), entity);
+            });
         }
     }
 }
-
-/// 更新已存在的离屏纹理实体
-fn update_existing_offscreen_texture(
-    commands: &mut Commands,
-    entity: Entity,
-    offscreen_textures: &mut Query<&mut OffscreenTexture>,
-    cache_draw: &ImageCacheDraw,
-    current_frame_shape_mesh_draws: Vec<ShapeMeshDraw>,
-    scale: Vec3,
-) {
-    let Ok(mut offscreen_texture) = offscreen_textures.get_mut(entity) else {
-        return;
-    };
-
-    // 更新离屏纹理属性
-    offscreen_texture.is_active = true;
-    offscreen_texture.target = cache_draw.handle.clone().into();
-    offscreen_texture.size = cache_draw.size;
-    offscreen_texture.scale = scale;
-    offscreen_texture.filters = cache_draw.filters.clone();
-
-    // 更新绘制命令
-    commands
-        .entity(entity)
-        .insert(OffscreenDrawCommands(current_frame_shape_mesh_draws));
-}
-
-/// 创建新的离屏纹理实体
-fn create_new_offscreen_texture(
-    commands: &mut Commands,
-    parent: Entity,
-    layer_offscreen_cache: &mut HashMap<String, Entity>,
-    layer_key: &str,
-    cache_draw: &ImageCacheDraw,
-    current_frame_shape_mesh_draws: Vec<ShapeMeshDraw>,
-    order: &mut isize,
-    scale: Vec3,
-) {
-    *order += 1;
-    commands.entity(parent).with_children(|parent| {
-        let entity = parent
-            .spawn((
-                OffscreenTexture {
-                    target: cache_draw.handle.clone().into(),
-                    is_active: true,
-                    size: cache_draw.size,
-                    clear_color: cache_draw.clear_color,
-                    order: *order,
-                    filters: cache_draw.filters.clone(),
-                    scale,
-                },
-                OffscreenDrawCommands(current_frame_shape_mesh_draws),
-            ))
-            .id();
-        // 缓存新创建的实体
-        layer_offscreen_cache.insert(layer_key.to_owned(), entity);
-    });
-}
-
-// #[inline]
-// fn handle_offscreen_draw<T: SwfMaterial>(
-//     materials: &mut Assets<T>,
-//     mut material: T,
-//     swf_transform: &SwfTransform,
-//     blend_mode: &BlendMode,
-//     mut func: impl FnMut(Handle<T>),
-// ) {
-//     material.update_swf_material((*swf_transform).into());
-//     material.set_blend_key((*blend_mode).into());
-//     let handle = materials.add(material);
-//     func(handle);
-// }
-
-// #[inline]
-// fn update_material<T: SwfMaterial>(
-//     handle: &Handle<T>,
-//     swf_materials: &mut Assets<T>,
-//     swf_transform: SwfTransform,
-//     blend_mode: BlendMode,
-// ) {
-//     // 当缓存某实体后该实体在该系统尚未运行完成时会查询不到对应的材质，此时重新生成材质。
-//     if let Some(swf_material) = swf_materials.get_mut(handle) {
-//         swf_material.update_swf_material(swf_transform.into());
-//         swf_material.set_blend_key(blend_mode.into());
-//     }
-// }
 
 /// 尽量复用已经生成的实体。只有在同一帧同一个 shape被多次使用时才需要重新生成
 fn find_cached_shape_material<'w, T>(
@@ -1097,130 +920,4 @@ fn find_cached_shape_material<'w, T>(
             None
         }
     }
-}
-
-fn process_offscreen_draw_commands(
-    commands: &[ShapeCommand],
-    filter_texture_mesh: &FilterTextureMesh,
-    shapes: &mut Assets<Shape>,
-    materials: &mut ShapeMaterialAssets<'_>,
-    shape_handles: &HashMap<CharacterId, Handle<Shape>>,
-    layer_offscreen_shape_draw_cache: &mut HashMap<String, Vec<ShapeMeshDraw>>,
-) -> Vec<ShapeMeshDraw> {
-    let mut current_frame_shape_mesh_draws = vec![];
-    let (color_materials, gradient_materials, bitmap_materials) = materials;
-    // commands.iter().for_each(|command| match command {
-    // ShapeCommand::RenderShape {
-    //     shape,
-    //     transform,
-    //     blend_mode,
-    // } => {
-    //     if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer) {
-    //         for shape_mesh_draw in cache.iter() {
-    //             match &shape_mesh_draw.material_type {
-    //                 MaterialType::Color(color) => {
-    //                     update_material(color, color_materials, *transform, *blend_mode);
-    //                 }
-    //                 MaterialType::Gradient(gradient) => {
-    //                     update_material(gradient, gradient_materials, *transform, *blend_mode);
-    //                 }
-    //                 MaterialType::Bitmap(bitmap) => {
-    //                     update_material(bitmap, bitmap_materials, *transform, *blend_mode);
-    //                 }
-    //             }
-    //         }
-    //         current_frame_shape_mesh_draws.extend(cache.clone());
-    //     } else {
-    //         let Some(shape_cache) = shape_handles.get(id) else {
-    //             return;
-    //         };
-    //         let Some(shape) = shapes.get(shape_cache) else {
-    //             return;
-    //         };
-    //         let shape_mesh_draws = layer_offscreen_shape_draw_cache
-    //             .entry(shape_depth_layer.to_owned())
-    //             .or_default();
-    //         for (material_type, mesh) in shape.iter() {
-    //             match material_type {
-    //                 ShapeMaterialType::Color(color) => {
-    //                     handle_offscreen_draw(
-    //                         color_materials,
-    //                         *color,
-    //                         transform,
-    //                         blend_mode,
-    //                         |material| {
-    //                             shape_mesh_draws.push(ShapeMeshDraw {
-    //                                 mesh: mesh.clone(),
-    //                                 material_type: MaterialType::Color(material),
-    //                                 blend: BlendMaterialKey::from(*blend_mode),
-    //                             });
-    //                         },
-    //                     );
-    //                 }
-    //                 ShapeMaterialType::Gradient(gradient_material) => {
-    //                     handle_offscreen_draw(
-    //                         gradient_materials,
-    //                         gradient_material.clone(),
-    //                         transform,
-    //                         blend_mode,
-    //                         |material| {
-    //                             shape_mesh_draws.push(ShapeMeshDraw {
-    //                                 mesh: mesh.clone(),
-    //                                 material_type: MaterialType::Gradient(material),
-    //                                 blend: BlendMaterialKey::from(*blend_mode),
-    //                             });
-    //                         },
-    //                     );
-    //                 }
-    //                 ShapeMaterialType::Bitmap(bitmap_material) => {
-    //                     handle_offscreen_draw(
-    //                         bitmap_materials,
-    //                         bitmap_material.clone(),
-    //                         transform,
-    //                         blend_mode,
-    //                         |material| {
-    //                             shape_mesh_draws.push(ShapeMeshDraw {
-    //                                 mesh: mesh.clone(),
-    //                                 material_type: MaterialType::Bitmap(material),
-    //                                 blend: BlendMaterialKey::from(*blend_mode),
-    //                             });
-    //                         },
-    //                     );
-    //                 }
-    //             }
-    //         }
-    //         current_frame_shape_mesh_draws.extend(shape_mesh_draws.clone());
-    //     };
-    // }
-    // ShapeCommand::RenderBitmap {
-    //     bitmap_material,
-    //     shape_depth_layer,
-    //     ..
-    // } => {
-    //     if let Some(cache) = layer_offscreen_shape_draw_cache.get(shape_depth_layer)
-    //         && let Some(shape_mesh_draw) = cache.first()
-    //         && let MaterialType::Bitmap(handle) = &shape_mesh_draw.material_type
-    //     {
-    //         let Some(bitmap) = bitmap_materials.get_mut(handle) else {
-    //             return;
-    //         };
-    //         bitmap.transform = bitmap_material.transform;
-    //         bitmap.blend_key = bitmap_material.blend_key;
-    //         bitmap.texture = bitmap_material.texture.clone();
-    //         current_frame_shape_mesh_draws.extend(cache.clone());
-    //     } else {
-    //         let cache = layer_offscreen_shape_draw_cache
-    //             .entry(shape_depth_layer.to_owned())
-    //             .or_default();
-    //         let handle = bitmap_materials.add(bitmap_material.clone());
-    //         cache.push(ShapeMeshDraw {
-    //             mesh: filter_texture_mesh.0.clone(),
-    //             material_type: MaterialType::Bitmap(handle.clone()),
-    //             blend: BlendMaterialKey::NORMAL,
-    //         });
-    //         current_frame_shape_mesh_draws.extend(cache.clone());
-    //     }
-    // }
-    // });
-    current_frame_shape_mesh_draws
 }

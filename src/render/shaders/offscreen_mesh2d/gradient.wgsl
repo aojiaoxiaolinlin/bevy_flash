@@ -1,4 +1,5 @@
-#import bevy_flash::common::{MaterialTransform, linear_to_srgb}
+#import bevy_flash::offscreen_common::{TransformUniform};
+#import bevy_flash::common::{linear_to_srgb};
 
 struct Gradient {
     focal_point: f32,
@@ -20,12 +21,12 @@ struct TextureTransforms {
 }
 
 @group(0) @binding(0) var<uniform> view_matrix: mat4x4<f32>;
+@group(1) @binding(0) var<uniform> transform_uniform: TransformUniform;
 
-@group(1) @binding(0) var texture: texture_2d<f32>;
-@group(1) @binding(1) var texture_sampler: sampler;
-@group(1) @binding(2) var<uniform> gradient: Gradient;
-@group(1) @binding(3) var<uniform> texture_transforms: TextureTransforms;
-@group(1) @binding(4) var<uniform> material_transform: MaterialTransform;
+@group(2) @binding(0) var texture: texture_2d<f32>;
+@group(2) @binding(1) var texture_sampler: sampler;
+@group(2) @binding(2) var<uniform> gradient: Gradient;
+@group(2) @binding(3) var<uniform> texture_transforms: TextureTransforms;
 
 
 
@@ -36,7 +37,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     let matrix_ = texture_transforms.texture_matrix;
     out.uv = (mat3x3<f32>(matrix_[0].xyz, matrix_[1].xyz, matrix_[2].xyz) * vec3<f32>(vertex.position.xy, 1.0)).xy;
-    out.position = view_matrix * material_transform.world_matrix * vec4<f32>(vertex.position, 1.0);
+    out.position = view_matrix * transform_uniform.world_matrix * vec4<f32>(vertex.position, 1.0);
     out.position.x = out.position.x - out.position.w;
     out.position.y = out.position.y + out.position.w;
     return out;
@@ -87,7 +88,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if gradient.interpolation != 0 {
         color = linear_to_srgb(color);
     }
-    let out = saturate(color * material_transform.mult_color + material_transform.add_color);
+    let out = saturate(color * transform_uniform.mult_color + transform_uniform.add_color);
     let alpha = saturate(out.a);
     return vec4<f32>(out.rgb * alpha, alpha);
 }

@@ -1,19 +1,17 @@
-use bevy::{
-    render::{
-        diagnostic::RecordDiagnostics,
-        mesh::{RenderMesh, allocator::MeshAllocator},
-        render_asset::RenderAssets,
-        render_graph::ViewNode,
-        render_phase::TrackedRenderPass,
-        render_resource::{CommandEncoderDescriptor, PipelineCache, RenderPassDescriptor},
-        sync_world::MainEntity,
-    },
-    sprite_render::PreparedMaterial2d,
+use bevy::render::{
+    diagnostic::RecordDiagnostics,
+    mesh::{RenderMesh, RenderMeshBufferInfo, allocator::MeshAllocator},
+    render_asset::RenderAssets,
+    render_graph::ViewNode,
+    render_phase::TrackedRenderPass,
+    render_resource::{CommandEncoderDescriptor, PipelineCache, RenderPassDescriptor},
+    sync_world::MainEntity,
 };
 
 use crate::render::{
+    PreparedPartMaterial2d,
     graph::OffscreenFlashShapeRenderPhases,
-    material::{BitmapMaterial, ColorMaterial, GradientMaterial},
+    material::{BitmapMaterial, GradientMaterial},
     offscreen_texture::{ExtractedOffscreenTexture, FilterBindGroup, FilterOffsets, ViewTarget},
 };
 
@@ -44,16 +42,18 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
             return Ok(());
         };
 
+        let Some(filter_bind_group) = world.get_resource::<FilterBindGroup>() else {
+            return Ok(());
+        };
+
         // 准备资源
         let pipeline_cache = world.resource::<PipelineCache>();
-        let filter_bind_group = world.resource::<FilterBindGroup>();
         let render_meshes = world.resource::<RenderAssets<RenderMesh>>();
         let mesh_allocator = world.resource::<MeshAllocator>();
-        let color_materials = world.resource::<RenderAssets<PreparedMaterial2d<ColorMaterial>>>();
         let gradient_materials =
-            world.resource::<RenderAssets<PreparedMaterial2d<GradientMaterial>>>();
+            world.resource::<RenderAssets<PreparedPartMaterial2d<GradientMaterial>>>();
         let texture_materials =
-            world.resource::<RenderAssets<PreparedMaterial2d<BitmapMaterial>>>();
+            world.resource::<RenderAssets<PreparedPartMaterial2d<BitmapMaterial>>>();
 
         let diagnostics = render_context.diagnostic_recorder();
 
@@ -67,6 +67,7 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
 
             {
                 let view_bind_group = &filter_bind_group.view_bind_group;
+                let transform_bind_group = &filter_bind_group.transform_bind_group;
                 let render_pass = command_encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("offscreen_main_transparent_pass_2d"),
                     color_attachments: &color_attachments,
@@ -91,26 +92,21 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                         else {
                             continue;
                         };
-                        // let bind_group = match item.draw_type {
-                        //     super::DrawType::Color(asset_id) => {
-                        //         let Some(material) = color_materials.get(asset_id) else {
-                        //             continue;
-                        //         };
-                        //         &material.bind_group
-                        //     }
-                        //     super::DrawType::Gradient(asset_id) => {
-                        //         let Some(material) = gradient_materials.get(asset_id) else {
-                        //             continue;
-                        //         };
-                        //         &material.bind_group
-                        //     }
-                        //     super::DrawType::Bitmap(asset_id) => {
-                        //         let Some(material) = texture_materials.get(asset_id) else {
-                        //             continue;
-                        //         };
-                        //         &material.bind_group
-                        //     }
-                        // };
+                        match item.draw_type {
+                            super::DrawType::Gradient(asset_id) => {
+                                let Some(material) = gradient_materials.get(asset_id) else {
+                                    continue;
+                                };
+                                render_pass.set_bind_group(2, &material.bind_group, &[]);
+                            }
+                            super::DrawType::Bitmap(asset_id) => {
+                                let Some(material) = texture_materials.get(asset_id) else {
+                                    continue;
+                                };
+                                render_pass.set_bind_group(2, &material.bind_group, &[]);
+                            }
+                            _ => {}
+                        }
                         render_pass.set_render_pipeline(pipeline);
                         render_pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
                         render_pass.set_bind_group(
@@ -118,7 +114,11 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                             view_bind_group,
                             &[filter_offsets.view_offset],
                         );
-                        // render_pass.set_bind_group(1, bind_group, &[]);
+                        render_pass.set_bind_group(
+                            1,
+                            transform_bind_group,
+                            &[item.transform_offset],
+                        );
                         let batch_range = 0..1;
                         match &gpu_mesh.buffer_info {
                             bevy::render::mesh::RenderMeshBufferInfo::Indexed {
@@ -143,7 +143,7 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                                     batch_range.clone(),
                                 );
                             }
-                            bevy::render::mesh::RenderMeshBufferInfo::NonIndexed => {
+                            RenderMeshBufferInfo::NonIndexed => {
                                 render_pass.draw(vertex_buffer_slice.range, batch_range.clone());
                             }
                         }

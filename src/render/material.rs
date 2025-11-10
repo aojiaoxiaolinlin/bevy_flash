@@ -235,18 +235,18 @@ material2d!(BitmapMaterial, BITMAP_MATERIAL_SHADER_HANDLE);
 swf_material!(BitmapMaterial);
 
 #[derive(Debug, Clone, Copy, ShaderType)]
-pub struct MaterialTransform {
-    pub world_transform: Mat4,
+pub struct TransformUniform {
+    pub world_matrix: Mat4,
     pub mult_color: Vec4,
     pub add_color: Vec4,
 }
 
-impl From<Transform> for MaterialTransform {
+impl From<Transform> for TransformUniform {
     fn from(transform: Transform) -> Self {
         let matrix = transform.matrix;
         let color_transform = transform.color_transform;
         Self {
-            world_transform: Mat4::from_cols_array_2d(&[
+            world_matrix: Mat4::from_cols_array_2d(&[
                 [matrix.a, matrix.b, 0.0, 0.0],
                 [matrix.c, matrix.d, 0.0, 0.0],
                 [0.0, 0.0, 1.0, 0.0],
@@ -263,10 +263,10 @@ impl From<Transform> for MaterialTransform {
     }
 }
 
-impl Default for MaterialTransform {
+impl Default for TransformUniform {
     fn default() -> Self {
         Self {
-            world_transform: Mat4::IDENTITY,
+            world_matrix: Mat4::IDENTITY,
             mult_color: Vec4::ONE,
             add_color: Vec4::ZERO,
         }

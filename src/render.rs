@@ -36,7 +36,6 @@ use bevy::{
     prelude::{AssetChanged, Deref, DerefMut},
     render::{
         Extract, ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems,
-        batching::no_gpu_preprocessing::BatchedInstanceBuffer,
         camera::extract_cameras,
         mesh::RenderMesh,
         render_asset::{
@@ -89,8 +88,9 @@ use crate::{
         pipeline::{
             BEVEL_FILTER_SHADER_HANDLE, BLUR_FILTER_SHADER_HANDLE,
             COLOR_MATRIX_FILTER_SHADER_HANDLE, GLOW_FILTER_SHADER_HANDLE,
-            OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE, OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE,
-            OFFSCREEN_MESH2D_SHADER_HANDLE, init_bevel_filter_pipeline, init_blur_filter_pipeline,
+            OFFSCREEN_COMMON_SHADER_HANDLE, OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE,
+            OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE, OFFSCREEN_MESH2D_SHADER_HANDLE,
+            init_bevel_filter_pipeline, init_blur_filter_pipeline,
             init_color_matrix_filter_pipeline, init_glow_filter_pipeline,
         },
     },
@@ -863,6 +863,12 @@ fn load_shaders(app: &mut App) {
         Shader::from_wgsl
     );
 
+    load_internal_asset!(
+        app,
+        OFFSCREEN_COMMON_SHADER_HANDLE,
+        "render/shaders/offscreen_mesh2d/offscreen_common.wgsl",
+        Shader::from_wgsl
+    );
     load_internal_asset!(
         app,
         OFFSCREEN_MESH2D_SHADER_HANDLE,

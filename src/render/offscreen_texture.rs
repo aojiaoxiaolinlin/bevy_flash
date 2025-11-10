@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use bevy::log::info;
+use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::{
     app::Plugin,
     camera::{NormalizedRenderTarget, RenderTarget},
@@ -37,10 +39,12 @@ use bevy::{
 };
 
 use crate::assets::MaterialType;
+use crate::commands::ShapeCommand;
+use crate::render::material::{BlendMaterialKey, TransformUniform};
 use crate::{
-    commands::OffscreenDrawCommands,
+    commands::OffscreenDrawShapes,
     render::{
-        graph::{DrawPhase, DrawType, OffscreenCore2d, OffscreenFlashShapeRenderPhases},
+        graph::{DrawType, OffscreenCore2d, OffscreenFlashShapeRenderPhases, PartMesh},
         pipeline::{
             FilterUniformBuffers, OffscreenMesh2dKey, OffscreenMesh2dPipeline,
             init_offscreen_texture_pipeline,
@@ -240,7 +244,7 @@ pub struct OffscreenTexturePlugin;
 impl Plugin for OffscreenTexturePlugin {
     fn build(&self, app: &mut bevy::app::App) {
         app.register_required_components::<OffscreenTexture, SyncToRenderWorld>()
-            .add_plugins(ExtractComponentPlugin::<OffscreenDrawCommands>::default());
+            .add_plugins(ExtractComponentPlugin::<OffscreenDrawShapes>::default());
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -260,9 +264,9 @@ impl Plugin for OffscreenTexturePlugin {
                         .before(prepare_offscreen_texture_view_target)
                         .after(prepare_windows),
                     prepare_offscreen_texture_view_target.in_set(RenderSystems::ManageViews),
+                    special_and_queue_shape_draw.in_set(RenderSystems::Queue),
                     prepare_offscreen_shape_filter_uniform.in_set(RenderSystems::PrepareResources),
                     prepare_offscreen_shape_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                    special_and_queue_shape_draw.in_set(RenderSystems::Queue),
                 ),
             )
             .add_systems(RenderStartup, init_offscreen_texture_pipeline);
@@ -414,6 +418,122 @@ fn prepare_offscreen_texture_view_target(
     }
 }
 
+pub fn special_and_queue_shape_draw(
+    offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
+    mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,
+    pipeline_cache: Res<PipelineCache>,
+    query: Query<(Entity, &OffscreenDrawShapes), With<ExtractedOffscreenTexture>>,
+    render_meshes: Res<RenderAssets<RenderMesh>>,
+    mut render_phases: ResMut<OffscreenFlashShapeRenderPhases>,
+    mut filter_uniform_buffers: ResMut<FilterUniformBuffers>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    let mut get_pipeline_id = |mesh_layout: &MeshVertexBufferLayoutRef,
+                               mesh_key: OffscreenMesh2dKey| {
+        let pipeline_id = pipelines.specialize(
+            &pipeline_cache,
+            &offscreen_mesh2d_pipeline,
+            mesh_key,
+            mesh_layout,
+        );
+        let pipeline_id = match pipeline_id {
+            Ok(id) => id,
+            Err(err) => {
+                error!("{}", err);
+                return None;
+            }
+        };
+        Some(pipeline_id)
+    };
+
+    let size = query.iter().map(|(_, commands)| commands.len()).sum();
+
+    let Some(mut transform_uniform_buffer_writer) = filter_uniform_buffers
+        .transform_uniform_buffer
+        .get_writer(size, &render_device, &render_queue)
+    else {
+        error!("获取 transform uniform buffer 写入器失败");
+        return;
+    };
+
+    for (main_entity, offscreen_draw_commands) in query.iter() {
+        let main_entity = MainEntity::from(main_entity);
+        let Some(render_phase) = render_phases.get_mut(&main_entity) else {
+            continue;
+        };
+        for draw_command in offscreen_draw_commands.iter() {
+            match draw_command {
+                ShapeCommand::RenderShape {
+                    draw_shape,
+                    transform,
+                    blend_mode,
+                } => {
+                    let transform_offset =
+                        transform_uniform_buffer_writer.write(&TransformUniform::from(*transform));
+                    for mesh_draw in draw_shape.iter() {
+                        let Some(mesh) = render_meshes.get(mesh_draw.mesh.id()) else {
+                            continue;
+                        };
+                        let Some(mesh_key) = OffscreenMesh2dKey::from_bits(
+                            BlendMaterialKey::from(*blend_mode).bits() as u16,
+                        ) else {
+                            continue;
+                        };
+                        let mesh_key = mesh_key
+                            | match &mesh_draw.material_type {
+                                MaterialType::Color(_) => OffscreenMesh2dKey::COLOR,
+                                MaterialType::Gradient(_) => OffscreenMesh2dKey::GRADIENT,
+                                MaterialType::Bitmap(_) => OffscreenMesh2dKey::BITMAP,
+                            };
+
+                        let Some(pipeline_id) = get_pipeline_id(&mesh.layout, mesh_key) else {
+                            continue;
+                        };
+
+                        render_phase.push(PartMesh {
+                            draw_type: DrawType::from(&mesh_draw.material_type),
+                            mesh_asset_id: mesh_draw.mesh.id(),
+                            pipeline_id,
+                            transform_offset,
+                        });
+                    }
+                }
+                ShapeCommand::RenderBitmap {
+                    mesh,
+                    material,
+                    transform,
+                    blend_mode,
+                } => {
+                    let transform_offset =
+                        transform_uniform_buffer_writer.write(&TransformUniform::from(*transform));
+
+                    let mesh_asset_id = mesh.id();
+                    let Some(mesh) = render_meshes.get(mesh_asset_id) else {
+                        continue;
+                    };
+                    let Some(mut mesh_key) = OffscreenMesh2dKey::from_bits(
+                        BlendMaterialKey::from(*blend_mode).bits() as u16,
+                    ) else {
+                        continue;
+                    };
+                    mesh_key |= OffscreenMesh2dKey::BITMAP;
+
+                    let Some(pipeline_id) = get_pipeline_id(&mesh.layout, mesh_key) else {
+                        continue;
+                    };
+                    render_phase.push(PartMesh {
+                        draw_type: DrawType::Bitmap(material.id()),
+                        mesh_asset_id,
+                        pipeline_id,
+                        transform_offset,
+                    });
+                }
+            }
+        }
+    }
+}
+
 fn prepare_offscreen_shape_filter_uniform(
     mut commands: Commands,
     query: Query<(Entity, &ExtractedOffscreenTexture)>,
@@ -443,7 +563,7 @@ fn prepare_offscreen_shape_filter_uniform(
         commands.entity(entity).insert(filter_offsets);
     }
     // 写入缓冲区
-    filter_uniform_buffers.write_buffer(&render_device, &render_queue);
+    filter_uniform_buffers.write_view_buffer(&render_device, &render_queue);
 }
 
 fn prepare_offscreen_shape_bind_group(
@@ -464,56 +584,17 @@ fn prepare_offscreen_shape_bind_group(
         &BindGroupEntries::single(view_buffer.binding().unwrap()),
     );
 
-    commands.insert_resource(FilterBindGroup { view_bind_group });
-}
+    let transform_buffer = &filter_uniform_buffers.transform_uniform_buffer;
 
-pub fn special_and_queue_shape_draw(
-    offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
-    mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,
-    pipeline_cache: Res<PipelineCache>,
-    query: Query<(Entity, &OffscreenDrawCommands), With<ExtractedOffscreenTexture>>,
-    render_meshes: Res<RenderAssets<RenderMesh>>,
-    mut render_phases: ResMut<OffscreenFlashShapeRenderPhases>,
-) {
-    for (main_entity, offscreen_draw_commands) in query.iter() {
-        let main_entity = MainEntity::from(main_entity);
-        let Some(render_phase) = render_phases.get_mut(&main_entity) else {
-            continue;
-        };
-        for draw_command in offscreen_draw_commands.iter() {
-            let Some(mesh) = render_meshes.get(&draw_command.mesh) else {
-                continue;
-            };
-            let Some(mesh_key) = OffscreenMesh2dKey::from_bits(draw_command.blend.bits() as u16)
-            else {
-                continue;
-            };
-            let mesh_key = mesh_key
-                | match &draw_command.material_type {
-                    MaterialType::Color(_) => OffscreenMesh2dKey::COLOR,
-                    MaterialType::Gradient(_) => OffscreenMesh2dKey::GRADIENT,
-                    MaterialType::Bitmap(_) => OffscreenMesh2dKey::BITMAP,
-                };
-            let pipeline_id = pipelines.specialize(
-                &pipeline_cache,
-                &offscreen_mesh2d_pipeline,
-                mesh_key,
-                &mesh.layout,
-            );
-            let pipeline_id = match pipeline_id {
-                Ok(id) => id,
-                Err(err) => {
-                    error!("{}", err);
-                    continue;
-                }
-            };
-            render_phase.push(DrawPhase {
-                draw_type: DrawType::from(&draw_command.material_type),
-                mesh_asset_id: draw_command.mesh.id(),
-                pipeline_id,
-            });
-        }
-    }
+    let transform_bind_group = render_device.create_bind_group(
+        "offscreen_main_transparent_pass_2d_transform_bind_group",
+        &offscreen_mesh2d_pipeline.transform_bind_group_layout,
+        &BindGroupEntries::single(transform_buffer.binding().unwrap()),
+    );
+    commands.insert_resource(FilterBindGroup {
+        view_bind_group,
+        transform_bind_group,
+    });
 }
 
 #[derive(Component)]
@@ -529,4 +610,5 @@ impl FilterOffsets {
 #[derive(Resource)]
 pub struct FilterBindGroup {
     pub view_bind_group: BindGroup,
+    pub transform_bind_group: BindGroup,
 }

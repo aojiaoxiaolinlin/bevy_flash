@@ -7,6 +7,7 @@ use bevy::{
         resource::Resource,
         system::{Commands, Res},
     },
+    log::info,
     math::{Mat4, Vec2},
     mesh::{Mesh, PrimitiveTopology, VertexBufferLayout},
     render::{
@@ -27,7 +28,10 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-use crate::render::material::{BitmapMaterial, ColorMaterial, GradientMaterial};
+use crate::render::material::{BitmapMaterial, ColorMaterial, GradientMaterial, TransformUniform};
+
+pub const OFFSCREEN_COMMON_SHADER_HANDLE: Handle<Shader> =
+    uuid_handle!("a1b2c3d4-e5f6-4729-8a9b-0c1d2e3f4a5b");
 
 pub const OFFSCREEN_MESH2D_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("f1e2d3c4-b5a6-4978-8c9d-0e1f2a3b4c5d");
@@ -75,6 +79,8 @@ bitflags::bitflags! {
 #[derive(Resource, Clone)]
 pub struct OffscreenMesh2dPipeline {
     pub view_bind_group_layout: BindGroupLayout,
+    pub transform_bind_group_layout: BindGroupLayout,
+
     pub color_bind_group_layout: BindGroupLayout,
     pub gradient_bind_group_layout: BindGroupLayout,
     pub bitmap_bind_group_layout: BindGroupLayout,
@@ -89,6 +95,14 @@ pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Re
         &BindGroupLayoutEntries::single(ShaderStages::VERTEX, uniform_buffer::<Mat4>(true)),
     );
 
+    let transform_bind_group_layout = render_device.create_bind_group_layout(
+        "变换矩阵布局",
+        &BindGroupLayoutEntries::single(
+            ShaderStages::VERTEX_FRAGMENT,
+            uniform_buffer::<TransformUniform>(true),
+        ),
+    );
+
     let color_bind_group_layout = ColorMaterial::bind_group_layout(&render_device);
     let gradient_bind_group_layout = GradientMaterial::bind_group_layout(&render_device);
     let bitmap_bind_group_layout = BitmapMaterial::bind_group_layout(&render_device);
@@ -97,6 +111,7 @@ pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Re
 
     commands.insert_resource(OffscreenMesh2dPipeline {
         view_bind_group_layout,
+        transform_bind_group_layout,
         color_bind_group_layout,
         gradient_bind_group_layout,
         bitmap_bind_group_layout,
@@ -135,18 +150,20 @@ impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
             label = "color_offscreen_mesh2d";
             vec![
                 self.view_bind_group_layout.clone(),
-                self.color_bind_group_layout.clone(),
+                self.transform_bind_group_layout.clone(),
             ]
         } else if key.contains(OffscreenMesh2dKey::GRADIENT) {
             label = "gradient_offscreen_mesh2d";
             vec![
                 self.view_bind_group_layout.clone(),
+                self.transform_bind_group_layout.clone(),
                 self.gradient_bind_group_layout.clone(),
             ]
         } else {
             label = "bitmap_offscreen_mesh2d";
             vec![
                 self.view_bind_group_layout.clone(),
+                self.transform_bind_group_layout.clone(),
                 self.bitmap_bind_group_layout.clone(),
             ]
         };
@@ -551,6 +568,8 @@ pub(crate) fn init_bevel_filter_pipeline(
 #[derive(Resource)]
 pub struct FilterUniformBuffers {
     pub view_uniform_buffer: DynamicUniformBuffer<Mat4>,
+    pub transform_uniform_buffer: DynamicUniformBuffer<TransformUniform>,
+
     pub color_matrix_uniform_buffer: DynamicUniformBuffer<ColorMatrixUniform>,
     pub blur_uniform_buffer: DynamicUniformBuffer<BlurUniform>,
     pub glow_uniform_buffer: DynamicUniformBuffer<GlowFilterUniform>,
@@ -562,6 +581,7 @@ impl Default for FilterUniformBuffers {
     fn default() -> Self {
         Self {
             view_uniform_buffer: DynamicUniformBuffer::default(),
+            transform_uniform_buffer: DynamicUniformBuffer::default(),
             color_matrix_uniform_buffer: DynamicUniformBuffer::default(),
             blur_uniform_buffer: DynamicUniformBuffer::default(),
             glow_uniform_buffer: DynamicUniformBuffer::default(),
@@ -574,6 +594,7 @@ impl Default for FilterUniformBuffers {
 impl FilterUniformBuffers {
     pub fn clear(&mut self) {
         self.view_uniform_buffer.clear();
+        self.transform_uniform_buffer.clear();
         self.color_matrix_uniform_buffer.clear();
         self.blur_uniform_buffer.clear();
         self.glow_uniform_buffer.clear();
@@ -581,14 +602,8 @@ impl FilterUniformBuffers {
         self.filter_vertex_with_double_blur_buffer.clear();
     }
 
-    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+    pub fn write_view_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) {
         self.view_uniform_buffer.write_buffer(device, queue);
-        self.color_matrix_uniform_buffer.write_buffer(device, queue);
-        self.blur_uniform_buffer.write_buffer(device, queue);
-        self.glow_uniform_buffer.write_buffer(device, queue);
-        self.bevel_uniform_buffer.write_buffer(device, queue);
-        self.filter_vertex_with_double_blur_buffer
-            .write_buffer(device, queue);
     }
 }
 

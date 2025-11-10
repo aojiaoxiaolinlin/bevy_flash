@@ -32,8 +32,9 @@ use crate::{
             main_transparent_pass_2d_node::OffscreenMainTransparentPass2dNode,
             upscaling::OffscreenUpscalingNode,
         },
-        material::{BitmapMaterial, ColorMaterial, GradientMaterial},
+        material::{BitmapMaterial, ColorMaterial, GradientMaterial, TransformUniform},
     },
+    swf_runtime::transform::Transform,
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderSubGraph)]
@@ -103,10 +104,11 @@ pub enum DrawType {
 }
 
 #[derive(Clone, Debug)]
-pub struct DrawPhase {
+pub struct PartMesh {
     pub draw_type: DrawType,
     pub mesh_asset_id: AssetId<Mesh>,
     pub pipeline_id: CachedRenderPipelineId,
+    pub transform_offset: u32,
 }
 
 impl From<&MaterialType> for DrawType {
@@ -120,7 +122,7 @@ impl From<&MaterialType> for DrawType {
 }
 
 #[derive(Resource, Deref, DerefMut, Default)]
-pub struct OffscreenFlashShapeRenderPhases(pub MainEntityHashMap<Vec<DrawPhase>>);
+pub struct OffscreenFlashShapeRenderPhases(pub MainEntityHashMap<Vec<PartMesh>>);
 
 impl OffscreenFlashShapeRenderPhases {
     pub fn insert_or_clear(&mut self, entity: MainEntity) {
