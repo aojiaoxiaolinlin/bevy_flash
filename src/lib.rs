@@ -33,7 +33,7 @@ use crate::{
     player::{Flash, FlashPlayer, FlashPlayerTimer, McRoot},
     render::{
         ColorMaterialHandle, FilterTextureMesh, FlashRenderPlugin,
-        blend_pipeline::BlendMode,
+        blend_pipeline::{BlendMode, TrivialBlend},
         material::{BitmapMaterial, ColorMaterial, GradientMaterial},
         offscreen_texture::OffscreenTexture,
     },
@@ -54,7 +54,6 @@ use bevy::{
     camera::visibility::VisibilityClass,
     color::Color,
     ecs::{
-        component::Component,
         entity::{Entity, EntityHashMap},
         event::EntityEvent,
         query::Without,
@@ -65,7 +64,7 @@ use bevy::{
     log::warn_once,
     math::{IVec2, Mat4, UVec2, Vec3},
     mesh::Mesh,
-    platform::collections::{HashMap, HashSet},
+    platform::collections::HashMap,
     time::Time,
     transform::{
         TransformSystems,
@@ -97,7 +96,7 @@ impl Plugin for FlashPlugin {
             .init_asset::<Swf>()
             .init_asset::<Shape>()
             .init_asset_loader::<SwfLoader>()
-            .add_systems(PostUpdate, prepare_shape_mesh)
+            // .add_systems(PostUpdate, prepare_shape_mesh)
             .add_systems(
                 PostUpdate,
                 (prepare_root_clip, advance_animation)
@@ -107,47 +106,22 @@ impl Plugin for FlashPlugin {
     }
 }
 
-#[derive(Debug, Component)]
-struct Generated;
-
+#[allow(unused)]
 fn prepare_shape_mesh(
     mut commands: Commands,
     shapes: Res<Assets<Shape>>,
-    mut colors: ResMut<Assets<ColorMaterial>>,
-    mut query: Query<(Entity, &FlashShape), Without<Generated>>,
+    mut query: Query<(Entity, &FlashShape)>,
 ) {
     for (entity, shape) in query.iter_mut() {
         let Some(shape) = shapes.get(shape.id()) else {
             continue;
         };
         let mut commands = commands.entity(entity);
-        commands.insert(Generated);
-        // for (material_type, mesh) in shape.iter() {
-        //     let mesh = mesh.clone();
-        //     match material_type {
-        //         ShapeMaterialType::Color(color) => {
-        //             commands.with_child((
-        //                 Mesh2d(mesh),
-        //                 MeshMaterial2d(colors.add(*color)),
-        //                 NoFrustumCulling,
-        //             ));
-        //         }
-        //         ShapeMaterialType::Gradient(gradient) => {
-        //             commands.with_child((
-        //                 Mesh2d(mesh),
-        //                 MeshMaterial2d(gradients.add(gradient.clone())),
-        //                 NoFrustumCulling,
-        //             ));
-        //         }
-        //         ShapeMaterialType::Bitmap(bitmap) => {
-        //             commands.with_child((
-        //                 Mesh2d(mesh),
-        //                 MeshMaterial2d(bitmaps.add(bitmap.clone())),
-        //                 NoFrustumCulling,
-        //             ));
-        //         }
-        //     }
-        // }
+        commands.insert(DrawShapes(vec![ShapeCommand::RenderShape {
+            draw_shape: shape.clone(),
+            transform: SwfTransform::default(),
+            blend_mode: BlendMode::Trivial(TrivialBlend::Normal),
+        }]));
     }
 }
 
@@ -887,35 +861,6 @@ fn spawn_offscreen_texture(
                 // 缓存新创建的实体
                 layer_offscreen_cache.insert(cache_draw.layer.to_owned(), entity);
             });
-        }
-    }
-}
-
-/// 尽量复用已经生成的实体。只有在同一帧同一个 shape被多次使用时才需要重新生成
-fn find_cached_shape_material<'w, T>(
-    id: &CharacterId,
-    shape_depth_layer: &String,
-    layer_cache: &'w HashMap<String, T>,
-    current_live_shape_depth_layers: &mut HashSet<String>,
-) -> Option<&'w T> {
-    if let Some(cache) = layer_cache.get(shape_depth_layer) {
-        Some(cache)
-    } else {
-        // 从shape_material_cache中获取key值最后一个“_"后的字符匹配id
-        if let Some((k, cache)) = layer_cache
-            .iter()
-            .filter(|(k, _)| !current_live_shape_depth_layers.contains(k.as_str()))
-            .find(|(k, _)| {
-                k.split("_")
-                    .last()
-                    .map(|v| v == id.to_string())
-                    .unwrap_or(false)
-            })
-        {
-            current_live_shape_depth_layers.insert(k.to_owned());
-            Some(cache)
-        } else {
-            None
         }
     }
 }

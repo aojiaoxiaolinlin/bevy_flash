@@ -269,7 +269,6 @@ fn load_shape_mesh(
                         gradient,
                         texture: handle,
                         texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(matrix)),
-                        ..Default::default()
                     },
                 );
                 *material_index += 1;
@@ -324,7 +323,6 @@ fn load_shape_mesh(
                             texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(
                                 &texture_transform,
                             )),
-                            ..Default::default()
                         },
                     );
                     *material_index += 1;

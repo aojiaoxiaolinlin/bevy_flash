@@ -27,7 +27,7 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-use crate::render::material::{BitmapMaterial, ColorMaterial, GradientMaterial, TransformUniform};
+use crate::render::material::{BitmapMaterial, GradientMaterial, TransformUniform};
 
 pub const OFFSCREEN_COMMON_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("a1b2c3d4-e5f6-4729-8a9b-0c1d2e3f4a5b");
@@ -80,7 +80,6 @@ pub struct OffscreenMesh2dPipeline {
     pub view_bind_group_layout: BindGroupLayout,
     pub transform_bind_group_layout: BindGroupLayout,
 
-    pub color_bind_group_layout: BindGroupLayout,
     pub gradient_bind_group_layout: BindGroupLayout,
     pub bitmap_bind_group_layout: BindGroupLayout,
     /// 某些特殊的位图填充好像需要特殊处理，这个暂时保留
@@ -102,7 +101,6 @@ pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Re
         ),
     );
 
-    let color_bind_group_layout = ColorMaterial::bind_group_layout(&render_device);
     let gradient_bind_group_layout = GradientMaterial::bind_group_layout(&render_device);
     let bitmap_bind_group_layout = BitmapMaterial::bind_group_layout(&render_device);
 
@@ -111,7 +109,6 @@ pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Re
     commands.insert_resource(OffscreenMesh2dPipeline {
         view_bind_group_layout,
         transform_bind_group_layout,
-        color_bind_group_layout,
         gradient_bind_group_layout,
         bitmap_bind_group_layout,
         sampler,

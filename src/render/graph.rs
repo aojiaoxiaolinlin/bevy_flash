@@ -32,7 +32,7 @@ use crate::{
             main_transparent_pass_2d_node::OffscreenMainTransparentPass2dNode,
             upscaling::OffscreenUpscalingNode,
         },
-        material::{BitmapMaterial, ColorMaterial, GradientMaterial},
+        material::{BitmapMaterial, GradientMaterial},
     },
 };
 
@@ -97,7 +97,7 @@ impl Plugin for FlashFilterRenderPlugin {
 
 #[derive(Clone, Debug)]
 pub enum DrawType {
-    Color(AssetId<ColorMaterial>),
+    Color,
     Gradient(AssetId<GradientMaterial>),
     Bitmap(AssetId<BitmapMaterial>),
 }
@@ -113,7 +113,7 @@ pub struct PartMesh {
 impl From<&MaterialType> for DrawType {
     fn from(value: &MaterialType) -> Self {
         match value {
-            MaterialType::Color(color) => DrawType::Color(color.id()),
+            MaterialType::Color(_) => DrawType::Color,
             MaterialType::Gradient(gradient) => DrawType::Gradient(gradient.id()),
             MaterialType::Bitmap(bitmap) => DrawType::Bitmap(bitmap.id()),
         }
