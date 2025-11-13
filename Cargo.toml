@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flash"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "A Bevy plugin for Flash Animation."
 authors = ["aojiaoxiaolinlin"]
@@ -12,7 +12,7 @@ exclude = ["assets/**", "docs/**"]
 [dependencies]
 smallvec = { version = "1.14.0", features = ["union"] }
 bytemuck = { version = "1.21.0", features = ["derive"] }
-bevy = { path = "../bevy", default-features = false, features = [
+bevy = { version = "0.17", default-features = false, features = [
     "bevy_asset",
     "bevy_render",
     "bevy_core_pipeline",
@@ -39,7 +39,7 @@ radsort = "0.1.1"
 nonmax = "0.5.5"
 
 [dev-dependencies]
-bevy = { path = "../bevy/", features = ["bevy_dev_tools"] }
+bevy = { version = "0.17", features = ["bevy_dev_tools"] }
 
 [profile.dev]
 opt-level = 1
