@@ -84,6 +84,10 @@ impl ImageCache {
         self.dirty
     }
 
+    pub fn dirty(&self) -> bool {
+        self.dirty
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
@@ -108,6 +112,7 @@ impl ImageCache {
             && current.has_cache(actual_width, actual_height)
         {
             // 缓存命中，不需要重新渲染
+            self.dirty = false;
             return;
         }
         let acceptable_size = if swf_version > 9 {

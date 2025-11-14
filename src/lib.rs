@@ -588,7 +588,7 @@ fn process_cache_and_filters(
 
         cache.image_info().map(|image_info| CacheInfo {
             image_info,
-            dirty: true,
+            dirty: cache.dirty(),
             base_transform,
             bounds,
             draw_offset,
