@@ -157,7 +157,7 @@ impl ViewTarget {
     }
 
     /// 获取此目标的主纹理的颜色附件。
-    pub fn get_color_attachment(&self) -> RenderPassColorAttachment {
+    pub fn get_color_attachment(&self) -> RenderPassColorAttachment<'_> {
         if self.main_texture.load(Ordering::SeqCst) == 0 {
             self.main_textures.a.get_attachment()
         } else {
@@ -188,7 +188,7 @@ impl ViewTarget {
     pub fn out_texture_color_attachment(
         &self,
         clear_color: Option<LinearRgba>,
-    ) -> RenderPassColorAttachment {
+    ) -> RenderPassColorAttachment<'_> {
         self.out_texture.get_attachment(clear_color)
     }
 
