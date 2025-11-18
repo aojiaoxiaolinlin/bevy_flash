@@ -416,6 +416,7 @@ fn prepare_offscreen_texture_view_target(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn special_and_queue_shape_draw(
     offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
     mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,

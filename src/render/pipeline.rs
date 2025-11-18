@@ -83,7 +83,7 @@ pub struct OffscreenMesh2dPipeline {
     pub gradient_bind_group_layout: BindGroupLayout,
     pub bitmap_bind_group_layout: BindGroupLayout,
     /// 某些特殊的位图填充好像需要特殊处理，这个暂时保留
-    #[allow(unused)]
+    #[expect(unused)]
     pub sampler: Sampler,
 }
 

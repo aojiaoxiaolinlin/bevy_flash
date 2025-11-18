@@ -430,7 +430,7 @@ impl<M> Default for SpecializedPartMaterial2dViewPipeline<M> {
     }
 }
 /// TODO:是否可以考虑不要这个？如果影响性能。因为DrawShapes 的变动和最终需要的管线是不相关的。可以默认地认为就是没帧都要变化吗？
-/// 虽然材质的数量是一定的但是由于混合模式的存在，所以渲染管线可能会有很多个，3种材质，6种混合模式，18个渲染管线
+/// 虽然材质的数量是一定的但是由于混合模式的存在，所以渲染管线可能会有很多个，3种材质，6种混合模式，18个渲染管线是固定的。
 pub fn check_entities_needing_specialization<M>(
     needs_specialization: Query<
         Entity,
@@ -633,6 +633,7 @@ pub fn init_part_material_2d_pipeline<M: Material2d>(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn specialize_part_material2d<M: Material2d>(
     material2d_pipeline: Res<PartMaterial2dPipeline<M>>,
     mut pipelines: ResMut<SpecializedMeshPipelines<PartMaterial2dPipeline<M>>>,
@@ -880,8 +881,10 @@ pub struct PartMaterial2dProperties {
 
 /// 仅仅支持[`Transparent2d`] item
 pub struct PreparedPartMaterial2d<M: Material2d> {
+    #[expect(unused)]
     pub bindings: BindingResources,
     pub bind_group: BindGroup,
+    #[expect(unused)]
     pub key: M::Data,
     pub properties: PartMaterial2dProperties,
 }

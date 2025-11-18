@@ -106,7 +106,7 @@ impl Plugin for FlashPlugin {
     }
 }
 
-#[allow(unused)]
+#[expect(unused)]
 fn prepare_shape_mesh(
     mut commands: Commands,
     shapes: Res<Assets<Shape>>,
@@ -805,7 +805,6 @@ fn render_display_object(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn spawn_offscreen_texture(
     commands: &mut Commands,
     entity: Entity,

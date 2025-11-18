@@ -2,6 +2,7 @@ use swf::{Rectangle, Twips};
 
 /// 用于渲染的滤镜结构
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::enum_variant_names)]
 pub enum Filter {
     BevelFilter(swf::BevelFilter),
     BlurFilter(swf::BlurFilter),

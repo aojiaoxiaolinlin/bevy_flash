@@ -254,7 +254,7 @@ pub struct Draw {
     pub draw_type: DrawType,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
-    #[allow(unused)]
+    #[expect(unused)]
     pub mask_index_count: u32,
 }
 
@@ -288,9 +288,9 @@ pub struct Bitmap {
     pub matrix: [[f32; 3]; 3],
     pub bitmap_id: u16,
     /// 设置Sampler 为Repeat 或者 Clamp
-    #[allow(unused)]
+    #[expect(unused)]
     pub is_smoothed: bool,
-    #[allow(unused)]
+    #[expect(unused)]
     pub is_repeating: bool,
 }
 
@@ -335,7 +335,6 @@ fn ruffle_path_to_lyon_path(commands: &[DrawCommand], is_closed: bool) -> Path {
     builder.build()
 }
 
-#[allow(clippy::many_single_char_names)]
 fn swf_to_gl_matrix(m: Matrix) -> [[f32; 3]; 3] {
     let tx = m.tx.get() as f32;
     let ty = m.ty.get() as f32;
@@ -359,7 +358,6 @@ fn swf_to_gl_matrix(m: Matrix) -> [[f32; 3]; 3] {
     [[a, d, 0.0], [b, e, 0.0], [c, f, 1.0]]
 }
 
-#[allow(clippy::many_single_char_names)]
 fn swf_bitmap_to_gl_matrix(m: Matrix, bitmap_width: u32, bitmap_height: u32) -> [[f32; 3]; 3] {
     let bitmap_width = bitmap_width as f32;
     let bitmap_height = bitmap_height as f32;

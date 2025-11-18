@@ -129,6 +129,7 @@ pub struct PartMesh2dPipeline {
     pub view_layout: BindGroupLayout,
     pub mesh_layout: BindGroupLayout,
     pub shader: Handle<Shader>,
+    #[expect(unused)]
     pub per_object_buffer_batch_size: Option<u32>,
 }
 pub fn init_part_mesh_2d_pipeline(

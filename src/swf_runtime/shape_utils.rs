@@ -112,6 +112,7 @@ impl<'a> From<&'a swf::Shape> for DistilledShape<'a> {
 /// `DrawCommands` trace the outline of a path.
 /// Fills follow the even-odd fill rule, with opposite winding for holes.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::enum_variant_names)]
 pub enum DrawCommand {
     MoveTo(swf::Point<Twips>),
     LineTo(swf::Point<Twips>),

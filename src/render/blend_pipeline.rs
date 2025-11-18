@@ -23,7 +23,7 @@ pub enum ComplexBlend {
 }
 
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub enum BlendMode {
     Trivial(TrivialBlend),
     /// TODO: 需要抓取屏幕纹理进行混合
