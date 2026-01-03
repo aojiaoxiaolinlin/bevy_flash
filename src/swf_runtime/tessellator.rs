@@ -1,19 +1,19 @@
 use bevy::platform::collections::HashMap;
 use bevy::prelude::error;
 use indexmap::IndexSet;
-use lyon_tessellation::math::Point;
 use lyon_tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, StrokeOptions, StrokeTessellator, VertexBuffers,
+    BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, StrokeOptions,
+    StrokeTessellator, StrokeVertex, StrokeVertexConstructor, VertexBuffers, math::Point,
     path::Path,
 };
-use lyon_tessellation::{FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor};
 
 use swf::CharacterId;
 
-use super::character::CompressedBitmap;
-
-use super::matrix::Matrix;
-use super::shape_utils::{DistilledShape, DrawCommand, DrawPath, GradientType};
+use super::{
+    character::CompressedBitmap,
+    matrix::Matrix,
+    shape_utils::{DistilledShape, DrawCommand, DrawPath, GradientType},
+};
 
 pub struct ShapeTessellator {
     fill_tess: FillTessellator,

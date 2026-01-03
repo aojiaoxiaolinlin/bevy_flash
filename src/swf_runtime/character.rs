@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use bevy::log::error_once;
-use bevy::platform::collections::HashMap;
+use bevy::{log::error_once, platform::collections::HashMap};
 use swf::{CharacterId, DefineBitsLossless, PlaceObject};
 
-use super::decoder::error::Error;
-use super::decoder::{Bitmap, decode_define_bits_jpeg, decode_define_bits_lossless};
-use super::display_object::{DisplayObject, FrameNumber, TDisplayObject};
-use super::graphic::Graphic;
-use super::morph_shape::MorphShape;
-use super::movie_clip::MovieClip;
-use super::tag_utils::{SwfMovie, SwfSlice};
+use super::{
+    decoder::{Bitmap, decode_define_bits_jpeg, decode_define_bits_lossless, error::Error},
+    display_object::{DisplayObject, FrameNumber, TDisplayObject},
+    graphic::Graphic,
+    morph_shape::MorphShape,
+    movie_clip::MovieClip,
+    tag_utils::{SwfMovie, SwfSlice},
+};
 
 #[derive(Clone)]
 pub enum Character {

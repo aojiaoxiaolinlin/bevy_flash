@@ -15,15 +15,14 @@ use swf::{
 
 use crate::assets::MovieLibrary;
 
-use super::character::{BitmapLibrary, Character, CompressedBitmap, instantiate_by_id};
-use super::decoder::{
-    decode_define_bits_jpeg_dimensions, glue_tables_to_jpeg, remove_invalid_jpeg_data,
+use super::{
+    character::{BitmapLibrary, Character, CompressedBitmap, instantiate_by_id},
+    decoder::{decode_define_bits_jpeg_dimensions, glue_tables_to_jpeg, remove_invalid_jpeg_data},
+    display_object::{DisplayObject, DisplayObjectBase, FrameNumber, TDisplayObject},
+    graphic::Graphic,
+    morph_shape::MorphShape,
+    tag_utils::{self, ControlFlow, Error, SwfMovie, SwfSlice},
 };
-use super::display_object::{DisplayObject, DisplayObjectBase, FrameNumber, TDisplayObject};
-use super::graphic::Graphic;
-use super::morph_shape::MorphShape;
-use super::tag_utils;
-use super::tag_utils::{ControlFlow, Error, SwfMovie, SwfSlice};
 
 #[derive(Debug, Clone)]
 pub struct MovieClip {

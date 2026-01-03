@@ -3,12 +3,12 @@ use std::sync::Arc;
 use bevy::platform::collections::HashMap;
 use swf::{BlendMode, CharacterId, Rectangle, Twips};
 
-use crate::RenderContext;
-use crate::swf_runtime::character::Character;
+use crate::{RenderContext, swf_runtime::character::Character};
 
-use super::tag_utils::SwfMovie;
-
-use super::display_object::{DisplayObject, DisplayObjectBase, TDisplayObject};
+use super::{
+    display_object::{DisplayObject, DisplayObjectBase, TDisplayObject},
+    tag_utils::SwfMovie,
+};
 
 #[derive(Debug, Clone)]
 pub struct Graphic {
