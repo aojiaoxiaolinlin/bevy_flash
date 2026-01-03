@@ -1,23 +1,32 @@
-use crate::render::offscreen_texture::{ExtractedOffscreenTexture, ViewTarget};
-use crate::render::pipeline::{
-    BevelFilterPipeline, BevelUniform, BlurFilterPipeline, BlurUniform, ColorMatrixFilterPipeline,
-    ColorMatrixUniform, GlowFilterPipeline, GlowFilterUniform, get_filter_vertex_with_double_blur,
+use crate::{
+    render::{
+        filter_render::{
+            BevelFilterPipeline, BevelUniform, BlurFilterPipeline, BlurUniform,
+            ColorMatrixFilterPipeline, ColorMatrixUniform, GlowFilterPipeline, GlowFilterUniform,
+            get_filter_vertex_with_double_blur,
+        },
+        offscreen_texture::{ExtractedOffscreenTexture, ViewTarget},
+    },
+    swf_runtime::filter::Filter::{
+        BevelFilter, BlurFilter, ColorMatrixFilter, ConvolutionFilter, DropShadowFilter,
+        GlowFilter, GradientBevelFilter, GradientGlowFilter,
+    },
 };
-use crate::swf_runtime::filter::Filter::{
-    BevelFilter, BlurFilter, ColorMatrixFilter, ConvolutionFilter, DropShadowFilter, GlowFilter,
-    GradientBevelFilter, GradientGlowFilter,
+use bevy::{
+    log::warn_once,
+    math::UVec2,
+    render::{
+        render_graph::ViewNode,
+        render_phase::TrackedRenderPass,
+        render_resource::{
+            BindGroupEntries, BufferInitDescriptor, BufferUsages, IndexFormat, Operations,
+            PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+            TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension,
+            TextureUsages, TextureView, TextureViewDescriptor,
+        },
+        renderer::RenderContext,
+    },
 };
-use bevy::log::info_once;
-use bevy::math::UVec2;
-use bevy::render::render_graph::ViewNode;
-use bevy::render::render_phase::TrackedRenderPass;
-use bevy::render::render_resource::{
-    BindGroupEntries, BufferInitDescriptor, BufferUsages, IndexFormat, Operations, PipelineCache,
-    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, TexelCopyTextureInfo,
-    TextureAspect, TextureDescriptor, TextureDimension, TextureUsages, TextureView,
-    TextureViewDescriptor,
-};
-use bevy::render::renderer::RenderContext;
 
 #[derive(Default)]
 pub struct FilterPostProcessingNode;
@@ -271,16 +280,16 @@ impl ViewNode for FilterPostProcessingNode {
                     render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
                 }
                 DropShadowFilter(..) => {
-                    info_once!("DropShadowFilter 滤镜尚未实现，我需要帮助!!!");
+                    warn_once!("DropShadowFilter 滤镜尚未实现，我需要帮助!!!");
                 }
                 ConvolutionFilter(..) => {
-                    info_once!("ConvolutionFilter 滤镜尚未实现，我需要帮助!!!");
+                    warn_once!("ConvolutionFilter 滤镜尚未实现，我需要帮助!!!");
                 }
                 GradientBevelFilter(..) => {
-                    info_once!("GradientBevelFilter 滤镜尚未实现，我需要帮助!!!");
+                    warn_once!("GradientBevelFilter 滤镜尚未实现，我需要帮助!!!");
                 }
                 GradientGlowFilter(..) => {
-                    info_once!("GradientGlowFilter 滤镜尚未实现，我需要帮助!!!");
+                    warn_once!("GradientGlowFilter 滤镜尚未实现，我需要帮助!!!");
                 }
             }
         }

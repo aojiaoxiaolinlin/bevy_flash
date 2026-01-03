@@ -12,13 +12,14 @@ use swf::{CharacterId, Color, Fixed8, Fixed16, Point, Rectangle, Twips};
 
 use crate::{
     assets::MeshDraw,
+    render::material::SwfMaterial,
     swf_runtime::{
         shape_utils::calculate_shape_bounds,
         tessellator::{DrawType, ShapeTessellator},
     },
 };
 use crate::{
-    assets::{MaterialType, Shape, create_gradient_textures},
+    assets::{Shape, create_gradient_textures},
     render::material::GradientMaterial,
 };
 
@@ -113,7 +114,7 @@ impl MorphShape {
                         let mesh = context.meshes.add(mesh);
                         shape.push(MeshDraw {
                             mesh,
-                            material_type: MaterialType::Color(context.color_material.clone()),
+                            material: SwfMaterial::Color(context.color_material.clone()),
                         });
                     }
                     DrawType::Gradient { matrix, gradient } => {
@@ -139,7 +140,7 @@ impl MorphShape {
                         });
                         shape.push(MeshDraw {
                             mesh,
-                            material_type: MaterialType::Gradient(material),
+                            material: SwfMaterial::Gradient(material),
                         });
                     }
                     _ => {}

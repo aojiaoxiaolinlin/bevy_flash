@@ -10,7 +10,7 @@ use bevy::render::{
 
 use crate::render::{
     PreparedPartMaterial2d,
-    graph::OffscreenFlashShapeRenderPhases,
+    filter_render::{DrawType, OffscreenFlashShapeRenderPhases},
     material::{BitmapMaterial, GradientMaterial},
     offscreen_texture::{ExtractedOffscreenTexture, FilterBindGroup, FilterOffsets, ViewTarget},
 };
@@ -93,13 +93,13 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                             continue;
                         };
                         match item.draw_type {
-                            super::DrawType::Gradient(asset_id) => {
+                            DrawType::Gradient(asset_id) => {
                                 let Some(material) = gradient_materials.get(asset_id) else {
                                     continue;
                                 };
                                 render_pass.set_bind_group(2, &material.bind_group, &[]);
                             }
-                            super::DrawType::Bitmap(asset_id) => {
+                            DrawType::Bitmap(asset_id) => {
                                 let Some(material) = texture_materials.get(asset_id) else {
                                     continue;
                                 };

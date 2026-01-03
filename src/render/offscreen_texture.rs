@@ -13,22 +13,18 @@ use bevy::{
         schedule::IntoScheduleConfigs,
         system::{Commands, Query, Res, ResMut},
     },
-    log::error,
     math::{Mat4, UVec2, Vec3},
-    mesh::MeshVertexBufferLayoutRef,
     platform::collections::{HashMap, HashSet, hash_map::Entry},
     prelude::{Deref, DerefMut, ReflectComponent},
     reflect::Reflect,
     render::{
-        Extract, ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems,
+        Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
         extract_component::ExtractComponentPlugin,
-        mesh::RenderMesh,
         render_asset::RenderAssets,
         render_graph::{InternedRenderSubGraph, RenderSubGraph},
         render_resource::{
-            BindGroup, BindGroupEntries, Extent3d, PipelineCache, RenderPassColorAttachment,
-            SpecializedMeshPipelines, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureUsages, TextureView,
+            BindGroup, BindGroupEntries, Extent3d, RenderPassColorAttachment, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureUsages, TextureView,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::{MainEntity, RenderEntity, SyncToRenderWorld},
@@ -37,16 +33,12 @@ use bevy::{
     },
 };
 
-use crate::assets::MaterialType;
-use crate::commands::ShapeCommand;
-use crate::render::material::{BlendModelKey, TransformUniform};
+use super::filter_render::graph::OffscreenCore2d;
 use crate::{
     commands::OffscreenDrawShapes,
     render::{
-        graph::{DrawType, OffscreenCore2d, OffscreenFlashShapeRenderPhases, PartMesh},
-        pipeline::{
-            FilterUniformBuffers, OffscreenMesh2dKey, OffscreenMesh2dPipeline,
-            init_offscreen_texture_pipeline,
+        filter_render::{
+            FilterUniformBuffers, OffscreenFlashShapeRenderPhases, OffscreenMesh2dPipeline,
         },
         texture_attachment::ColorAttachment,
     },
@@ -251,7 +243,6 @@ impl Plugin for OffscreenTexturePlugin {
         render_app
             .init_resource::<SortedOffscreenTextures>()
             .init_resource::<OffscreenFlashShapeRenderPhases>()
-            .init_resource::<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>()
             .init_resource::<FilterUniformBuffers>()
             .add_systems(ExtractSchedule, extract_offscreen_textures)
             .add_systems(
@@ -263,12 +254,10 @@ impl Plugin for OffscreenTexturePlugin {
                         .before(prepare_offscreen_texture_view_target)
                         .after(prepare_windows),
                     prepare_offscreen_texture_view_target.in_set(RenderSystems::ManageViews),
-                    special_and_queue_shape_draw.in_set(RenderSystems::Queue),
                     prepare_offscreen_shape_filter_uniform.in_set(RenderSystems::PrepareResources),
                     prepare_offscreen_shape_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 ),
-            )
-            .add_systems(RenderStartup, init_offscreen_texture_pipeline);
+            );
     }
 }
 
@@ -413,122 +402,6 @@ fn prepare_offscreen_texture_view_target(
             main_textures,
             out_attachment.clone(),
         ));
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn special_and_queue_shape_draw(
-    offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
-    mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,
-    pipeline_cache: Res<PipelineCache>,
-    query: Query<(Entity, &OffscreenDrawShapes), With<ExtractedOffscreenTexture>>,
-    render_meshes: Res<RenderAssets<RenderMesh>>,
-    mut render_phases: ResMut<OffscreenFlashShapeRenderPhases>,
-    mut filter_uniform_buffers: ResMut<FilterUniformBuffers>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
-) {
-    let mut get_pipeline_id = |mesh_layout: &MeshVertexBufferLayoutRef,
-                               mesh_key: OffscreenMesh2dKey| {
-        let pipeline_id = pipelines.specialize(
-            &pipeline_cache,
-            &offscreen_mesh2d_pipeline,
-            mesh_key,
-            mesh_layout,
-        );
-        let pipeline_id = match pipeline_id {
-            Ok(id) => id,
-            Err(err) => {
-                error!("{}", err);
-                return None;
-            }
-        };
-        Some(pipeline_id)
-    };
-
-    let size = query.iter().map(|(_, commands)| commands.len()).sum();
-
-    let Some(mut transform_uniform_buffer_writer) = filter_uniform_buffers
-        .transform_uniform_buffer
-        .get_writer(size, &render_device, &render_queue)
-    else {
-        return;
-    };
-
-    for (main_entity, offscreen_draw_commands) in query.iter() {
-        let main_entity = MainEntity::from(main_entity);
-        let Some(render_phase) = render_phases.get_mut(&main_entity) else {
-            continue;
-        };
-        for draw_command in offscreen_draw_commands.iter() {
-            match draw_command {
-                ShapeCommand::RenderShape {
-                    draw_shape,
-                    transform,
-                    blend_mode,
-                } => {
-                    let transform_offset =
-                        transform_uniform_buffer_writer.write(&TransformUniform::from(*transform));
-                    for mesh_draw in draw_shape.iter() {
-                        let Some(mesh) = render_meshes.get(mesh_draw.mesh.id()) else {
-                            continue;
-                        };
-                        let Some(mesh_key) = OffscreenMesh2dKey::from_bits(
-                            BlendModelKey::from(*blend_mode).bits() as u16,
-                        ) else {
-                            continue;
-                        };
-                        let mesh_key = mesh_key
-                            | match &mesh_draw.material_type {
-                                MaterialType::Color(_) => OffscreenMesh2dKey::COLOR,
-                                MaterialType::Gradient(_) => OffscreenMesh2dKey::GRADIENT,
-                                MaterialType::Bitmap(_) => OffscreenMesh2dKey::BITMAP,
-                            };
-
-                        let Some(pipeline_id) = get_pipeline_id(&mesh.layout, mesh_key) else {
-                            continue;
-                        };
-
-                        render_phase.push(PartMesh {
-                            draw_type: DrawType::from(&mesh_draw.material_type),
-                            mesh_asset_id: mesh_draw.mesh.id(),
-                            pipeline_id,
-                            transform_offset,
-                        });
-                    }
-                }
-                ShapeCommand::RenderBitmap {
-                    mesh,
-                    material,
-                    transform,
-                    blend_mode,
-                } => {
-                    let transform_offset =
-                        transform_uniform_buffer_writer.write(&TransformUniform::from(*transform));
-
-                    let mesh_asset_id = mesh.id();
-                    let Some(mesh) = render_meshes.get(mesh_asset_id) else {
-                        continue;
-                    };
-                    let Some(mut mesh_key) = OffscreenMesh2dKey::from_bits(
-                        BlendModelKey::from(*blend_mode).bits() as u16,
-                    ) else {
-                        continue;
-                    };
-                    mesh_key |= OffscreenMesh2dKey::BITMAP;
-
-                    let Some(pipeline_id) = get_pipeline_id(&mesh.layout, mesh_key) else {
-                        continue;
-                    };
-                    render_phase.push(PartMesh {
-                        draw_type: DrawType::Bitmap(material.id()),
-                        mesh_asset_id,
-                        pipeline_id,
-                        transform_offset,
-                    });
-                }
-            }
-        }
     }
 }
 

@@ -1,10 +1,11 @@
 use bevy::{
-    asset::{Asset, Handle, uuid_handle},
+    app::Plugin,
+    asset::{Asset, AssetPath, Handle, embedded_asset, embedded_path},
     image::Image,
     math::{Mat4, Vec4},
     reflect::TypePath,
     render::render_resource::{AsBindGroup, ShaderType},
-    shader::{Shader, ShaderRef},
+    shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d},
 };
 
@@ -14,14 +15,15 @@ use swf::GradientSpread;
 
 use crate::swf_runtime::{shape_utils::GradientType, tessellator::Gradient, transform::Transform};
 
-pub const SWF_COLOR_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("8c2a5b0f-3e6d-4f8a-b217-84d2f5e1c9b3");
-pub const GRADIENT_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("5e9f1a78-9b34-4c15-8d7e-2a3b0f47d862");
-pub const BITMAP_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("a34c7d82-1f5b-4a9e-93d8-6b7e20c45a1f");
-pub const FLASH_COMMON_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("e53b9f82-6a4c-4d5b-91e7-4f2a63b8c5d9");
+pub struct SwfMaterialPlugin;
+
+impl Plugin for SwfMaterialPlugin {
+    fn build(&self, app: &mut bevy::app::App) {
+        embedded_asset!(app, "shaders/color.wgsl");
+        embedded_asset!(app, "shaders/gradient.wgsl");
+        embedded_asset!(app, "shaders/bitmap.wgsl");
+    }
+}
 
 bitflags::bitflags! {
     #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -35,21 +37,24 @@ bitflags::bitflags! {
         const BLEND_MULTIPLY                    = 1 << 5;  // Multiply blending
     }
 }
-
 macro_rules! material2d {
     ($name:ident, $shader:expr) => {
         impl Material2d for $name {
             fn vertex_shader() -> ShaderRef {
-                $shader.into()
+                get_shader_ref($shader)
             }
             fn fragment_shader() -> ShaderRef {
-                $shader.into()
+                get_shader_ref($shader)
             }
             fn alpha_mode(&self) -> AlphaMode2d {
                 AlphaMode2d::Blend
             }
         }
     };
+}
+
+pub fn get_shader_ref(shader: &str) -> ShaderRef {
+    ShaderRef::Path(AssetPath::from_path_buf(embedded_path!(shader)).with_source("embedded"))
 }
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
@@ -63,7 +68,7 @@ pub struct GradientMaterial {
     pub texture_transform: Mat4,
 }
 
-material2d!(GradientMaterial, GRADIENT_MATERIAL_SHADER_HANDLE);
+material2d!(GradientMaterial, "shaders/gradient.wgsl");
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable)]
@@ -95,7 +100,7 @@ impl From<Gradient> for GradientUniforms {
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Copy, Default)]
 pub struct ColorMaterial {}
 
-material2d!(ColorMaterial, SWF_COLOR_MATERIAL_SHADER_HANDLE);
+material2d!(ColorMaterial, "shaders/color.wgsl");
 
 #[derive(AsBindGroup, TypePath, Asset, Debug, Clone, Default)]
 pub struct BitmapMaterial {
@@ -106,7 +111,7 @@ pub struct BitmapMaterial {
     pub texture_transform: Mat4,
 }
 
-material2d!(BitmapMaterial, BITMAP_MATERIAL_SHADER_HANDLE);
+material2d!(BitmapMaterial, "shaders/bitmap.wgsl");
 
 #[derive(Debug, Clone, Copy, ShaderType)]
 pub struct TransformUniform {
@@ -145,4 +150,11 @@ impl Default for TransformUniform {
             add_color: Vec4::ZERO,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum SwfMaterial {
+    Color(Handle<ColorMaterial>),
+    Gradient(Handle<GradientMaterial>),
+    Bitmap(Handle<BitmapMaterial>),
 }

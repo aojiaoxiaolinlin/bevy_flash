@@ -40,7 +40,7 @@ fn mesh2d_position_world_to_clip(world_position: vec4<f32>) -> vec4<f32> {
 }
 
 fn part_mesh2d_color_transform(instance_index: u32, color: vec4<f32>) -> vec4<f32> {
-    return color * mesh[instance_index].mult_color + mesh[instance_index].add_color;
+    return srgb_to_linear(linear_to_srgb(color) * mesh[instance_index].mult_color + mesh[instance_index].add_color);
 }
 
 const view_matrix: mat4x4<f32> = mat4x4<f32>(

@@ -1,24 +1,18 @@
 use std::sync::Mutex;
 
 use bevy::{
-    core_pipeline::blit::{BlitPipeline, BlitPipelineKey},
-    ecs::{
-        component::Component,
-        entity::Entity,
-        system::{Commands, Query, Res, ResMut},
-    },
-    platform::collections::HashSet,
+    core_pipeline::blit::BlitPipeline,
     render::{
         diagnostic::RecordDiagnostics,
         render_graph::ViewNode,
-        render_resource::{
-            BindGroup, BlendState, CachedRenderPipelineId, PipelineCache, RenderPassDescriptor,
-            SpecializedRenderPipelines, TextureViewId,
-        },
+        render_resource::{BindGroup, PipelineCache, RenderPassDescriptor, TextureViewId},
     },
 };
 
-use crate::render::offscreen_texture::{ExtractedOffscreenTexture, ViewTarget};
+use crate::render::{
+    filter_render::ViewUpscalingPipeline,
+    offscreen_texture::{ExtractedOffscreenTexture, ViewTarget},
+};
 
 #[derive(Default)]
 pub struct OffscreenUpscalingNode {
@@ -86,43 +80,5 @@ impl ViewNode for OffscreenUpscalingNode {
         pass_span.end(&mut render_pass);
 
         Ok(())
-    }
-}
-
-#[derive(Component)]
-pub struct ViewUpscalingPipeline(CachedRenderPipelineId);
-
-pub fn prepare_offscreen_view_upscaling_pipelines(
-    mut commands: Commands,
-    mut pipeline_cache: ResMut<PipelineCache>,
-    mut pipelines: ResMut<SpecializedRenderPipelines<BlitPipeline>>,
-    blit_pipeline: Res<BlitPipeline>,
-    view_targets: Query<(Entity, &ViewTarget)>,
-) {
-    let mut output_textures = <HashSet<_>>::default();
-    for (entity, view_target) in view_targets.iter() {
-        let out_texture_id = view_target.out_texture().id();
-        let already_seen = output_textures.contains(&out_texture_id);
-        output_textures.insert(out_texture_id);
-        let blend_state = if already_seen {
-            Some(BlendState::ALPHA_BLENDING)
-        } else {
-            output_textures.insert(out_texture_id);
-            None
-        };
-
-        let key = BlitPipelineKey {
-            texture_format: view_target.out_texture_format(),
-            blend_state,
-            samples: 1,
-        };
-        let pipeline = pipelines.specialize(&pipeline_cache, &blit_pipeline, key);
-
-        // Ensure the pipeline is loaded before continuing the frame to prevent frames without any GPU work submitted
-        pipeline_cache.block_on_render_pipeline(pipeline);
-
-        commands
-            .entity(entity)
-            .insert(ViewUpscalingPipeline(pipeline));
     }
 }

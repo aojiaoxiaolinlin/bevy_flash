@@ -1,19 +1,15 @@
 pub(crate) mod blend_pipeline;
-mod graph;
+mod filter_render;
 pub(crate) mod material;
 pub(crate) mod offscreen_texture;
 pub mod part_mesh2d;
-mod pipeline;
 mod texture_attachment;
 
 use std::{hash::Hash, marker::PhantomData};
 
 use bevy::{
     app::{App, Plugin, PostUpdate},
-    asset::{
-        AssetApp, AssetEventSystems, AssetId, AssetServer, Assets, Handle, RenderAssetUsages,
-        load_internal_asset,
-    },
+    asset::{AssetApp, AssetEventSystems, AssetId, AssetServer, Assets, Handle, RenderAssetUsages},
     camera::visibility::add_visibility_class,
     core_pipeline::core_2d::Transparent2d,
     ecs::{
@@ -56,7 +52,7 @@ use bevy::{
         sync_world::{MainEntity, MainEntityHashMap},
         view::{ExtractedView, RenderVisibleEntities},
     },
-    shader::{Shader, ShaderDefVal, ShaderRef},
+    shader::{Shader, ShaderDefVal, ShaderRef, load_shader_library},
     sprite_render::{
         EntitiesNeedingSpecialization, EntitySpecializationTicks, MATERIAL_2D_BIND_GROUP_INDEX,
         Material2d, Material2dBindGroupId, Mesh2dPipelineKey, Mesh2dTransforms, MeshFlags,
@@ -66,33 +62,21 @@ use bevy::{
     utils::Parallel,
 };
 
-use graph::FlashFilterRenderPlugin;
+use filter_render::SwfFilterRenderPlugin;
 use indexmap::IndexMap;
 use material::{BitmapMaterial, ColorMaterial, GradientMaterial};
 
 use crate::{
-    assets::MaterialType,
     commands::{DrawShapes, ShapeCommand},
     player::Flash,
     render::{
         blend_pipeline::BlendMode,
-        material::{
-            BITMAP_MATERIAL_SHADER_HANDLE, BlendModelKey, FLASH_COMMON_MATERIAL_SHADER_HANDLE,
-            GRADIENT_MATERIAL_SHADER_HANDLE, SWF_COLOR_MATERIAL_SHADER_HANDLE,
-        },
+        material::{BlendModelKey, SwfMaterial, SwfMaterialPlugin},
         offscreen_texture::{ExtractedOffscreenTexture, OffscreenTexturePlugin},
         part_mesh2d::{
             ColorTransformUniform, DrawPartMesh2d, PartMesh2dPipeline, PartMesh2dRenderPlugin,
             RenderPartMesh2dInstance, RenderPartMesh2dInstances, SetPartMesh2dBindGroup,
             init_part_mesh_2d_pipeline,
-        },
-        pipeline::{
-            BEVEL_FILTER_SHADER_HANDLE, BLUR_FILTER_SHADER_HANDLE,
-            COLOR_MATRIX_FILTER_SHADER_HANDLE, GLOW_FILTER_SHADER_HANDLE,
-            OFFSCREEN_COMMON_SHADER_HANDLE, OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE,
-            OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE, OFFSCREEN_MESH2D_SHADER_HANDLE,
-            init_bevel_filter_pipeline, init_blur_filter_pipeline,
-            init_color_matrix_filter_pipeline, init_glow_filter_pipeline,
         },
     },
 };
@@ -107,39 +91,30 @@ pub struct FlashRenderPlugin;
 
 impl Plugin for FlashRenderPlugin {
     fn build(&self, app: &mut App) {
-        load_shaders(app);
+        load_shader_library!(app, "render/shaders/common.wgsl");
+
+        app.add_plugins((
+            PartMesh2dRenderPlugin,
+            SwfMaterialPlugin,
+            ShapePartMaterial2dPlugin::<GradientMaterial>::default(),
+            ShapePartMaterial2dPlugin::<ColorMaterial>::default(),
+            ShapePartMaterial2dPlugin::<BitmapMaterial>::default(),
+            OffscreenTexturePlugin,
+            SwfFilterRenderPlugin,
+        ))
+        .init_resource::<FilterTextureMesh>()
+        .init_resource::<ColorMaterialHandle>();
 
         // 注册 Flash 组件的生命周期钩子和添加为可渲染组件
         app.world_mut()
             .register_component_hooks::<Flash>()
             .on_add(add_visibility_class::<Flash>);
 
-        app.add_plugins((
-            PartMesh2dRenderPlugin,
-            ShapePartMaterial2dPlugin::<GradientMaterial>::default(),
-            ShapePartMaterial2dPlugin::<ColorMaterial>::default(),
-            ShapePartMaterial2dPlugin::<BitmapMaterial>::default(),
-            OffscreenTexturePlugin,
-            FlashFilterRenderPlugin,
-        ))
-        .init_resource::<FilterTextureMesh>()
-        .init_resource::<ColorMaterialHandle>();
-
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
 
-        render_app
-            .add_systems(
-                RenderStartup,
-                (
-                    init_blur_filter_pipeline,
-                    init_color_matrix_filter_pipeline,
-                    init_glow_filter_pipeline,
-                    init_bevel_filter_pipeline,
-                ),
-            )
-            .add_systems(ExtractSchedule, extract_part_mesh2d_and_material);
+        render_app.add_systems(ExtractSchedule, extract_part_mesh2d_and_material);
     }
 }
 
@@ -234,8 +209,8 @@ fn extract_part_mesh2d_and_material(
                         index += 1;
 
                         let mesh_asset_id = mesh_draw.mesh.id();
-                        match &mesh_draw.material_type {
-                            MaterialType::Color(material) => {
+                        match &mesh_draw.material {
+                            SwfMaterial::Color(material) => {
                                 mesh_instances.insert(
                                     index,
                                     RenderPartMesh2dInstance {
@@ -256,7 +231,7 @@ fn extract_part_mesh2d_and_material(
                                     },
                                 );
                             }
-                            MaterialType::Gradient(material) => {
+                            SwfMaterial::Gradient(material) => {
                                 mesh_instances.insert(
                                     index,
                                     RenderPartMesh2dInstance {
@@ -277,7 +252,7 @@ fn extract_part_mesh2d_and_material(
                                     },
                                 );
                             }
-                            MaterialType::Bitmap(material) => {
+                            SwfMaterial::Bitmap(material) => {
                                 mesh_instances.insert(
                                     index,
                                     RenderPartMesh2dInstance {
@@ -937,80 +912,4 @@ impl<M: Material2d> RenderAsset for PreparedPartMaterial2d<M> {
             Err(other) => Err(PrepareAssetError::AsBindGroupError(other)),
         }
     }
-}
-
-fn load_shaders(app: &mut App) {
-    load_internal_asset!(
-        app,
-        FLASH_COMMON_MATERIAL_SHADER_HANDLE,
-        "render/shaders/common.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        SWF_COLOR_MATERIAL_SHADER_HANDLE,
-        "render/shaders/color.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        GRADIENT_MATERIAL_SHADER_HANDLE,
-        "render/shaders/gradient.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        BITMAP_MATERIAL_SHADER_HANDLE,
-        "render/shaders/bitmap.wgsl",
-        Shader::from_wgsl
-    );
-
-    load_internal_asset!(
-        app,
-        OFFSCREEN_COMMON_SHADER_HANDLE,
-        "render/shaders/offscreen_mesh2d/offscreen_common.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        OFFSCREEN_MESH2D_SHADER_HANDLE,
-        "render/shaders/offscreen_mesh2d/color.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE,
-        "render/shaders/offscreen_mesh2d/gradient.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE,
-        "render/shaders/offscreen_mesh2d/bitmap.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        BLUR_FILTER_SHADER_HANDLE,
-        "render/shaders/filters/blur.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        COLOR_MATRIX_FILTER_SHADER_HANDLE,
-        "render/shaders/filters/color_matrix.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        GLOW_FILTER_SHADER_HANDLE,
-        "render/shaders/filters/glow.wgsl",
-        Shader::from_wgsl
-    );
-    load_internal_asset!(
-        app,
-        BEVEL_FILTER_SHADER_HANDLE,
-        "render/shaders/filters/bevel.wgsl",
-        Shader::from_wgsl
-    );
 }

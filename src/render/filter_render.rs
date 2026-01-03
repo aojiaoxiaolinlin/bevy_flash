@@ -1,36 +1,64 @@
+pub mod graph;
+
 use std::borrow::Cow;
 
 use bevy::{
-    asset::{Handle, uuid_handle},
-    core_pipeline::FullscreenShader,
-    ecs::{
-        resource::Resource,
-        system::{Commands, Res},
+    app::Plugin,
+    asset::{
+        AssetId, AssetServer, Handle, embedded_asset, load_embedded_asset, load_internal_asset,
+        uuid_handle,
     },
+    core_pipeline::{
+        FullscreenShader,
+        blit::{BlitPipeline, BlitPipelineKey},
+    },
+    ecs::{
+        component::Component,
+        entity::Entity,
+        query::With,
+        resource::Resource,
+        schedule::IntoScheduleConfigs,
+        system::{Commands, Query, Res, ResMut},
+    },
+    log::error,
     math::{Mat4, Vec2},
-    mesh::{Mesh, PrimitiveTopology, VertexBufferLayout},
+    mesh::{Mesh, MeshVertexBufferLayoutRef, PrimitiveTopology, VertexBufferLayout, VertexFormat},
+    platform::collections::{HashSet, hash_map::Entry},
+    prelude::{Deref, DerefMut},
     render::{
+        Render, RenderApp, RenderStartup, RenderSystems,
+        mesh::RenderMesh,
+        render_asset::RenderAssets,
         render_resource::{
             AsBindGroup, BindGroupLayout, BindGroupLayoutEntries, BlendComponent, BlendFactor,
             BlendOperation, BlendState, BufferUsages, BufferVec, CachedRenderPipelineId,
             ColorTargetState, ColorWrites, DynamicUniformBuffer, FragmentState, FrontFace,
             MultisampleState, PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor,
             Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType,
-            SpecializedMeshPipeline, TextureFormat, TextureSampleType, VertexFormat, VertexState,
-            VertexStepMode,
+            SpecializedMeshPipeline, SpecializedMeshPipelines, SpecializedRenderPipelines,
+            TextureFormat, TextureSampleType, VertexState, VertexStepMode,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::{RenderDevice, RenderQueue},
+        sync_world::{MainEntity, MainEntityHashMap},
         view::Msaa,
     },
-    shader::Shader,
+    shader::{Shader, load_shader_library},
+    utils::default,
 };
 use bytemuck::{Pod, Zeroable};
 
-use crate::render::material::{BitmapMaterial, GradientMaterial, TransformUniform};
+use crate::{
+    commands::{OffscreenDrawShapes, ShapeCommand},
+    render::{
+        material::{
+            BitmapMaterial, BlendModelKey, GradientMaterial, SwfMaterial, TransformUniform,
+        },
+        offscreen_texture::{ExtractedOffscreenTexture, ViewTarget},
+    },
+};
 
-pub const OFFSCREEN_COMMON_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("a1b2c3d4-e5f6-4729-8a9b-0c1d2e3f4a5b");
+use self::graph::SwfFilterRenderGraphPlugin;
 
 pub const OFFSCREEN_MESH2D_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("f1e2d3c4-b5a6-4978-8c9d-0e1f2a3b4c5d");
@@ -41,17 +69,142 @@ pub const OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE: Handle<Shader> =
 pub const OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("e3f4a5b6-c7d8-4e9f-0a1b-2c3d4e5f6a7b");
 
-pub const BLUR_FILTER_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("f59e3d1c-7a24-4b8c-82a3-1d94e6f2c705");
+pub struct SwfFilterRenderPlugin;
 
-pub const COLOR_MATRIX_FILTER_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("1a2b3c4d-5e6f-4789-0123-456789abcdef");
+impl Plugin for SwfFilterRenderPlugin {
+    fn build(&self, app: &mut bevy::app::App) {
+        load_shader_library!(app, "shaders/offscreen_mesh2d/offscreen_common.wgsl");
+        embedded_asset!(app, "shaders/filters/blur.wgsl");
+        embedded_asset!(app, "shaders/filters/color_matrix.wgsl");
+        embedded_asset!(app, "shaders/filters/glow.wgsl");
+        embedded_asset!(app, "shaders/filters/bevel.wgsl");
+        embedded_asset!(app, "shaders/filters/displacement_map.wgsl");
 
-pub const GLOW_FILTER_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("c1d2e3f4-a5b6-4789-0123-456789abcdef");
+        load_internal_asset!(
+            app,
+            OFFSCREEN_MESH2D_SHADER_HANDLE,
+            "shaders/offscreen_mesh2d/color.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            OFFSCREEN_MESH2D_GRADIENT_SHADER_HANDLE,
+            "shaders/offscreen_mesh2d/gradient.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            OFFSCREEN_MESH2D_BITMAP_SHADER_HANDLE,
+            "shaders/offscreen_mesh2d/bitmap.wgsl",
+            Shader::from_wgsl
+        );
 
-pub const BEVEL_FILTER_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("e2f8a9d6-3c7b-42f1-8e9d-5a6b4c3d2e1f");
+        app.add_plugins(SwfFilterRenderGraphPlugin);
+
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
+
+        render_app
+            .init_resource::<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>()
+            .add_systems(
+                RenderStartup,
+                (
+                    init_offscreen_texture_pipeline,
+                    init_blur_filter_pipeline,
+                    init_color_matrix_filter_pipeline,
+                    init_glow_filter_pipeline,
+                    init_bevel_filter_pipeline,
+                ),
+            )
+            .add_systems(
+                Render,
+                (
+                    special_and_queue_shape_draw.in_set(RenderSystems::Queue),
+                    prepare_offscreen_view_upscaling_pipelines
+                        .in_set(RenderSystems::Prepare)
+                        .ambiguous_with_all(),
+                ),
+            );
+    }
+}
+
+#[derive(Component)]
+pub struct ViewUpscalingPipeline(CachedRenderPipelineId);
+
+pub fn prepare_offscreen_view_upscaling_pipelines(
+    mut commands: Commands,
+    mut pipeline_cache: ResMut<PipelineCache>,
+    mut pipelines: ResMut<SpecializedRenderPipelines<BlitPipeline>>,
+    blit_pipeline: Res<BlitPipeline>,
+    view_targets: Query<(Entity, &ViewTarget)>,
+) {
+    let mut output_textures = <HashSet<_>>::default();
+    for (entity, view_target) in view_targets.iter() {
+        let out_texture_id = view_target.out_texture().id();
+        let already_seen = output_textures.contains(&out_texture_id);
+        output_textures.insert(out_texture_id);
+        let blend_state = if already_seen {
+            Some(BlendState::ALPHA_BLENDING)
+        } else {
+            output_textures.insert(out_texture_id);
+            None
+        };
+
+        let key = BlitPipelineKey {
+            texture_format: view_target.out_texture_format(),
+            blend_state,
+            samples: 1,
+        };
+        let pipeline = pipelines.specialize(&pipeline_cache, &blit_pipeline, key);
+
+        // Ensure the pipeline is loaded before continuing the frame to prevent frames without any GPU work submitted
+        pipeline_cache.block_on_render_pipeline(pipeline);
+
+        commands
+            .entity(entity)
+            .insert(ViewUpscalingPipeline(pipeline));
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum DrawType {
+    Color,
+    Gradient(AssetId<GradientMaterial>),
+    Bitmap(AssetId<BitmapMaterial>),
+}
+
+#[derive(Clone, Debug)]
+pub struct PartMesh {
+    pub draw_type: DrawType,
+    pub mesh_asset_id: AssetId<Mesh>,
+    pub pipeline_id: CachedRenderPipelineId,
+    pub transform_offset: u32,
+}
+
+impl From<&SwfMaterial> for DrawType {
+    fn from(value: &SwfMaterial) -> Self {
+        match value {
+            SwfMaterial::Color(_) => DrawType::Color,
+            SwfMaterial::Gradient(gradient) => DrawType::Gradient(gradient.id()),
+            SwfMaterial::Bitmap(bitmap) => DrawType::Bitmap(bitmap.id()),
+        }
+    }
+}
+
+#[derive(Resource, Deref, DerefMut, Default)]
+pub struct OffscreenFlashShapeRenderPhases(pub MainEntityHashMap<Vec<PartMesh>>);
+
+impl OffscreenFlashShapeRenderPhases {
+    pub fn insert_or_clear(&mut self, entity: MainEntity) {
+        match self.entry(entity) {
+            Entry::Occupied(mut entry) => entry.get_mut().clear(),
+            Entry::Vacant(entry) => {
+                entry.insert(default());
+            }
+        }
+    }
+}
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -334,6 +487,7 @@ pub(crate) fn init_blur_filter_pipeline(
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
     fullscreen_shader: Res<FullscreenShader>,
+    assert_server: Res<AssetServer>,
 ) {
     let layout = render_device.create_bind_group_layout(
         "blur_filter_bind_group_layout",
@@ -358,7 +512,7 @@ pub(crate) fn init_blur_filter_pipeline(
         depth_stencil: None,
         multisample: MultisampleState::default(),
         fragment: Some(FragmentState {
-            shader: BLUR_FILTER_SHADER_HANDLE,
+            shader: load_embedded_asset!(assert_server.as_ref(), "shaders/filters/blur.wgsl"),
             shader_defs: vec![],
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
@@ -391,6 +545,7 @@ pub(crate) fn init_color_matrix_filter_pipeline(
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
     fullscreen_shader: Res<FullscreenShader>,
+    assert_server: Res<AssetServer>,
 ) {
     let layout = render_device.create_bind_group_layout(
         "color_matrix_bind_group_layout",
@@ -414,7 +569,10 @@ pub(crate) fn init_color_matrix_filter_pipeline(
         depth_stencil: None,
         multisample: MultisampleState::default(),
         fragment: Some(FragmentState {
-            shader: COLOR_MATRIX_FILTER_SHADER_HANDLE,
+            shader: load_embedded_asset!(
+                assert_server.as_ref(),
+                "shaders/filters/color_matrix.wgsl"
+            ),
             shader_defs: vec![],
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
@@ -447,6 +605,7 @@ pub(crate) fn init_glow_filter_pipeline(
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
     fullscreen_shader: Res<FullscreenShader>,
+    assert_server: Res<AssetServer>,
 ) {
     let layout = render_device.create_bind_group_layout(
         "glow_filter_bind_group_layout",
@@ -471,7 +630,7 @@ pub(crate) fn init_glow_filter_pipeline(
         depth_stencil: None,
         multisample: MultisampleState::default(),
         fragment: Some(FragmentState {
-            shader: GLOW_FILTER_SHADER_HANDLE,
+            shader: load_embedded_asset!(assert_server.as_ref(), "shaders/filters/glow.wgsl"),
             shader_defs: vec![],
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
@@ -503,6 +662,7 @@ pub(crate) fn init_bevel_filter_pipeline(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
+    assert_server: Res<AssetServer>,
 ) {
     let layout = render_device.create_bind_group_layout(
         "glow_filter_bind_group_layout",
@@ -517,13 +677,14 @@ pub(crate) fn init_bevel_filter_pipeline(
         ),
     );
     let sampler = render_device.create_sampler(&SamplerDescriptor::default());
+    let shader = load_embedded_asset!(assert_server.as_ref(), "shaders/filters/bevel.wgsl");
 
     let descriptor = RenderPipelineDescriptor {
         label: Some(Cow::from("bevel_filter_render_pipeline")),
         layout: vec![layout.clone()],
         push_constant_ranges: vec![],
         vertex: VertexState {
-            shader: BEVEL_FILTER_SHADER_HANDLE,
+            shader: shader.clone(),
             shader_defs: vec![],
             entry_point: Some("vertex".into()),
             buffers: vec![VertexBufferLayout::from_vertex_formats(
@@ -540,7 +701,7 @@ pub(crate) fn init_bevel_filter_pipeline(
         depth_stencil: None,
         multisample: MultisampleState::default(),
         fragment: Some(FragmentState {
-            shader: BEVEL_FILTER_SHADER_HANDLE,
+            shader,
             shader_defs: vec![],
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
@@ -559,6 +720,122 @@ pub(crate) fn init_bevel_filter_pipeline(
         sampler,
         pipeline_id,
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn special_and_queue_shape_draw(
+    offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
+    mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,
+    pipeline_cache: Res<PipelineCache>,
+    query: Query<(Entity, &OffscreenDrawShapes), With<ExtractedOffscreenTexture>>,
+    render_meshes: Res<RenderAssets<RenderMesh>>,
+    mut render_phases: ResMut<OffscreenFlashShapeRenderPhases>,
+    mut filter_uniform_buffers: ResMut<FilterUniformBuffers>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    let mut get_pipeline_id = |mesh_layout: &MeshVertexBufferLayoutRef,
+                               mesh_key: OffscreenMesh2dKey| {
+        let pipeline_id = pipelines.specialize(
+            &pipeline_cache,
+            &offscreen_mesh2d_pipeline,
+            mesh_key,
+            mesh_layout,
+        );
+        let pipeline_id = match pipeline_id {
+            Ok(id) => id,
+            Err(err) => {
+                error!("{}", err);
+                return None;
+            }
+        };
+        Some(pipeline_id)
+    };
+
+    let size = query.iter().map(|(_, commands)| commands.len()).sum();
+
+    let Some(mut transform_uniform_buffer_writer) = filter_uniform_buffers
+        .transform_uniform_buffer
+        .get_writer(size, &render_device, &render_queue)
+    else {
+        return;
+    };
+
+    for (main_entity, offscreen_draw_commands) in query.iter() {
+        let main_entity = MainEntity::from(main_entity);
+        let Some(render_phase) = render_phases.get_mut(&main_entity) else {
+            continue;
+        };
+        for draw_command in offscreen_draw_commands.iter() {
+            match draw_command {
+                ShapeCommand::RenderShape {
+                    draw_shape,
+                    transform,
+                    blend_mode,
+                } => {
+                    let transform_offset =
+                        transform_uniform_buffer_writer.write(&TransformUniform::from(*transform));
+                    for mesh_draw in draw_shape.iter() {
+                        let Some(mesh) = render_meshes.get(mesh_draw.mesh.id()) else {
+                            continue;
+                        };
+                        let Some(mesh_key) = OffscreenMesh2dKey::from_bits(
+                            BlendModelKey::from(*blend_mode).bits() as u16,
+                        ) else {
+                            continue;
+                        };
+                        let mesh_key = mesh_key
+                            | match &mesh_draw.material {
+                                SwfMaterial::Color(_) => OffscreenMesh2dKey::COLOR,
+                                SwfMaterial::Gradient(_) => OffscreenMesh2dKey::GRADIENT,
+                                SwfMaterial::Bitmap(_) => OffscreenMesh2dKey::BITMAP,
+                            };
+
+                        let Some(pipeline_id) = get_pipeline_id(&mesh.layout, mesh_key) else {
+                            continue;
+                        };
+
+                        render_phase.push(PartMesh {
+                            draw_type: DrawType::from(&mesh_draw.material),
+                            mesh_asset_id: mesh_draw.mesh.id(),
+                            pipeline_id,
+                            transform_offset,
+                        });
+                    }
+                }
+                ShapeCommand::RenderBitmap {
+                    mesh,
+                    material,
+                    transform,
+                    blend_mode,
+                } => {
+                    let transform_offset =
+                        transform_uniform_buffer_writer.write(&TransformUniform::from(*transform));
+
+                    let mesh_asset_id = mesh.id();
+                    let Some(mesh) = render_meshes.get(mesh_asset_id) else {
+                        continue;
+                    };
+                    let Some(mut mesh_key) = OffscreenMesh2dKey::from_bits(
+                        BlendModelKey::from(*blend_mode).bits() as u16,
+                    ) else {
+                        continue;
+                    };
+                    mesh_key |= OffscreenMesh2dKey::BITMAP;
+
+                    let Some(pipeline_id) = get_pipeline_id(&mesh.layout, mesh_key) else {
+                        continue;
+                    };
+                    render_phase.push(PartMesh {
+                        draw_type: DrawType::Bitmap(material.id()),
+                        mesh_asset_id,
+                        pipeline_id,
+                        transform_offset,
+                    });
+                }
+            }
+        }
+    }
 }
 
 #[derive(Resource)]

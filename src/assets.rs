@@ -16,7 +16,9 @@ use copyless::VecHelper;
 use swf::{CharacterId, GradientInterpolation};
 
 use crate::{
-    render::material::{BitmapMaterial, ColorMaterial, GradientMaterial, GradientUniforms},
+    render::material::{
+        BitmapMaterial, ColorMaterial, GradientMaterial, GradientUniforms, SwfMaterial,
+    },
     swf_runtime::{
         character::{BitmapLibrary, Character},
         display_object::FrameNumber,
@@ -52,7 +54,7 @@ impl SwfAssetLabel {
 #[derive(Debug, Clone)]
 pub struct MeshDraw {
     pub mesh: Handle<Mesh>,
-    pub material_type: MaterialType,
+    pub material: SwfMaterial,
 }
 
 #[derive(Asset, TypePath, Deref, Clone, Debug)]
@@ -174,15 +176,19 @@ impl AssetLoader for SwfLoader {
         // 根据animations 的 起始帧v.0 的值，使用第一个大于当前项的v.0减去当前项的v.0，得到动画的长度。
         if !animations.is_empty() {
             let mut anim_frames = animations.values_mut().collect::<Vec<_>>();
-            anim_frames.sort_by_key(|(start, _)| *start);
-            for i in 0..anim_frames.len() - 1 {
+            anim_frames.sort_unstable_by_key(|(start, _)| *start);
+            let mut next_start = root.total_frames();
+            for i in (0..anim_frames.len()).rev() {
                 let (start, _) = *anim_frames[i];
-                let (end, _) = *anim_frames[i + 1];
-                let len = end - start;
-                anim_frames[i].1 = len;
+                anim_frames[i].1 = next_start.saturating_sub(start);
+                (i != 0).then(|| {
+                    assert!(
+                        anim_frames[i - 1].0 != start,
+                        "The start frame of the animation cannot be repeated"
+                    )
+                });
+                next_start = start;
             }
-            let last: usize = anim_frames.len() - 1;
-            anim_frames[last].1 = root.total_frames() - anim_frames[last].0;
         }
         Ok(Swf {
             shape_handles,
@@ -243,7 +249,7 @@ fn load_shape_mesh(
                 *mesh_index += 1;
                 mesh_material.push(MeshDraw {
                     mesh,
-                    material_type: MaterialType::Color(color_material.clone()),
+                    material: SwfMaterial::Color(color_material.clone()),
                 });
             }
             DrawType::Gradient { matrix, gradient } => {
@@ -274,7 +280,7 @@ fn load_shape_mesh(
                 *material_index += 1;
                 mesh_material.push(MeshDraw {
                     mesh,
-                    material_type: MaterialType::Gradient(material),
+                    material: SwfMaterial::Gradient(material),
                 });
             }
             DrawType::Bitmap(bitmap) => {
@@ -328,7 +334,7 @@ fn load_shape_mesh(
                     *material_index += 1;
                     mesh_material.push(MeshDraw {
                         mesh,
-                        material_type: MaterialType::Bitmap(material),
+                        material: SwfMaterial::Bitmap(material),
                     });
                 }
             }
@@ -428,11 +434,4 @@ pub fn create_gradient_textures(gradients: Vec<Gradient>) -> Vec<(Image, Gradien
 /// 线性插值
 fn lerp(a: f32, b: f32, factor: f32) -> f32 {
     a + (b - a) * factor
-}
-
-#[derive(Debug, Clone)]
-pub enum MaterialType {
-    Color(Handle<ColorMaterial>),
-    Gradient(Handle<GradientMaterial>),
-    Bitmap(Handle<BitmapMaterial>),
 }
