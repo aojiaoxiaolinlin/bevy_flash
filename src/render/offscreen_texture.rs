@@ -46,7 +46,7 @@ use crate::{
 };
 
 #[derive(Component, Default, Clone)]
-#[require(OffscreenTextureRenderGraph::new(OffscreenCore2d))]
+#[require(OffscreenTextureRenderGraph::new(OffscreenCore2d), SyncToRenderWorld)]
 pub struct OffscreenTexture {
     pub is_active: bool,
     pub order: isize,
@@ -234,8 +234,7 @@ pub struct OffscreenTexturePlugin;
 
 impl Plugin for OffscreenTexturePlugin {
     fn build(&self, app: &mut bevy::app::App) {
-        app.register_required_components::<OffscreenTexture, SyncToRenderWorld>()
-            .add_plugins(ExtractComponentPlugin::<OffscreenDrawShapes>::default());
+        app.add_plugins(ExtractComponentPlugin::<OffscreenDrawShapes>::default());
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;

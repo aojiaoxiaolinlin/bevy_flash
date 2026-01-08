@@ -13,7 +13,7 @@ use swf::{
     CharacterId, Color, DefineBitsLossless, Depth, PlaceObjectAction, Rectangle, TagCode, Twips,
 };
 
-use crate::assets::MovieLibrary;
+use crate::{animator::RenderContext, assets::MovieLibrary};
 
 use super::{
     character::{BitmapLibrary, Character, CompressedBitmap, instantiate_by_id},
@@ -538,7 +538,7 @@ impl TDisplayObject for MovieClip {
         }
     }
 
-    fn self_bounds(&mut self, _context: &mut crate::RenderContext) -> Rectangle<Twips> {
+    fn self_bounds(&mut self, _context: &mut RenderContext) -> Rectangle<Twips> {
         Default::default()
     }
 

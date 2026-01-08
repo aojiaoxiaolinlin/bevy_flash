@@ -51,9 +51,8 @@ use bytemuck::{Pod, Zeroable};
 use crate::{
     commands::{OffscreenDrawShapes, ShapeCommand},
     render::{
-        material::{
-            BitmapMaterial, BlendModelKey, GradientMaterial, SwfMaterial, TransformUniform,
-        },
+        blend_pipeline::{BlendMode, TrivialBlend},
+        material::{BitmapMaterial, GradientMaterial, SwfMaterial, TransformUniform},
         offscreen_texture::{ExtractedOffscreenTexture, ViewTarget},
     },
 };
@@ -225,6 +224,23 @@ bitflags::bitflags! {
         const GRADIENT = 1 << 8;
         const BITMAP   = 1 << 9;
         const MSAA     = 1 << 10;
+    }
+}
+
+impl From<&BlendMode> for OffscreenMesh2dKey {
+    fn from(value: &BlendMode) -> Self {
+        match value {
+            BlendMode::Trivial(trivial_blend) => match trivial_blend {
+                TrivialBlend::Add => OffscreenMesh2dKey::BLEND_ADD,
+                TrivialBlend::Subtract => OffscreenMesh2dKey::BLEND_SUBTRACT,
+                TrivialBlend::Screen => OffscreenMesh2dKey::BLEND_SCREEN,
+                TrivialBlend::Lighten => OffscreenMesh2dKey::BLEND_LIGHTEN,
+                TrivialBlend::Darken => OffscreenMesh2dKey::BLEND_DARKEN,
+                TrivialBlend::Multiply => OffscreenMesh2dKey::BLEND_MULTIPLY,
+                TrivialBlend::Normal => OffscreenMesh2dKey::BLEND_ALPHA,
+            },
+            _ => OffscreenMesh2dKey::BLEND_ALPHA,
+        }
     }
 }
 
@@ -722,7 +738,6 @@ pub(crate) fn init_bevel_filter_pipeline(
     });
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn special_and_queue_shape_draw(
     offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
     mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,
@@ -779,11 +794,7 @@ pub fn special_and_queue_shape_draw(
                         let Some(mesh) = render_meshes.get(mesh_draw.mesh.id()) else {
                             continue;
                         };
-                        let Some(mesh_key) = OffscreenMesh2dKey::from_bits(
-                            BlendModelKey::from(*blend_mode).bits() as u16,
-                        ) else {
-                            continue;
-                        };
+                        let mesh_key = OffscreenMesh2dKey::from(blend_mode);
                         let mesh_key = mesh_key
                             | match &mesh_draw.material {
                                 SwfMaterial::Color(_) => OffscreenMesh2dKey::COLOR,
@@ -816,11 +827,7 @@ pub fn special_and_queue_shape_draw(
                     let Some(mesh) = render_meshes.get(mesh_asset_id) else {
                         continue;
                     };
-                    let Some(mut mesh_key) = OffscreenMesh2dKey::from_bits(
-                        BlendModelKey::from(*blend_mode).bits() as u16,
-                    ) else {
-                        continue;
-                    };
+                    let mut mesh_key = OffscreenMesh2dKey::from(blend_mode);
                     mesh_key |= OffscreenMesh2dKey::BITMAP;
 
                     let Some(pipeline_id) = get_pipeline_id(&mesh.layout, mesh_key) else {
@@ -833,6 +840,7 @@ pub fn special_and_queue_shape_draw(
                         transform_offset,
                     });
                 }
+                _ => {}
             }
         }
     }

@@ -25,18 +25,6 @@ impl Plugin for SwfMaterialPlugin {
     }
 }
 
-bitflags::bitflags! {
-    #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub struct BlendModelKey:u8 {
-        const NORMAL                            = 0;
-        const BLEND_ADD                         = 1 << 0;  // Additive blending
-        const BLEND_SUBTRACT                    = 1 << 1;  // Subtractive blending
-        const BLEND_SCREEN                      = 1 << 2;  // Screen blending
-        const BLEND_LIGHTEN                     = 1 << 3;  // Lighten blending
-        const BLEND_DARKEN                      = 1 << 4;  // Darken blending
-        const BLEND_MULTIPLY                    = 1 << 5;  // Multiply blending
-    }
-}
 macro_rules! material2d {
     ($name:ident, $shader:expr) => {
         impl Material2d for $name {

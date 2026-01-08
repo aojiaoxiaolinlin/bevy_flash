@@ -10,7 +10,6 @@ use std::{hash::Hash, marker::PhantomData};
 use bevy::{
     app::{App, Plugin, PostUpdate},
     asset::{AssetApp, AssetEventSystems, AssetId, AssetServer, Assets, Handle, RenderAssetUsages},
-    camera::visibility::add_visibility_class,
     core_pipeline::core_2d::Transparent2d,
     ecs::{
         component::Tick,
@@ -44,9 +43,10 @@ use bevy::{
         },
         render_resource::{
             AsBindGroupError, BindGroup, BindGroupLayout, BindingResources, BlendComponent,
-            BlendFactor, BlendOperation, BlendState, CachedRenderPipelineId, PipelineCache,
-            RenderPipelineDescriptor, SpecializedMeshPipeline, SpecializedMeshPipelineError,
-            SpecializedMeshPipelines,
+            BlendFactor, BlendOperation, BlendState, CachedRenderPipelineId, ColorWrites,
+            CompareFunction, PipelineCache, RenderPipelineDescriptor, SpecializedMeshPipeline,
+            SpecializedMeshPipelineError, SpecializedMeshPipelines, StencilFaceState,
+            StencilOperation, StencilState, TextureFormat,
         },
         renderer::RenderDevice,
         sync_world::{MainEntity, MainEntityHashMap},
@@ -71,7 +71,7 @@ use crate::{
     player::Flash,
     render::{
         blend_pipeline::BlendMode,
-        material::{BlendModelKey, SwfMaterial, SwfMaterialPlugin},
+        material::{SwfMaterial, SwfMaterialPlugin},
         offscreen_texture::{ExtractedOffscreenTexture, OffscreenTexturePlugin},
         part_mesh2d::{
             ColorTransformUniform, DrawPartMesh2d, PartMesh2dPipeline, PartMesh2dRenderPlugin,
@@ -104,11 +104,6 @@ impl Plugin for FlashRenderPlugin {
         ))
         .init_resource::<FilterTextureMesh>()
         .init_resource::<ColorMaterialHandle>();
-
-        // 注册 Flash 组件的生命周期钩子和添加为可渲染组件
-        app.world_mut()
-            .register_component_hooks::<Flash>()
-            .on_add(add_visibility_class::<Flash>);
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -153,15 +148,26 @@ impl FromWorld for ColorMaterialHandle {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum MaskState {
+    #[default]
+    NoMask,
+    DrawMaskStencil,
+    DrawMaskedContent,
+    ClearMaskStencil,
+}
+
 #[derive(Clone, Debug)]
-pub struct RenderMaterial2dInstance<M: Material2d> {
-    pub material_id: AssetId<M>,
-    pub blend_mode: BlendMode,
+pub struct RenderPartMaterial2dInstance<M: Material2d> {
+    material_id: AssetId<M>,
+    blend_mode: BlendMode,
+    mask_state: MaskState,
+    num_masks: u32,
 }
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct RenderPartMaterial2dInstances<M: Material2d>(
-    MainEntityHashMap<IndexMap<usize, RenderMaterial2dInstance<M>>>,
+    pub MainEntityHashMap<IndexMap<usize, RenderPartMaterial2dInstance<M>>>,
 );
 
 impl<M: Material2d> Default for RenderPartMaterial2dInstances<M> {
@@ -184,6 +190,9 @@ fn extract_part_mesh2d_and_material(
     render_part_mesh_instances.clear();
     render_part_material_gradient_instances.clear();
     render_part_material_bitmap_instances.clear();
+
+    let mut num_masks = 0;
+    let mut mask_state = MaskState::default();
 
     for (entity, draw_shapes, global_transform) in query.iter() {
         let mut mesh_instances = IndexMap::default();
@@ -225,9 +234,11 @@ fn extract_part_mesh2d_and_material(
                                 );
                                 material_color_instances.insert(
                                     index,
-                                    RenderMaterial2dInstance {
+                                    RenderPartMaterial2dInstance {
                                         material_id: material.id(),
                                         blend_mode: *blend_mode,
+                                        num_masks,
+                                        mask_state,
                                     },
                                 );
                             }
@@ -246,9 +257,11 @@ fn extract_part_mesh2d_and_material(
                                 );
                                 material_gradient_instances.insert(
                                     index,
-                                    RenderMaterial2dInstance {
+                                    RenderPartMaterial2dInstance {
                                         material_id: material.id(),
                                         blend_mode: *blend_mode,
+                                        num_masks,
+                                        mask_state,
                                     },
                                 );
                             }
@@ -267,9 +280,11 @@ fn extract_part_mesh2d_and_material(
                                 );
                                 material_bitmap_instances.insert(
                                     index,
-                                    RenderMaterial2dInstance {
+                                    RenderPartMaterial2dInstance {
                                         material_id: material.id(),
                                         blend_mode: *blend_mode,
+                                        num_masks,
+                                        mask_state,
                                     },
                                 );
                             }
@@ -304,11 +319,38 @@ fn extract_part_mesh2d_and_material(
                     );
                     material_bitmap_instances.insert(
                         index,
-                        RenderMaterial2dInstance {
+                        RenderPartMaterial2dInstance {
                             material_id: material.id(),
                             blend_mode: *blend_mode,
+                            num_masks,
+                            mask_state,
                         },
                     );
+                }
+                ShapeCommand::PushMask => {
+                    debug_assert!(
+                        mask_state == MaskState::NoMask
+                            || mask_state == MaskState::DrawMaskedContent
+                    );
+                    num_masks += 1;
+                    mask_state = MaskState::DrawMaskStencil;
+                }
+                ShapeCommand::ActivateMask => {
+                    debug_assert!(num_masks > 0 && mask_state == MaskState::DrawMaskStencil);
+                    mask_state = MaskState::DrawMaskedContent;
+                }
+                ShapeCommand::DeactivateMask => {
+                    debug_assert!(num_masks > 0 && mask_state == MaskState::DrawMaskedContent);
+                    mask_state = MaskState::ClearMaskStencil;
+                }
+                ShapeCommand::PopMask => {
+                    debug_assert!(num_masks > 0 && mask_state == MaskState::ClearMaskStencil);
+                    num_masks -= 1;
+                    if num_masks == 0 {
+                        mask_state = MaskState::NoMask;
+                    } else {
+                        mask_state = MaskState::DrawMaskedContent;
+                    }
                 }
             }
         }
@@ -465,10 +507,22 @@ pub struct PartMaterial2dPipeline<M: Material2d> {
     marker: PhantomData<M>,
 }
 
+impl<M: Material2d> PartMaterial2dPipeline<M> {
+    fn mask_render_state(stencil_state: StencilFaceState) -> StencilState {
+        StencilState {
+            front: stencil_state,
+            back: stencil_state,
+            read_mask: !0,
+            write_mask: !0,
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct PartMaterial2dKey {
     pub mesh_key: Mesh2dPipelineKey,
-    pub blend_model_key: BlendModelKey,
+    pub blend_mode: BlendMode,
+    pub mask_state: MaskState,
 }
 
 impl<M: Material2d> Clone for PartMaterial2dPipeline<M> {
@@ -506,66 +560,107 @@ where
             ));
 
             if let Some(target) = &mut fragment.targets[0] {
-                if key.blend_model_key.contains(BlendModelKey::BLEND_ADD) {
-                    target.blend = Some(BlendState {
-                        color: BlendComponent {
-                            src_factor: BlendFactor::One,
-                            dst_factor: BlendFactor::One,
-                            operation: BlendOperation::Add,
-                        },
-                        alpha: BlendComponent::OVER,
-                    });
-                } else if key.blend_model_key.contains(BlendModelKey::BLEND_MULTIPLY) {
-                    target.blend = Some(BlendState {
-                        color: BlendComponent {
-                            src_factor: BlendFactor::Dst,
-                            dst_factor: BlendFactor::OneMinusSrcAlpha,
-                            operation: BlendOperation::Add,
-                        },
-                        alpha: BlendComponent::OVER,
-                    });
-                } else if key.blend_model_key.contains(BlendModelKey::BLEND_SUBTRACT) {
-                    target.blend = Some(BlendState {
-                        color: BlendComponent {
-                            src_factor: BlendFactor::One,
-                            dst_factor: BlendFactor::One,
-                            operation: BlendOperation::ReverseSubtract,
-                        },
-                        alpha: BlendComponent::OVER,
-                    });
-                } else if key.blend_model_key.contains(BlendModelKey::BLEND_SCREEN) {
-                    target.blend = Some(BlendState {
-                        color: BlendComponent {
-                            src_factor: BlendFactor::One,
-                            dst_factor: BlendFactor::OneMinusSrc,
-                            operation: BlendOperation::Add,
-                        },
-                        alpha: BlendComponent::OVER,
-                    });
-                } else if key.blend_model_key.contains(BlendModelKey::BLEND_LIGHTEN) {
-                    target.blend = Some(BlendState {
-                        color: BlendComponent {
-                            src_factor: BlendFactor::One,
-                            dst_factor: BlendFactor::One,
-                            operation: BlendOperation::Max,
-                        },
-                        alpha: BlendComponent::OVER,
-                    });
-                } else if key.blend_model_key.contains(BlendModelKey::BLEND_DARKEN) {
-                    target.blend = Some(BlendState {
-                        color: BlendComponent {
-                            src_factor: BlendFactor::One,
-                            dst_factor: BlendFactor::One,
-                            operation: BlendOperation::Min,
-                        },
-                        alpha: BlendComponent::OVER,
-                    });
-                } else {
-                    // Flash 中是预乘Alpha混合
-                    target.blend = Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING)
+                bevy::prelude::info!("Specializing fragment shader: {:?}", key.mask_state);
+                target.write_mask = match key.mask_state {
+                    MaskState::NoMask => ColorWrites::ALL,
+                    MaskState::DrawMaskStencil => ColorWrites::empty(),
+                    MaskState::DrawMaskedContent => ColorWrites::ALL,
+                    MaskState::ClearMaskStencil => ColorWrites::empty(),
+                };
+
+                target.blend = match key.blend_mode {
+                    BlendMode::Trivial(trivial_blend) => match trivial_blend {
+                        blend_pipeline::TrivialBlend::Normal => {
+                            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING)
+                        }
+                        blend_pipeline::TrivialBlend::Add => Some(BlendState {
+                            color: BlendComponent {
+                                src_factor: BlendFactor::One,
+                                dst_factor: BlendFactor::One,
+                                operation: BlendOperation::Add,
+                            },
+                            alpha: BlendComponent::OVER,
+                        }),
+                        blend_pipeline::TrivialBlend::Subtract => Some(BlendState {
+                            color: BlendComponent {
+                                src_factor: BlendFactor::One,
+                                dst_factor: BlendFactor::One,
+                                operation: BlendOperation::ReverseSubtract,
+                            },
+                            alpha: BlendComponent::OVER,
+                        }),
+                        blend_pipeline::TrivialBlend::Screen => Some(BlendState {
+                            color: BlendComponent {
+                                src_factor: BlendFactor::One,
+                                dst_factor: BlendFactor::OneMinusSrc,
+                                operation: BlendOperation::Add,
+                            },
+                            alpha: BlendComponent::OVER,
+                        }),
+                        blend_pipeline::TrivialBlend::Lighten => Some(BlendState {
+                            color: BlendComponent {
+                                src_factor: BlendFactor::One,
+                                dst_factor: BlendFactor::One,
+                                operation: BlendOperation::Max,
+                            },
+                            alpha: BlendComponent::OVER,
+                        }),
+                        blend_pipeline::TrivialBlend::Darken => Some(BlendState {
+                            color: BlendComponent {
+                                src_factor: BlendFactor::One,
+                                dst_factor: BlendFactor::One,
+                                operation: BlendOperation::Min,
+                            },
+                            alpha: BlendComponent::OVER,
+                        }),
+                        blend_pipeline::TrivialBlend::Multiply => Some(BlendState {
+                            color: BlendComponent {
+                                src_factor: BlendFactor::Dst,
+                                dst_factor: BlendFactor::OneMinusSrcAlpha,
+                                operation: BlendOperation::Add,
+                            },
+                            alpha: BlendComponent::OVER,
+                        }),
+                    },
+                    _ => Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 }
             }
         }
+
+        if let Some(ref mut _depth_stencil) = descriptor.depth_stencil {
+            // TODO: 等待Bevy 确定深度纹理格式的配置实现
+            // pr: https://github.com/bevyengine/bevy/pull/21493
+            // depth_stencil.format = TextureFormat::Depth32FloatStencil8;
+            // depth_stencil.depth_write_enabled = false;
+            // depth_stencil.depth_compare = CompareFunction::Always;
+            // depth_stencil.stencil = match key.mask_state {
+            //     MaskState::NoMask => Self::mask_render_state(StencilFaceState {
+            //         compare: CompareFunction::Always,
+            //         fail_op: StencilOperation::Keep,
+            //         depth_fail_op: StencilOperation::Keep,
+            //         pass_op: StencilOperation::Keep,
+            //     }),
+            //     MaskState::DrawMaskStencil => Self::mask_render_state(StencilFaceState {
+            //         compare: CompareFunction::Equal,
+            //         fail_op: StencilOperation::Keep,
+            //         depth_fail_op: StencilOperation::Keep,
+            //         pass_op: StencilOperation::IncrementClamp,
+            //     }),
+            //     MaskState::DrawMaskedContent => Self::mask_render_state(StencilFaceState {
+            //         compare: CompareFunction::Equal,
+            //         fail_op: StencilOperation::Keep,
+            //         depth_fail_op: StencilOperation::Keep,
+            //         pass_op: StencilOperation::Keep,
+            //     }),
+            //     MaskState::ClearMaskStencil => Self::mask_render_state(StencilFaceState {
+            //         compare: CompareFunction::Equal,
+            //         fail_op: StencilOperation::Keep,
+            //         depth_fail_op: StencilOperation::Keep,
+            //         pass_op: StencilOperation::DecrementClamp,
+            //     }),
+            // };
+        }
+
         if let Some(vertex_shader) = &self.vertex_shader {
             descriptor.vertex.shader = vertex_shader.clone();
         }
@@ -608,7 +703,6 @@ pub fn init_part_material_2d_pipeline<M: Material2d>(
     });
 }
 
-#[allow(clippy::too_many_arguments)]
 fn specialize_part_material2d<M: Material2d>(
     material2d_pipeline: Res<PartMaterial2dPipeline<M>>,
     mut pipelines: ResMut<SpecializedMeshPipelines<PartMaterial2dPipeline<M>>>,
@@ -682,7 +776,9 @@ fn specialize_part_material2d<M: Material2d>(
                 let Some(material_2d) = render_materials.get(material_instance.material_id) else {
                     continue;
                 };
-                let blend_model_key = BlendModelKey::from(material_instance.blend_mode);
+                let blend_mode = material_instance.blend_mode;
+
+                let mask_state = material_instance.mask_state;
 
                 let mesh_key = *view_key
                     | Mesh2dPipelineKey::from_primitive_topology(mesh.primitive_topology())
@@ -692,7 +788,8 @@ fn specialize_part_material2d<M: Material2d>(
                     &material2d_pipeline,
                     PartMaterial2dKey {
                         mesh_key,
-                        blend_model_key,
+                        blend_mode,
+                        mask_state,
                     },
                     &mesh.layout,
                 );
@@ -728,7 +825,7 @@ fn queue_part_material2d_meshes<M: Material2d>(
         return;
     }
     for (view_entity, view, visible_entities) in views.iter() {
-        let Some(view_speicalized_part_material_pipeline_cache) =
+        let Some(view_specialized_part_material_pipeline_cache) =
             specialized_part_material_pipeline_cache.get(view_entity)
         else {
             continue;
@@ -740,7 +837,7 @@ fn queue_part_material2d_meshes<M: Material2d>(
         };
 
         for (render_entity, visible_entity) in visible_entities.iter::<Flash>() {
-            let Some((_, pipeline_ids)) = view_speicalized_part_material_pipeline_cache
+            let Some((_, pipeline_ids)) = view_specialized_part_material_pipeline_cache
                 .get(visible_entity)
                 .map(|(current_change_tick, pipeline_id)| {
                     (*current_change_tick, pipeline_id.clone())

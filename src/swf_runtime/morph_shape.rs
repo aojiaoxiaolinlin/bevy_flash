@@ -11,6 +11,7 @@ use std::sync::Arc;
 use swf::{CharacterId, Color, Fixed8, Fixed16, Point, Rectangle, Twips};
 
 use crate::{
+    animator::RenderContext,
     assets::MeshDraw,
     render::material::SwfMaterial,
     swf_runtime::{
@@ -74,7 +75,7 @@ impl MorphShape {
             .or_insert_with(|| Self::build_morph_frame(&self.start, &self.end, ratio))
     }
 
-    fn get_shape(&mut self, ratio: u16, context: &mut crate::RenderContext) -> Handle<Shape> {
+    fn get_shape(&mut self, ratio: u16, context: &mut RenderContext) -> Handle<Shape> {
         let frame = self.get_frame(ratio, context.morph_shape_cache);
         if let Some(handle) = &frame.handle {
             handle.clone()
@@ -320,7 +321,7 @@ impl TDisplayObject for MorphShape {
         self.movie.clone()
     }
 
-    fn self_bounds(&mut self, context: &mut crate::RenderContext) -> Rectangle<Twips> {
+    fn self_bounds(&mut self, context: &mut RenderContext) -> Rectangle<Twips> {
         self.get_frame(self.ratio, context.morph_shape_cache)
             .bounds
             .clone()
@@ -330,7 +331,7 @@ impl TDisplayObject for MorphShape {
         self.id
     }
 
-    fn render_self(&mut self, context: &mut crate::RenderContext, blend_mode: swf::BlendMode) {
+    fn render_self(&mut self, context: &mut RenderContext, blend_mode: swf::BlendMode) {
         let handle = self.get_shape(self.ratio, context);
         context.render_shape(
             handle,

@@ -290,7 +290,7 @@ impl SpecializedMeshPipeline for PartMesh2dPipeline {
 
         let (depth_write_enabled, label, blend);
         if key.contains(Mesh2dPipelineKey::BLEND_ALPHA) {
-            label = "transparent_mesh2d_pipeline";
+            label = "transparent_part_mesh2d_pipeline";
             blend = Some(BlendState::ALPHA_BLENDING);
             depth_write_enabled = false;
         } else {

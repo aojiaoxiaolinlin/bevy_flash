@@ -1,6 +1,4 @@
-use super::material::BlendModelKey;
-
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TrivialBlend {
     Normal,
     Add,
@@ -11,7 +9,7 @@ pub enum TrivialBlend {
     Multiply,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ComplexBlend {
     // Multiply,   // Can't be trivial, 0 alpha is special case
     Difference, // Can't be trivial, relies on abs operation
@@ -22,8 +20,7 @@ pub enum ComplexBlend {
     HardLight,  // Can't be trivial, big math expression
 }
 
-#[derive(Clone, Copy, Debug)]
-#[expect(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BlendMode {
     Trivial(TrivialBlend),
     /// TODO: 需要抓取屏幕纹理进行混合
@@ -47,21 +44,6 @@ impl From<swf::BlendMode> for BlendMode {
             swf::BlendMode::Erase => BlendMode::Complex(ComplexBlend::Erase),
             swf::BlendMode::Overlay => BlendMode::Complex(ComplexBlend::Overlay),
             swf::BlendMode::HardLight => BlendMode::Complex(ComplexBlend::HardLight),
-        }
-    }
-}
-
-impl From<BlendMode> for BlendModelKey {
-    fn from(value: BlendMode) -> Self {
-        match value {
-            BlendMode::Trivial(TrivialBlend::Normal) => BlendModelKey::NORMAL,
-            BlendMode::Trivial(TrivialBlend::Add) => BlendModelKey::BLEND_ADD,
-            BlendMode::Trivial(TrivialBlend::Subtract) => BlendModelKey::BLEND_SUBTRACT,
-            BlendMode::Trivial(TrivialBlend::Screen) => BlendModelKey::BLEND_SCREEN,
-            BlendMode::Trivial(TrivialBlend::Lighten) => BlendModelKey::BLEND_LIGHTEN,
-            BlendMode::Trivial(TrivialBlend::Multiply) => BlendModelKey::BLEND_MULTIPLY,
-            BlendMode::Trivial(TrivialBlend::Darken) => BlendModelKey::BLEND_DARKEN,
-            _ => BlendModelKey::NORMAL,
         }
     }
 }

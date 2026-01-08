@@ -64,12 +64,12 @@ pub struct Shape(pub Vec<MeshDraw>);
 #[derive(Asset, TypePath)]
 pub struct Swf {
     /// 存储角色ID与形状资源句柄的映射关系
-    pub shape_handles: HashMap<CharacterId, Handle<Shape>>,
-    pub library: MovieLibrary,
+    shapes: HashMap<CharacterId, Handle<Shape>>,
+    library: MovieLibrary,
     /// 动画名称，以及动画的起始帧和总帧长
-    pub animations: HashMap<Box<str>, (FrameNumber, FrameNumber)>,
-    pub frame_events: HashMap<FrameNumber, Box<str>>,
-    pub swf_movie: Arc<SwfMovie>,
+    animations: HashMap<Box<str>, (FrameNumber, FrameNumber)>,
+    frame_events: HashMap<FrameNumber, Box<str>>,
+    swf_movie: Arc<SwfMovie>,
 }
 
 impl Swf {
@@ -83,6 +83,14 @@ impl Swf {
 
     pub fn characters(&self) -> &HashMap<CharacterId, Character> {
         &self.library.characters
+    }
+
+    pub fn movie(&self) -> Arc<SwfMovie> {
+        self.swf_movie.clone()
+    }
+
+    pub fn shapes(&self) -> &HashMap<CharacterId, Handle<Shape>> {
+        &self.shapes
     }
 }
 
@@ -130,7 +138,7 @@ impl AssetLoader for SwfLoader {
         let mut mesh_index = 0;
         let mut image_index = 0;
         let mut material_index = 0;
-        let mut shape_handles = HashMap::new();
+        let mut shapes = HashMap::new();
 
         let color_material =
             load_context.add_labeled_asset("color_material".to_owned(), ColorMaterial::default());
@@ -146,7 +154,7 @@ impl AssetLoader for SwfLoader {
                     &mut mesh_index,
                     &mut material_index,
                 );
-                shape_handles.insert(
+                shapes.insert(
                     graphic.id(),
                     load_context.add_labeled_asset(
                         SwfAssetLabel::Shape(graphic.id()).to_string(),
@@ -191,7 +199,7 @@ impl AssetLoader for SwfLoader {
             }
         }
         Ok(Swf {
-            shape_handles,
+            shapes,
             library,
             animations,
             frame_events,

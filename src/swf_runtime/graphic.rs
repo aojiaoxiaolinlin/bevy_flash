@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bevy::platform::collections::HashMap;
 use swf::{BlendMode, CharacterId, Rectangle, Twips};
 
-use crate::{RenderContext, swf_runtime::character::Character};
+use crate::{animator::RenderContext, swf_runtime::character::Character};
 
 use super::{
     display_object::{DisplayObject, DisplayObjectBase, TDisplayObject},

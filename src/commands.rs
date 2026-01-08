@@ -25,6 +25,10 @@ pub(crate) enum ShapeCommand {
         transform: Transform,
         blend_mode: BlendMode,
     },
+    PushMask,
+    ActivateMask,
+    DeactivateMask,
+    PopMask,
 }
 
 /// 每帧所有Shape的绘制命令

@@ -164,17 +164,6 @@ impl ViewNode for FilterPostProcessingNode {
                         post_process.destination,
                         "color_matrix_filter_render_pass",
                     );
-                    // render_context.begin_tracked_render_pass(RenderPassDescriptor {
-                    //     label: Some("color_matrix_filter_render_pass"),
-                    //     color_attachments: &[Some(RenderPassColorAttachment {
-                    //         view: post_process.destination,
-                    //         resolve_target: None,
-                    //         ops: Operations::default(),
-                    //     })],
-                    //     depth_stencil_attachment: None,
-                    //     timestamp_writes: None,
-                    //     occlusion_query_set: None,
-                    // });
                     render_pass.set_render_pipeline(pipeline);
                     render_pass.set_bind_group(0, &bind_group, &[]);
                     render_pass.draw(0..3, 0..1);

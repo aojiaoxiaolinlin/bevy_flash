@@ -1,6 +1,7 @@
 use crate::{assets::Swf, swf_runtime::movie_clip::MovieClip};
 use bevy::{
     asset::{AsAssetId, AssetId, Handle},
+    camera::visibility::{VisibilityClass, add_visibility_class},
     log::error,
     prelude::{
         Component, Deref, DerefMut, ReflectComponent, ReflectDefault, Transform, Visibility,
@@ -73,8 +74,13 @@ impl FlashPlayer {
         self.completed = false;
     }
 
-    pub fn completed(&self) -> bool {
-        self.completed
+    pub fn try_complete(&mut self) -> bool {
+        if self.completed {
+            false
+        } else {
+            self.completed = true;
+            true
+        }
     }
 
     pub fn set_completed(&mut self, completed: bool) {
@@ -158,7 +164,8 @@ impl Default for FlashPlayer {
 pub struct McRoot(pub MovieClip);
 
 #[derive(Debug, Clone, Component, Default, Reflect, Deref, DerefMut)]
-#[require(FlashPlayer, Transform, Visibility)]
+#[component(on_add = add_visibility_class::<Flash>)]
+#[require(FlashPlayer, Transform, Visibility, VisibilityClass)]
 #[reflect(Component, Default)]
 pub struct Flash(pub Handle<Swf>);
 

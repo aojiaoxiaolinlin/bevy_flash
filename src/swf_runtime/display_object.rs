@@ -11,7 +11,7 @@ use bevy::{
 };
 use swf::{BlendMode, CharacterId, ColorTransform, Depth, Rectangle, Twips};
 
-use crate::RenderContext;
+use crate::animator::RenderContext;
 
 use super::{
     character::Character, filter::Filter, graphic::Graphic, matrix::Matrix,
@@ -88,7 +88,6 @@ impl ImageCache {
         self.dirty
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         images: &mut Assets<Image>,
@@ -371,7 +370,7 @@ pub(crate) trait TDisplayObject: Clone + Into<DisplayObject> {
         }
         if version >= 11 {
             if let Some(_visible) = place_object.is_visible {
-                //TODO:
+                // TODO:
                 warn_once!("visible is not supported. id: {}. TODO!", self.id());
             }
             if let Some(_color) = place_object.background_color {}
