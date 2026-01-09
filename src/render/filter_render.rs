@@ -27,6 +27,7 @@ use bevy::{
     prelude::{Deref, DerefMut},
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
+        extract_component::{ExtractComponent, ExtractComponentPlugin},
         mesh::RenderMesh,
         render_asset::RenderAssets,
         render_resource::{
@@ -53,8 +54,9 @@ use crate::{
     render::{
         blend_pipeline::{BlendMode, TrivialBlend},
         material::{BitmapMaterial, GradientMaterial, SwfMaterial, TransformUniform},
-        offscreen_texture::{ExtractedOffscreenTexture, ViewTarget},
+        offscreen_render::{ExtractedOffscreenCamera, ViewTarget},
     },
+    swf_runtime::filter::Filter,
 };
 
 use self::graph::SwfFilterRenderGraphPlugin;
@@ -98,7 +100,8 @@ impl Plugin for SwfFilterRenderPlugin {
             Shader::from_wgsl
         );
 
-        app.add_plugins(SwfFilterRenderGraphPlugin);
+        app.add_plugins(SwfFilterRenderGraphPlugin)
+            .add_plugins(ExtractComponentPlugin::<Filters>::default());
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -127,6 +130,9 @@ impl Plugin for SwfFilterRenderPlugin {
             );
     }
 }
+
+#[derive(Component, Deref, DerefMut, Default, Clone, ExtractComponent)]
+pub struct Filters(pub Vec<Filter>);
 
 #[derive(Component)]
 pub struct ViewUpscalingPipeline(CachedRenderPipelineId);
@@ -742,7 +748,7 @@ pub fn special_and_queue_shape_draw(
     offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
     mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,
     pipeline_cache: Res<PipelineCache>,
-    query: Query<(Entity, &OffscreenDrawShapes), With<ExtractedOffscreenTexture>>,
+    query: Query<(Entity, &OffscreenDrawShapes), With<ExtractedOffscreenCamera>>,
     render_meshes: Res<RenderAssets<RenderMesh>>,
     mut render_phases: ResMut<OffscreenFlashShapeRenderPhases>,
     mut filter_uniform_buffers: ResMut<FilterUniformBuffers>,

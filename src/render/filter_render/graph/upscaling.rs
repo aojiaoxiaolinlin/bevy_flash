@@ -11,7 +11,7 @@ use bevy::{
 
 use crate::render::{
     filter_render::ViewUpscalingPipeline,
-    offscreen_texture::{ExtractedOffscreenTexture, ViewTarget},
+    offscreen_render::{ExtractedOffscreenCamera, ViewTarget},
 };
 
 #[derive(Default)]
@@ -23,7 +23,7 @@ impl ViewNode for OffscreenUpscalingNode {
     type ViewQuery = (
         &'static ViewTarget,
         &'static ViewUpscalingPipeline,
-        &'static ExtractedOffscreenTexture,
+        &'static ExtractedOffscreenCamera,
     );
 
     fn run<'w>(

@@ -2,6 +2,7 @@
     "cSpell.words": [
         "Bgra",
         "bitflags",
+        "Blit",
         "Bufferable",
         "bytemuck",
         "copyless",
@@ -26,6 +27,7 @@
         "Srgb",
         "srgba",
         "tessellator",
+        "Texel",
         "thiserror",
         "TONEMAP",
         "TONEMAPPING",

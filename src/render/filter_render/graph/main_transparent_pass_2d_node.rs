@@ -12,7 +12,7 @@ use crate::render::{
     PreparedPartMaterial2d,
     filter_render::{DrawType, OffscreenFlashShapeRenderPhases},
     material::{BitmapMaterial, GradientMaterial},
-    offscreen_texture::{ExtractedOffscreenTexture, FilterBindGroup, FilterOffsets, ViewTarget},
+    offscreen_render::{ExtractedOffscreenCamera, FilterBindGroup, FilterOffsets, ViewTarget},
 };
 
 #[derive(Default)]
@@ -20,7 +20,7 @@ pub struct OffscreenMainTransparentPass2dNode;
 
 impl ViewNode for OffscreenMainTransparentPass2dNode {
     type ViewQuery = (
-        &'static ExtractedOffscreenTexture,
+        &'static ExtractedOffscreenCamera,
         &'static ViewTarget,
         &'static FilterOffsets,
     );

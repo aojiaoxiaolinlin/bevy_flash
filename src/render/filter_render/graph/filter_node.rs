@@ -2,10 +2,10 @@ use crate::{
     render::{
         filter_render::{
             BevelFilterPipeline, BevelUniform, BlurFilterPipeline, BlurUniform,
-            ColorMatrixFilterPipeline, ColorMatrixUniform, GlowFilterPipeline, GlowFilterUniform,
-            get_filter_vertex_with_double_blur,
+            ColorMatrixFilterPipeline, ColorMatrixUniform, Filters, GlowFilterPipeline,
+            GlowFilterUniform, get_filter_vertex_with_double_blur,
         },
-        offscreen_texture::{ExtractedOffscreenTexture, ViewTarget},
+        offscreen_render::{ExtractedOffscreenCamera, ViewTarget},
     },
     swf_runtime::filter::Filter::{
         BevelFilter, BlurFilter, ColorMatrixFilter, ConvolutionFilter, DropShadowFilter,
@@ -32,13 +32,21 @@ use bevy::{
 pub struct FilterPostProcessingNode;
 
 impl ViewNode for FilterPostProcessingNode {
-    type ViewQuery = (&'static ExtractedOffscreenTexture, &'static ViewTarget);
+    type ViewQuery = (
+        &'static ExtractedOffscreenCamera,
+        &'static Filters,
+        &'static ViewTarget,
+    );
 
     fn run<'w>(
         &self,
         _graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext<'w>,
-        (offscreen_texture, view_target): bevy::ecs::query::QueryItem<'w, '_, Self::ViewQuery>,
+        (offscreen_camera, filters, view_target): bevy::ecs::query::QueryItem<
+            'w,
+            '_,
+            Self::ViewQuery,
+        >,
         world: &'w bevy::ecs::world::World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let pipeline_cache = world.resource::<PipelineCache>();
@@ -48,8 +56,8 @@ impl ViewNode for FilterPostProcessingNode {
         let bevel_filter_pipeline = world.resource::<BevelFilterPipeline>();
 
         // 以下算法均来自于Ruffle
-        let size = offscreen_texture.size;
-        for filter in offscreen_texture.filters.iter() {
+        let size = offscreen_camera.size;
+        for filter in filters.iter() {
             match filter {
                 BlurFilter(blur_filter) => {
                     let Some(pipeline) =

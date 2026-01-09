@@ -27,8 +27,9 @@ use crate::{
     render::{
         ColorMaterialHandle, FilterTextureMesh,
         blend_pipeline::BlendMode,
+        filter_render::Filters,
         material::{BitmapMaterial, ColorMaterial, GradientMaterial},
-        offscreen_texture::OffscreenTexture,
+        offscreen_render::OffscreenCamera,
     },
     swf_runtime::{
         display_object::{DisplayObject, ImageCache, ImageCacheInfo, TDisplayObject},
@@ -239,7 +240,7 @@ pub fn advance_animation(
         &Flash,
         &GlobalTransform,
     )>,
-    mut offscreen_textures: Query<&mut OffscreenTexture>,
+    mut offscreen_renders: Query<(&mut OffscreenCamera, &mut Filters)>,
     mut shapes: ResMut<Assets<Shape>>,
     swf_res: Res<Assets<Swf>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -251,7 +252,7 @@ pub fn advance_animation(
 ) {
     let mut current_live_player = vec![];
     // 1. 将动画的每一帧将离屏渲染实体列为不活跃
-    mark_offscreen_textures_inactive(&mut offscreen_textures);
+    mark_offscreen_textures_inactive(&mut offscreen_renders);
     // 2. 更新动画帧
     for (entity, mut player, mut timer, mut root, mut transform, swf, global_transform) in
         player.iter_mut()
@@ -328,7 +329,7 @@ pub fn advance_animation(
                 &mut commands,
                 entity,
                 cache_draws,
-                &mut offscreen_textures,
+                &mut offscreen_renders,
                 display_object_cache,
                 global_scale,
             );
@@ -361,11 +362,13 @@ pub fn prepare_root_clip(
     }
 }
 
-fn mark_offscreen_textures_inactive(offscreen_textures: &mut Query<&mut OffscreenTexture>) {
-    offscreen_textures
+fn mark_offscreen_textures_inactive(
+    offscreen_renders: &mut Query<(&mut OffscreenCamera, &mut Filters)>,
+) {
+    offscreen_renders
         .iter_mut()
-        .for_each(|mut offscreen_texture| {
-            offscreen_texture.is_active = false;
+        .for_each(|(mut offscreen_camera, _)| {
+            offscreen_camera.is_active = false;
         });
 }
 
@@ -423,8 +426,8 @@ fn process_display_list(
     is_root: bool,
 ) {
     // TODO:混合模式也有多个MC合成的情况，这里暂时没实现多MC合成的情况，暂时只实现单个图形的情况
-    // 实现方案：参考 Ruffle 中的处理方式，由多个Shape合成的MC上实现Blend模式需要渲染到一个OffscreenTexture中，
-    // 然后将OffscreenTexture渲染到屏幕上，这样做又需要使用OffscreenDrawCommand在渲染图中实现。
+    // 实现方案：参考 Ruffle 中的处理方式，由多个Shape合成的MC上实现Blend模式需要渲染到一个OffscreenCamera中，
+    // 然后将OffscreenCamera渲染到屏幕上，这样做又需要使用OffscreenDrawCommand在渲染图中实现。
     let blend_mode = if display_list.len() > 1 {
         swf::BlendMode::Normal
     } else {
@@ -451,9 +454,8 @@ fn process_display_list(
         if display_object.clip_depth() > 0 && display_object.allow_as_mask() {
             info!("Processing mask display object，{}", display_object.id());
             clip_depth_stack.push((clip_depth, display_object.clone()));
-            // 作为遮罩处理
             clip_depth = display_object.clip_depth();
-            // 1. 标记为遮罩TODO:
+            // 1. 标记为遮罩
             context.push_mask();
             // 2. 渲染（画遮罩）
             process_display_object(
@@ -815,7 +817,7 @@ fn spawn_offscreen_texture(
     commands: &mut Commands,
     entity: Entity,
     cache_draws: Vec<ImageCacheDraw>,
-    offscreen_textures: &mut Query<&mut OffscreenTexture>,
+    offscreen_renders: &mut Query<(&mut OffscreenCamera, &mut Filters)>,
     display_object_cache: &mut DisplayObjectCache,
     scale: Vec3,
 ) {
@@ -831,16 +833,18 @@ fn spawn_offscreen_texture(
 
         // 更新或创建离屏纹理实体
         if let Some(entity) = layer_offscreen_cache.get(&cache_draw.layer) {
-            let Ok(mut offscreen_texture) = offscreen_textures.get_mut(*entity) else {
+            let Ok((mut offscreen_camera, mut filters)) = offscreen_renders.get_mut(*entity) else {
                 return;
             };
 
             // 更新离屏纹理属性
-            offscreen_texture.is_active = true;
-            offscreen_texture.target = cache_draw.handle.clone().into();
-            offscreen_texture.size = cache_draw.size;
-            offscreen_texture.scale = scale;
-            offscreen_texture.filters = cache_draw.filters.clone();
+            offscreen_camera.is_active = true;
+            offscreen_camera.target = cache_draw.handle.clone().into();
+            offscreen_camera.size = cache_draw.size;
+            offscreen_camera.scale = scale;
+
+            filters.clear();
+            filters.extend(cache_draw.filters.clone());
 
             // 更新绘制命令
             commands
@@ -851,15 +855,15 @@ fn spawn_offscreen_texture(
             commands.entity(entity).with_children(|parent| {
                 let entity = parent
                     .spawn((
-                        OffscreenTexture {
+                        OffscreenCamera {
                             target: cache_draw.handle.clone().into(),
                             is_active: true,
                             size: cache_draw.size,
                             clear_color: cache_draw.clear_color,
                             order,
-                            filters: cache_draw.filters.clone(),
                             scale,
                         },
+                        Filters(cache_draw.filters.clone()),
                         OffscreenDrawShapes(cache_draw.commands.clone()),
                     ))
                     .id();

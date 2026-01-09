@@ -42,28 +42,26 @@ use crate::{
         },
         texture_attachment::ColorAttachment,
     },
-    swf_runtime::filter::Filter,
 };
 
 #[derive(Component, Default, Clone)]
-#[require(OffscreenTextureRenderGraph::new(OffscreenCore2d), SyncToRenderWorld)]
-pub struct OffscreenTexture {
+#[require(OffscreenCameraRenderGraph::new(OffscreenCore2d), SyncToRenderWorld)]
+pub struct OffscreenCamera {
     pub is_active: bool,
     pub order: isize,
     pub size: UVec2,
     pub target: RenderTarget,
     pub clear_color: Color,
-    pub filters: Vec<Filter>,
     pub scale: Vec3,
 }
 
 #[derive(Component, Debug, Deref, DerefMut, Reflect, Clone)]
 #[reflect(opaque)]
 #[reflect(Component, Debug, Clone)]
-pub struct OffscreenTextureRenderGraph(InternedRenderSubGraph);
+pub struct OffscreenCameraRenderGraph(InternedRenderSubGraph);
 
-impl OffscreenTextureRenderGraph {
-    /// Creates a new [`OffscreenTextureRenderGraph`] from any string-like type.
+impl OffscreenCameraRenderGraph {
+    /// Creates a new [`OffscreenCameraRenderGraph`] from any string-like type.
     #[inline]
     pub fn new<T: RenderSubGraph>(name: T) -> Self {
         Self(name.intern())
@@ -71,45 +69,37 @@ impl OffscreenTextureRenderGraph {
 }
 
 #[derive(Component)]
-pub struct ExtractedOffscreenTexture {
+pub struct ExtractedOffscreenCamera {
     pub order: isize,
     pub size: UVec2,
     pub target: Option<NormalizedRenderTarget>,
     pub clear_color: Color,
     pub render_graph: InternedRenderSubGraph,
-    pub filters: Vec<Filter>,
     pub scale: Vec3,
 }
 
-pub fn extract_offscreen_textures(
+pub fn extract_offscreen_cameras(
     mut commands: Commands,
     mut render_phases: ResMut<OffscreenFlashShapeRenderPhases>,
-    query: Extract<
-        Query<(
-            RenderEntity,
-            &OffscreenTexture,
-            &OffscreenTextureRenderGraph,
-        )>,
-    >,
+    query: Extract<Query<(RenderEntity, &OffscreenCamera, &OffscreenCameraRenderGraph)>>,
 ) {
     let mut live_entities = <HashSet<MainEntity>>::new();
-    for (render_entity, offscreen_texture, render_graph) in query.iter() {
-        if !offscreen_texture.is_active {
+    for (render_entity, offscreen_camera, render_graph) in query.iter() {
+        if !offscreen_camera.is_active {
             commands
                 .entity(render_entity)
-                .remove::<ExtractedOffscreenTexture>();
+                .remove::<ExtractedOffscreenCamera>();
             continue;
         }
         let mut commands = commands.entity(render_entity);
-        commands.insert(ExtractedOffscreenTexture {
-            order: offscreen_texture.order,
-            size: offscreen_texture.size,
-            target: offscreen_texture.target.normalize(None),
-            clear_color: offscreen_texture.clear_color,
+        commands.insert((ExtractedOffscreenCamera {
+            order: offscreen_camera.order,
+            size: offscreen_camera.size,
+            target: offscreen_camera.target.normalize(None),
+            clear_color: offscreen_camera.clear_color,
             render_graph: render_graph.0,
-            filters: offscreen_texture.filters.clone(),
-            scale: offscreen_texture.scale,
-        });
+            scale: offscreen_camera.scale,
+        },));
         render_phases.insert_or_clear(render_entity.into());
         live_entities.insert(render_entity.into());
     }
@@ -117,9 +107,9 @@ pub fn extract_offscreen_textures(
 }
 
 #[derive(Resource, Default, DerefMut, Deref)]
-pub struct SortedOffscreenTextures(pub Vec<SortedOffscreenTexture>);
+pub struct SortedOffscreenCameras(pub Vec<SortedOffscreenCamera>);
 
-pub struct SortedOffscreenTexture {
+pub struct SortedOffscreenCamera {
     pub entity: Entity,
     pub order: isize,
 }
@@ -230,9 +220,9 @@ impl MainTargetTextures {
     }
 }
 
-pub struct OffscreenTexturePlugin;
+pub struct OffscreenRenderPlugin;
 
-impl Plugin for OffscreenTexturePlugin {
+impl Plugin for OffscreenRenderPlugin {
     fn build(&self, app: &mut bevy::app::App) {
         app.add_plugins(ExtractComponentPlugin::<OffscreenDrawShapes>::default());
 
@@ -240,19 +230,19 @@ impl Plugin for OffscreenTexturePlugin {
             return;
         };
         render_app
-            .init_resource::<SortedOffscreenTextures>()
+            .init_resource::<SortedOffscreenCameras>()
             .init_resource::<OffscreenFlashShapeRenderPhases>()
             .init_resource::<FilterUniformBuffers>()
-            .add_systems(ExtractSchedule, extract_offscreen_textures)
+            .add_systems(ExtractSchedule, extract_offscreen_cameras)
             .add_systems(
                 Render,
                 (
-                    sort_offscreen_textures.in_set(RenderSystems::ManageViews),
+                    sort_offscreen_cameras.in_set(RenderSystems::ManageViews),
                     prepare_offscreen_view_attachments
                         .in_set(RenderSystems::ManageViews)
-                        .before(prepare_offscreen_texture_view_target)
+                        .before(prepare_offscreen_view_target)
                         .after(prepare_windows),
-                    prepare_offscreen_texture_view_target.in_set(RenderSystems::ManageViews),
+                    prepare_offscreen_view_target.in_set(RenderSystems::ManageViews),
                     prepare_offscreen_shape_filter_uniform.in_set(RenderSystems::PrepareResources),
                     prepare_offscreen_shape_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 ),
@@ -260,27 +250,27 @@ impl Plugin for OffscreenTexturePlugin {
     }
 }
 
-fn sort_offscreen_textures(
-    mut sorted_offscreen_textures: ResMut<SortedOffscreenTextures>,
-    mut offscreen_textures: Query<(Entity, &mut ExtractedOffscreenTexture)>,
+fn sort_offscreen_cameras(
+    mut sorted_offscreen_cameras: ResMut<SortedOffscreenCameras>,
+    mut offscreen_cameras: Query<(Entity, &mut ExtractedOffscreenCamera)>,
 ) {
-    sorted_offscreen_textures.clear();
-    for (entity, offscreen_texture) in offscreen_textures.iter_mut() {
-        sorted_offscreen_textures.push(SortedOffscreenTexture {
+    sorted_offscreen_cameras.clear();
+    for (entity, offscreen_camera) in offscreen_cameras.iter_mut() {
+        sorted_offscreen_cameras.push(SortedOffscreenCamera {
             entity,
-            order: offscreen_texture.order,
+            order: offscreen_camera.order,
         });
     }
-    sorted_offscreen_textures.sort_by_key(|k| k.order);
+    sorted_offscreen_cameras.sort_by_key(|k| k.order);
 }
 
 fn prepare_offscreen_view_attachments(
     images: Res<RenderAssets<GpuImage>>,
-    offscreen_textures: Query<&ExtractedOffscreenTexture>,
+    offscreen_cameras: Query<&ExtractedOffscreenCamera>,
     mut view_target_attachments: ResMut<ViewTargetAttachments>,
 ) {
-    for offscreen_texture in offscreen_textures.iter() {
-        let Some(target) = &offscreen_texture.target else {
+    for offscreen_cameras in offscreen_cameras.iter() {
+        let Some(target) = &offscreen_cameras.target else {
             continue;
         };
         match view_target_attachments.entry(target.clone()) {
@@ -306,17 +296,16 @@ fn prepare_offscreen_view_attachments(
     }
 }
 
-fn prepare_offscreen_texture_view_target(
+fn prepare_offscreen_view_target(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     mut texture_cache: ResMut<TextureCache>,
-    offscreen_textures: Query<(Entity, &ExtractedOffscreenTexture)>,
+    offscreen_cameras: Query<(Entity, &ExtractedOffscreenCamera)>,
     view_target_attachments: ResMut<ViewTargetAttachments>,
 ) {
     let mut textures = HashMap::new();
-    for (entity, offscreen_texture) in offscreen_textures.iter() {
-        let (target_size, Some(target)) = (offscreen_texture.size, &offscreen_texture.target)
-        else {
+    for (entity, offscreen_camera) in offscreen_cameras.iter() {
+        let (target_size, Some(target)) = (offscreen_camera.size, &offscreen_camera.target) else {
             continue;
         };
 
@@ -332,12 +321,12 @@ fn prepare_offscreen_texture_view_target(
 
         let main_texture_format = TextureFormat::Rgba8Unorm;
         let msaa = Msaa::default();
-        let clear_color = offscreen_texture.clear_color;
+        let clear_color = offscreen_camera.clear_color;
         let texture_usage = TextureUsages::RENDER_ATTACHMENT
             | TextureUsages::COPY_SRC
             | TextureUsages::TEXTURE_BINDING;
         let (a, b, sample, main_texture) = textures
-            .entry((offscreen_texture.target.clone(), texture_usage, msaa))
+            .entry((offscreen_camera.target.clone(), texture_usage, msaa))
             .or_insert_with(|| {
                 let descriptor = TextureDescriptor {
                     label: None,
@@ -406,7 +395,7 @@ fn prepare_offscreen_texture_view_target(
 
 fn prepare_offscreen_shape_filter_uniform(
     mut commands: Commands,
-    query: Query<(Entity, &ExtractedOffscreenTexture)>,
+    query: Query<(Entity, &ExtractedOffscreenCamera)>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut filter_uniform_buffers: ResMut<FilterUniformBuffers>,
@@ -416,9 +405,9 @@ fn prepare_offscreen_shape_filter_uniform(
     }
 
     filter_uniform_buffers.clear();
-    for (entity, offscreen_texture) in query.iter() {
-        let size = offscreen_texture.size.as_vec2();
-        let scale = offscreen_texture.scale;
+    for (entity, offscreen_cameras) in query.iter() {
+        let size = offscreen_cameras.size.as_vec2();
+        let scale = offscreen_cameras.scale;
         let view_matrix = Mat4::from_cols_array_2d(&[
             [2.0 * scale.x / size.x, 0.0, 0.0, 0.0],
             [0.0, -2.0 * scale.y / size.y, 0.0, 0.0],
@@ -438,7 +427,7 @@ fn prepare_offscreen_shape_filter_uniform(
 
 fn prepare_offscreen_shape_bind_group(
     mut commands: Commands,
-    query: Query<Entity, With<ExtractedOffscreenTexture>>,
+    query: Query<Entity, With<ExtractedOffscreenCamera>>,
     offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
     render_device: Res<RenderDevice>,
     filter_uniform_buffers: Res<FilterUniformBuffers>,

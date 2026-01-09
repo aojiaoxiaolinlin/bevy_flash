@@ -3,13 +3,13 @@ use bevy::{
     render::render_graph::{Node, RenderLabel},
 };
 
-use crate::render::{ExtractedOffscreenTexture, offscreen_texture::SortedOffscreenTextures};
+use crate::render::offscreen_render::{ExtractedOffscreenCamera, SortedOffscreenCameras};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub struct OffscreenTextureMultiPassPostProcessingDriverLabel;
 
 pub struct OffscreenTextureMultiPassPostProcessingDriverNode {
-    offscreen_textures: QueryState<&'static ExtractedOffscreenTexture>,
+    offscreen_textures: QueryState<&'static ExtractedOffscreenCamera>,
 }
 
 impl OffscreenTextureMultiPassPostProcessingDriverNode {
@@ -31,19 +31,19 @@ impl Node for OffscreenTextureMultiPassPostProcessingDriverNode {
         _render_context: &mut bevy::render::renderer::RenderContext<'w>,
         world: &'w bevy::ecs::world::World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
-        let sorted_offscreen_textures = world.resource::<SortedOffscreenTextures>();
+        let sorted_offscreen_cameras = world.resource::<SortedOffscreenCameras>();
 
-        for sorted_offscreen_texture in &sorted_offscreen_textures.0 {
-            let Ok(offscreen_texture) = self
+        for sorted_offscreen_camera in &sorted_offscreen_cameras.0 {
+            let Ok(offscreen_camera) = self
                 .offscreen_textures
-                .get_manual(world, sorted_offscreen_texture.entity)
+                .get_manual(world, sorted_offscreen_camera.entity)
             else {
                 continue;
             };
             graph.run_sub_graph(
-                offscreen_texture.render_graph,
+                offscreen_camera.render_graph,
                 vec![],
-                Some(sorted_offscreen_texture.entity),
+                Some(sorted_offscreen_camera.entity),
             )?;
         }
         Ok(())

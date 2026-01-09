@@ -1,7 +1,7 @@
 pub(crate) mod blend_pipeline;
-mod filter_render;
+pub(crate) mod filter_render;
 pub(crate) mod material;
-pub(crate) mod offscreen_texture;
+pub(crate) mod offscreen_render;
 pub mod part_mesh2d;
 mod texture_attachment;
 
@@ -72,7 +72,7 @@ use crate::{
     render::{
         blend_pipeline::BlendMode,
         material::{SwfMaterial, SwfMaterialPlugin},
-        offscreen_texture::{ExtractedOffscreenTexture, OffscreenTexturePlugin},
+        offscreen_render::OffscreenRenderPlugin,
         part_mesh2d::{
             ColorTransformUniform, DrawPartMesh2d, PartMesh2dPipeline, PartMesh2dRenderPlugin,
             RenderPartMesh2dInstance, RenderPartMesh2dInstances, SetPartMesh2dBindGroup,
@@ -99,7 +99,7 @@ impl Plugin for FlashRenderPlugin {
             ShapePartMaterial2dPlugin::<GradientMaterial>::default(),
             ShapePartMaterial2dPlugin::<ColorMaterial>::default(),
             ShapePartMaterial2dPlugin::<BitmapMaterial>::default(),
-            OffscreenTexturePlugin,
+            OffscreenRenderPlugin,
             SwfFilterRenderPlugin,
         ))
         .init_resource::<FilterTextureMesh>()
