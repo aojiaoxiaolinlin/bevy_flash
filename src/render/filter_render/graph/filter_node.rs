@@ -58,8 +58,6 @@ impl ViewNode for FilterPostProcessingNode {
 
         let filter_bind_group = world.resource::<FilterBindGroup>();
 
-        let texture_cache = world.resource::<TextureCache>();
-
         let source_layout = &source_texture_layout.source_layout;
         let blur_layout = &source_texture_layout.blur_texture_layout;
 
