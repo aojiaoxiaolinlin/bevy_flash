@@ -38,10 +38,14 @@ use crate::{
     commands::OffscreenDrawShapes,
     render::{
         filter_render::{
-            FilterUniformBuffers, OffscreenFlashShapeRenderPhases, OffscreenMesh2dPipeline,
+            BevelFilterPipeline, BevelUniform, BlurFilterPipeline, BlurUniform,
+            ColorMatrixFilterPipeline, ColorMatrixUniform, FilterUniformBuffers, Filters,
+            GlowFilterPipeline, GlowFilterUniform, OffscreenFlashShapeRenderPhases,
+            OffscreenShapePartMesh2dPipeline, get_filter_vertex_with_double_blur,
         },
         texture_attachment::ColorAttachment,
     },
+    swf_runtime::filter::Filter,
 };
 
 #[derive(Component, Default, Clone)]
@@ -243,7 +247,10 @@ impl Plugin for OffscreenRenderPlugin {
                         .before(prepare_offscreen_view_target)
                         .after(prepare_windows),
                     prepare_offscreen_view_target.in_set(RenderSystems::ManageViews),
+                    // TODO: 考虑是否移动到 filter_render 中
+                    // 准备形状滤镜统一缓冲区
                     prepare_offscreen_shape_filter_uniform.in_set(RenderSystems::PrepareResources),
+                    // 准备形状滤镜绑定组
                     prepare_offscreen_shape_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 ),
             );
@@ -395,7 +402,7 @@ fn prepare_offscreen_view_target(
 
 fn prepare_offscreen_shape_filter_uniform(
     mut commands: Commands,
-    query: Query<(Entity, &ExtractedOffscreenCamera)>,
+    query: Query<(Entity, &ExtractedOffscreenCamera, &Filters)>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut filter_uniform_buffers: ResMut<FilterUniformBuffers>,
@@ -405,7 +412,7 @@ fn prepare_offscreen_shape_filter_uniform(
     }
 
     filter_uniform_buffers.clear();
-    for (entity, offscreen_cameras) in query.iter() {
+    for (entity, offscreen_cameras, filters) in query.iter() {
         let size = offscreen_cameras.size.as_vec2();
         let scale = offscreen_cameras.scale;
         let view_matrix = Mat4::from_cols_array_2d(&[
@@ -414,21 +421,67 @@ fn prepare_offscreen_shape_filter_uniform(
             [0.0, 0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ]);
-        let view_offset = filter_uniform_buffers
-            .view_uniform_buffer
-            .push(&view_matrix);
-        let filter_offsets = FilterOffsets::new(view_offset);
+        let view_offset = filter_uniform_buffers.view_uniform_buffer_push(&view_matrix);
+        let mut filter_offsets = FilterOffsets::new(view_offset);
 
+        // 滤镜uniform 数据
+        for filter in filters.iter() {
+            match filter {
+                Filter::BevelFilter(bevel_filter) => {
+                    let blur_uniform =
+                        BlurUniform::calculate(&bevel_filter.inner_blur_filter(), size.as_uvec2());
+                    let offsets = filter_uniform_buffers.blur_uniform_buffer_extend(&blur_uniform);
+                    filter_offsets.blur_offset_extend(offsets);
+
+                    let bevel_uniform = BevelUniform::calculate(bevel_filter);
+                    let distance = bevel_filter.distance.to_f32();
+                    let angle = bevel_filter.angle.to_f32();
+                    // TODO:
+                    let _filter_vertex_with_double_blur =
+                        get_filter_vertex_with_double_blur(distance, angle, size);
+
+                    let offsets = filter_uniform_buffers.bevel_uniform_buffer_push(&bevel_uniform);
+                    filter_offsets.bevel_offset_push(offsets);
+                }
+                Filter::BlurFilter(blur_filter) => {
+                    let blur_uniform = BlurUniform::calculate(blur_filter, size.as_uvec2());
+                    let offsets = filter_uniform_buffers.blur_uniform_buffer_extend(&blur_uniform);
+                    filter_offsets.blur_offset_extend(offsets);
+                }
+                Filter::ColorMatrixFilter(color_matrix_filter) => {
+                    let color_matrix_uniform =
+                        ColorMatrixUniform::from_array(color_matrix_filter.matrix);
+                    let offsets = filter_uniform_buffers
+                        .color_matrix_uniform_buffer_push(&color_matrix_uniform);
+                    filter_offsets.color_offset_push(offsets);
+                }
+                Filter::GlowFilter(glow_filter) => {
+                    let blur_uniform =
+                        BlurUniform::calculate(&glow_filter.inner_blur_filter(), size.as_uvec2());
+                    let offsets = filter_uniform_buffers.blur_uniform_buffer_extend(&blur_uniform);
+                    filter_offsets.blur_offset_extend(offsets);
+
+                    let glow_uniform = GlowFilterUniform::calculate(glow_filter);
+                    let offset = filter_uniform_buffers.glow_uniform_buffer_push(&glow_uniform);
+                    filter_offsets.glow_offset_push(offset);
+                }
+                _ => {}
+            }
+        }
         commands.entity(entity).insert(filter_offsets);
     }
     // 写入缓冲区
-    filter_uniform_buffers.write_view_buffer(&render_device, &render_queue);
+    filter_uniform_buffers.write_buffer(&render_device, &render_queue);
 }
 
 fn prepare_offscreen_shape_bind_group(
     mut commands: Commands,
     query: Query<Entity, With<ExtractedOffscreenCamera>>,
-    offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
+    offscreen_shape_part_mesh2d_pipeline: Res<OffscreenShapePartMesh2dPipeline>,
+    color_matrix_pipeline: Res<ColorMatrixFilterPipeline>,
+    blur_pipeline: Res<BlurFilterPipeline>,
+    glow_pipeline: Res<GlowFilterPipeline>,
+    bevel_pipeline: Res<BevelFilterPipeline>,
     render_device: Res<RenderDevice>,
     filter_uniform_buffers: Res<FilterUniformBuffers>,
 ) {
@@ -436,10 +489,9 @@ fn prepare_offscreen_shape_bind_group(
         return;
     }
     let view_buffer = &filter_uniform_buffers.view_uniform_buffer;
-
     let view_bind_group = render_device.create_bind_group(
         "offscreen_main_transparent_pass_2d_bind_group",
-        &offscreen_mesh2d_pipeline.view_bind_group_layout,
+        &offscreen_shape_part_mesh2d_pipeline.view_bind_group_layout,
         &BindGroupEntries::single(view_buffer.binding().unwrap()),
     );
 
@@ -447,22 +499,101 @@ fn prepare_offscreen_shape_bind_group(
 
     let transform_bind_group = render_device.create_bind_group(
         "offscreen_main_transparent_pass_2d_transform_bind_group",
-        &offscreen_mesh2d_pipeline.transform_bind_group_layout,
+        &offscreen_shape_part_mesh2d_pipeline.transform_bind_group_layout,
         &BindGroupEntries::single(transform_buffer.binding().unwrap()),
     );
+
+    let color_matrix_buffer = &filter_uniform_buffers.color_matrix_uniform_buffer;
+    let color_matrix_bind_group = if !color_matrix_buffer.is_empty() {
+        let color_matrix_bind_group = render_device.create_bind_group(
+            "color_matrix_filter_bind_group",
+            &color_matrix_pipeline.layout,
+            &BindGroupEntries::single(color_matrix_buffer.binding().unwrap()),
+        );
+        Some(color_matrix_bind_group)
+    } else {
+        None
+    };
+
+    let blur_buffer = &filter_uniform_buffers.blur_uniform_buffer;
+    let blur_bind_group = if !blur_buffer.is_empty() {
+        let blur_bind_group = render_device.create_bind_group(
+            "blur_filter_bind_group",
+            &blur_pipeline.layout,
+            &BindGroupEntries::single(blur_buffer.binding().unwrap()),
+        );
+        Some(blur_bind_group)
+    } else {
+        None
+    };
+
+    let glow_buffer = &filter_uniform_buffers.glow_uniform_buffer;
+    let glow_bind_group = if !glow_buffer.is_empty() {
+        let glow_bind_group = render_device.create_bind_group(
+            "glow_filter_bind_group",
+            &glow_pipeline.layout,
+            &BindGroupEntries::single(glow_buffer.binding().unwrap()),
+        );
+        Some(glow_bind_group)
+    } else {
+        None
+    };
+
+    let bevel_buffer = &filter_uniform_buffers.bevel_uniform_buffer;
+    let bevel_bind_group = if !bevel_buffer.is_empty() {
+        let bevel_bind_group = render_device.create_bind_group(
+            "bevel_filter_bind_group",
+            &bevel_pipeline.layout,
+            &BindGroupEntries::single(bevel_buffer.binding().unwrap()),
+        );
+        Some(bevel_bind_group)
+    } else {
+        None
+    };
+
     commands.insert_resource(FilterBindGroup {
         view_bind_group,
         transform_bind_group,
+        color_matrix_bind_group,
+        blur_bind_group,
+        glow_bind_group,
+        bevel_bind_group,
     });
 }
 
 #[derive(Component)]
 pub struct FilterOffsets {
     pub view_offset: u32,
+    pub color_offsets: Vec<u32>,
+    pub blur_offsets: Vec<u32>,
+    pub glow_offsets: Vec<u32>,
+    pub bevel_offsets: Vec<u32>,
 }
 impl FilterOffsets {
-    pub fn new(view_offset: u32) -> Self {
-        Self { view_offset }
+    fn new(view_offset: u32) -> Self {
+        Self {
+            view_offset,
+            color_offsets: Vec::new(),
+            blur_offsets: Vec::new(),
+            glow_offsets: Vec::new(),
+            bevel_offsets: Vec::new(),
+        }
+    }
+
+    fn color_offset_push(&mut self, offset: u32) {
+        self.color_offsets.push(offset);
+    }
+
+    fn blur_offset_extend(&mut self, offsets: Vec<u32>) {
+        self.blur_offsets.extend(offsets);
+    }
+
+    fn glow_offset_push(&mut self, offset: u32) {
+        self.glow_offsets.push(offset);
+    }
+
+    fn bevel_offset_push(&mut self, offset: u32) {
+        self.bevel_offsets.push(offset);
     }
 }
 
@@ -470,4 +601,9 @@ impl FilterOffsets {
 pub struct FilterBindGroup {
     pub view_bind_group: BindGroup,
     pub transform_bind_group: BindGroup,
+
+    pub color_matrix_bind_group: Option<BindGroup>,
+    pub blur_bind_group: Option<BindGroup>,
+    pub glow_bind_group: Option<BindGroup>,
+    pub bevel_bind_group: Option<BindGroup>,
 }

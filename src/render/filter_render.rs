@@ -21,7 +21,7 @@ use bevy::{
         system::{Commands, Query, Res, ResMut},
     },
     log::error,
-    math::{Mat4, Vec2},
+    math::{Mat4, UVec2, Vec2, Vec4},
     mesh::{Mesh, MeshVertexBufferLayoutRef, PrimitiveTopology, VertexBufferLayout, VertexFormat},
     platform::collections::{HashSet, hash_map::Entry},
     prelude::{Deref, DerefMut},
@@ -108,16 +108,18 @@ impl Plugin for SwfFilterRenderPlugin {
         };
 
         render_app
-            .init_resource::<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>()
+            .init_resource::<SpecializedMeshPipelines<OffscreenShapePartMesh2dPipeline>>()
             .add_systems(
                 RenderStartup,
                 (
                     init_offscreen_texture_pipeline,
+                    init_source_texture_layout,
                     init_blur_filter_pipeline,
                     init_color_matrix_filter_pipeline,
                     init_glow_filter_pipeline,
                     init_bevel_filter_pipeline,
-                ),
+                )
+                    .chain(),
             )
             .add_systems(
                 Render,
@@ -251,7 +253,7 @@ impl From<&BlendMode> for OffscreenMesh2dKey {
 }
 
 #[derive(Resource, Clone)]
-pub struct OffscreenMesh2dPipeline {
+pub struct OffscreenShapePartMesh2dPipeline {
     pub view_bind_group_layout: BindGroupLayout,
     pub transform_bind_group_layout: BindGroupLayout,
 
@@ -281,7 +283,7 @@ pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Re
 
     let sampler = render_device.create_sampler(&SamplerDescriptor::default());
 
-    commands.insert_resource(OffscreenMesh2dPipeline {
+    commands.insert_resource(OffscreenShapePartMesh2dPipeline {
         view_bind_group_layout,
         transform_bind_group_layout,
         gradient_bind_group_layout,
@@ -290,7 +292,7 @@ pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Re
     });
 }
 
-impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
+impl SpecializedMeshPipeline for OffscreenShapePartMesh2dPipeline {
     type Key = OffscreenMesh2dKey;
 
     fn specialize(
@@ -447,11 +449,44 @@ impl SpecializedMeshPipeline for OffscreenMesh2dPipeline {
     }
 }
 
+#[derive(Resource)]
+pub struct SourceTextureLayout {
+    source_layout: BindGroupLayout,
+
+    blur_texture_layout: BindGroupLayout,
+}
+
+fn init_source_texture_layout(mut commands: Commands, render_device: Res<RenderDevice>) {
+    let source_layout = render_device.create_bind_group_layout(
+        "source_texture_bind_group_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::FRAGMENT,
+            (
+                texture_2d(TextureSampleType::Float { filterable: true }),
+                sampler(SamplerBindingType::Filtering),
+            ),
+        ),
+    );
+
+    let blur_texture_layout = render_device.create_bind_group_layout(
+        "blur_texture_bind_group_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::FRAGMENT,
+            (texture_2d(TextureSampleType::Float { filterable: true }),),
+        ),
+    );
+
+    commands.insert_resource(SourceTextureLayout {
+        source_layout,
+        blur_texture_layout,
+    });
+}
+
 /// 模糊滤镜
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable, PartialEq)]
 pub struct BlurUniform {
-    pub direction: [f32; 2],
+    pub direction: Vec2,
     pub full_size: f32,
     pub m: f32,
     pub m2: f32,
@@ -459,33 +494,143 @@ pub struct BlurUniform {
     pub last_offset: f32,
     pub last_weight: f32,
 }
+impl BlurUniform {
+    pub(crate) fn calculate(blur_filter: &swf::BlurFilter, size: UVec2) -> Vec<BlurUniform> {
+        let mut uniforms = Vec::new();
+
+        let width = size.x as f32;
+        let height = size.y as f32;
+        for _ in 0..(blur_filter.num_passes() as usize) {
+            for i in 0..2 {
+                let horizontal = i % 2 == 0;
+                let strength = if horizontal {
+                    blur_filter.blur_x.to_f32()
+                } else {
+                    blur_filter.blur_y.to_f32()
+                };
+                let full_size = strength.min(255.0);
+                if full_size <= 1.0 {
+                    continue;
+                }
+                let radius = (full_size - 1.0) / 2.0;
+                let m = radius.ceil() - 1.0;
+                let alpha = ((radius - m) * 255.0).floor() / 255.0;
+                let last_offset = 1.0 / ((1.0 / alpha) + 1.0);
+                let last_weight = alpha + 1.0;
+
+                let uniform = BlurUniform {
+                    direction: if horizontal {
+                        Vec2::from_array([1.0 / width, 0.0])
+                    } else {
+                        Vec2::from_array([0.0, 1.0 / height])
+                    },
+                    full_size,
+                    m,
+                    m2: m * 2.0,
+                    first_weight: alpha,
+                    last_offset,
+                    last_weight,
+                };
+                uniforms.push(uniform);
+            }
+        }
+
+        uniforms
+    }
+}
 
 /// 颜色矩阵滤镜
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable, PartialEq)]
 pub struct ColorMatrixUniform {
-    pub matrix: [f32; 20],
+    pub matrix: [Vec4; 5],
+}
+impl ColorMatrixUniform {
+    pub(crate) fn from_array(matrix: [f32; 20]) -> ColorMatrixUniform {
+        Self {
+            matrix: [
+                Vec4::from_slice(&matrix[0..4]),
+                Vec4::from_slice(&matrix[4..8]),
+                Vec4::from_slice(&matrix[8..12]),
+                Vec4::from_slice(&matrix[12..16]),
+                Vec4::from_slice(&matrix[16..20]),
+            ],
+        }
+    }
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, ShaderType, Pod, Zeroable, PartialEq)]
 pub struct GlowFilterUniform {
-    pub color: [f32; 4],
+    pub color: Vec4,
     pub strength: f32,
     pub inner: u32,            // a wasteful bool, but we need to be aligned anyway
     pub knockout: u32,         // a wasteful bool, but we need to be aligned anyway
     pub composite_source: u32, // undocumented flash feature, another bool
 }
+impl GlowFilterUniform {
+    pub(crate) fn calculate(glow_filter: &swf::GlowFilter) -> Self {
+        Self {
+            color: Vec4::from_slice(&[
+                f32::from(glow_filter.color.r) / 255.0,
+                f32::from(glow_filter.color.g) / 255.0,
+                f32::from(glow_filter.color.b) / 255.0,
+                f32::from(glow_filter.color.a) / 255.0,
+            ]),
+            strength: glow_filter.strength.to_f32(),
+            inner: if glow_filter.is_inner() { 1 } else { 0 },
+            knockout: if glow_filter.is_knockout() { 1 } else { 0 },
+            composite_source: if glow_filter.composite_source() { 1 } else { 0 },
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, ShaderType, Pod, Zeroable, PartialEq)]
 pub struct BevelUniform {
-    pub highlight_color: [f32; 4],
-    pub shadow_color: [f32; 4],
+    pub highlight_color: Vec4,
+    pub shadow_color: Vec4,
     pub strength: f32,
     pub bevel_type: u32,       // 0 outer, 1 inner, 2 full
     pub knockout: u32,         // a wasteful bool, but we need to be aligned anyway
     pub composite_source: u32, // undocumented flash feature, another bool
+}
+
+impl BevelUniform {
+    pub(crate) fn calculate(bevel_filter: &swf::BevelFilter) -> Self {
+        let mut highlight_color = Vec4::from_array([
+            f32::from(bevel_filter.highlight_color.r) / 255.0,
+            f32::from(bevel_filter.highlight_color.g) / 255.0,
+            f32::from(bevel_filter.highlight_color.b) / 255.0,
+            f32::from(bevel_filter.highlight_color.a) / 255.0,
+        ]);
+        highlight_color[0] *= highlight_color[3];
+        highlight_color[1] *= highlight_color[3];
+        highlight_color[2] *= highlight_color[3];
+        let mut shadow_color = Vec4::from_array([
+            f32::from(bevel_filter.shadow_color.r) / 255.0,
+            f32::from(bevel_filter.shadow_color.g) / 255.0,
+            f32::from(bevel_filter.shadow_color.b) / 255.0,
+            f32::from(bevel_filter.shadow_color.a) / 255.0,
+        ]);
+        shadow_color[0] *= shadow_color[3];
+        shadow_color[1] *= shadow_color[3];
+        shadow_color[2] *= shadow_color[3];
+        Self {
+            highlight_color,
+            shadow_color,
+            strength: bevel_filter.strength.to_f32(),
+            bevel_type: if bevel_filter.is_on_top() {
+                2
+            } else if bevel_filter.is_inner() {
+                1
+            } else {
+                0
+            },
+            knockout: if bevel_filter.is_knockout() { 1 } else { 0 },
+            composite_source: 1,
+        }
+    }
 }
 
 #[repr(C)]
@@ -510,16 +655,13 @@ pub(crate) fn init_blur_filter_pipeline(
     pipeline_cache: Res<PipelineCache>,
     fullscreen_shader: Res<FullscreenShader>,
     assert_server: Res<AssetServer>,
+    source_texture_layout: Res<SourceTextureLayout>,
 ) {
     let layout = render_device.create_bind_group_layout(
         "blur_filter_bind_group_layout",
-        &BindGroupLayoutEntries::sequential(
+        &BindGroupLayoutEntries::single(
             ShaderStages::FRAGMENT,
-            (
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                sampler(SamplerBindingType::Filtering),
-                uniform_buffer::<BlurUniform>(false),
-            ),
+            uniform_buffer::<BlurUniform>(true),
         ),
     );
 
@@ -527,7 +669,7 @@ pub(crate) fn init_blur_filter_pipeline(
 
     let descriptor = RenderPipelineDescriptor {
         label: Some(Cow::from("blur_filter_render_pipeline")),
-        layout: vec![layout.clone()],
+        layout: vec![source_texture_layout.source_layout.clone(), layout.clone()],
         push_constant_ranges: vec![],
         vertex: fullscreen_shader.to_vertex_state(),
         primitive: PrimitiveState::default(),
@@ -568,23 +710,20 @@ pub(crate) fn init_color_matrix_filter_pipeline(
     pipeline_cache: Res<PipelineCache>,
     fullscreen_shader: Res<FullscreenShader>,
     assert_server: Res<AssetServer>,
+    source_texture_layout: Res<SourceTextureLayout>,
 ) {
     let layout = render_device.create_bind_group_layout(
         "color_matrix_bind_group_layout",
-        &BindGroupLayoutEntries::sequential(
+        &BindGroupLayoutEntries::single(
             ShaderStages::FRAGMENT,
-            (
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                sampler(SamplerBindingType::Filtering),
-                uniform_buffer::<ColorMatrixUniform>(false),
-            ),
+            uniform_buffer::<ColorMatrixUniform>(true),
         ),
     );
     let sampler = render_device.create_sampler(&SamplerDescriptor::default());
 
     let descriptor = RenderPipelineDescriptor {
         label: Some(Cow::from("color_matrix_filter_render_pipeline")),
-        layout: vec![layout.clone()],
+        layout: vec![source_texture_layout.source_layout.clone(), layout.clone()],
         push_constant_ranges: vec![],
         vertex: fullscreen_shader.to_vertex_state(),
         primitive: PrimitiveState::default(),
@@ -628,24 +767,24 @@ pub(crate) fn init_glow_filter_pipeline(
     pipeline_cache: Res<PipelineCache>,
     fullscreen_shader: Res<FullscreenShader>,
     assert_server: Res<AssetServer>,
+    source_texture_layout: Res<SourceTextureLayout>,
 ) {
     let layout = render_device.create_bind_group_layout(
         "glow_filter_bind_group_layout",
-        &BindGroupLayoutEntries::sequential(
+        &BindGroupLayoutEntries::single(
             ShaderStages::FRAGMENT,
-            (
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                sampler(SamplerBindingType::Filtering),
-                uniform_buffer::<GlowFilterUniform>(false),
-                texture_2d(TextureSampleType::Float { filterable: true }),
-            ),
+            uniform_buffer::<GlowFilterUniform>(true),
         ),
     );
     let sampler = render_device.create_sampler(&SamplerDescriptor::default());
 
     let descriptor = RenderPipelineDescriptor {
         label: Some(Cow::from("glow_filter_filter_render_pipeline")),
-        layout: vec![layout.clone()],
+        layout: vec![
+            source_texture_layout.source_layout.clone(),
+            source_texture_layout.blur_texture_layout.clone(),
+            layout.clone(),
+        ],
         push_constant_ranges: vec![],
         vertex: fullscreen_shader.to_vertex_state(),
         primitive: PrimitiveState::default(),
@@ -685,17 +824,13 @@ pub(crate) fn init_bevel_filter_pipeline(
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
     assert_server: Res<AssetServer>,
+    source_texture_layout: Res<SourceTextureLayout>,
 ) {
     let layout = render_device.create_bind_group_layout(
         "glow_filter_bind_group_layout",
-        &BindGroupLayoutEntries::sequential(
+        &BindGroupLayoutEntries::single(
             ShaderStages::FRAGMENT,
-            (
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                sampler(SamplerBindingType::Filtering),
-                uniform_buffer::<BevelUniform>(false),
-                texture_2d(TextureSampleType::Float { filterable: true }),
-            ),
+            uniform_buffer::<BevelUniform>(true),
         ),
     );
     let sampler = render_device.create_sampler(&SamplerDescriptor::default());
@@ -703,7 +838,11 @@ pub(crate) fn init_bevel_filter_pipeline(
 
     let descriptor = RenderPipelineDescriptor {
         label: Some(Cow::from("bevel_filter_render_pipeline")),
-        layout: vec![layout.clone()],
+        layout: vec![
+            source_texture_layout.source_layout.clone(),
+            source_texture_layout.blur_texture_layout.clone(),
+            layout.clone(),
+        ],
         push_constant_ranges: vec![],
         vertex: VertexState {
             shader: shader.clone(),
@@ -745,8 +884,8 @@ pub(crate) fn init_bevel_filter_pipeline(
 }
 
 pub fn special_and_queue_shape_draw(
-    offscreen_mesh2d_pipeline: Res<OffscreenMesh2dPipeline>,
-    mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenMesh2dPipeline>>,
+    offscreen_shape_part_mesh2d_pipeline: Res<OffscreenShapePartMesh2dPipeline>,
+    mut pipelines: ResMut<SpecializedMeshPipelines<OffscreenShapePartMesh2dPipeline>>,
     pipeline_cache: Res<PipelineCache>,
     query: Query<(Entity, &OffscreenDrawShapes), With<ExtractedOffscreenCamera>>,
     render_meshes: Res<RenderAssets<RenderMesh>>,
@@ -759,7 +898,7 @@ pub fn special_and_queue_shape_draw(
                                mesh_key: OffscreenMesh2dKey| {
         let pipeline_id = pipelines.specialize(
             &pipeline_cache,
-            &offscreen_mesh2d_pipeline,
+            &offscreen_shape_part_mesh2d_pipeline,
             mesh_key,
             mesh_layout,
         );
@@ -889,8 +1028,35 @@ impl FilterUniformBuffers {
         self.filter_vertex_with_double_blur_buffer.clear();
     }
 
-    pub fn write_view_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+    pub fn view_uniform_buffer_push(&mut self, uniform: &Mat4) -> u32 {
+        self.view_uniform_buffer.push(uniform)
+    }
+
+    pub fn blur_uniform_buffer_extend(&mut self, uniforms: &[BlurUniform]) -> Vec<u32> {
+        uniforms
+            .iter()
+            .map(|uniform| self.blur_uniform_buffer.push(uniform))
+            .collect()
+    }
+
+    pub fn glow_uniform_buffer_push(&mut self, uniform: &GlowFilterUniform) -> u32 {
+        self.glow_uniform_buffer.push(uniform)
+    }
+
+    pub fn bevel_uniform_buffer_push(&mut self, uniform: &BevelUniform) -> u32 {
+        self.bevel_uniform_buffer.push(uniform)
+    }
+
+    pub fn color_matrix_uniform_buffer_push(&mut self, uniform: &ColorMatrixUniform) -> u32 {
+        self.color_matrix_uniform_buffer.push(uniform)
+    }
+
+    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) {
         self.view_uniform_buffer.write_buffer(device, queue);
+        self.color_matrix_uniform_buffer.write_buffer(device, queue);
+        self.blur_uniform_buffer.write_buffer(device, queue);
+        self.glow_uniform_buffer.write_buffer(device, queue);
+        self.bevel_uniform_buffer.write_buffer(device, queue);
     }
 }
 

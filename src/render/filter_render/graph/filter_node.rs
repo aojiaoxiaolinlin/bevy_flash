@@ -1,11 +1,10 @@
 use crate::{
     render::{
         filter_render::{
-            BevelFilterPipeline, BevelUniform, BlurFilterPipeline, BlurUniform,
-            ColorMatrixFilterPipeline, ColorMatrixUniform, Filters, GlowFilterPipeline,
-            GlowFilterUniform, get_filter_vertex_with_double_blur,
+            BevelFilterPipeline, BlurFilterPipeline, ColorMatrixFilterPipeline, Filters,
+            GlowFilterPipeline, SourceTextureLayout, get_filter_vertex_with_double_blur,
         },
-        offscreen_render::{ExtractedOffscreenCamera, ViewTarget},
+        offscreen_render::{ExtractedOffscreenCamera, FilterBindGroup, FilterOffsets, ViewTarget},
     },
     swf_runtime::filter::Filter::{
         BevelFilter, BlurFilter, ColorMatrixFilter, ConvolutionFilter, DropShadowFilter,
@@ -14,17 +13,17 @@ use crate::{
 };
 use bevy::{
     log::warn_once,
-    math::UVec2,
     render::{
         render_graph::ViewNode,
         render_phase::TrackedRenderPass,
         render_resource::{
-            BindGroupEntries, BufferInitDescriptor, BufferUsages, IndexFormat, Operations,
-            PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
-            TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension,
-            TextureUsages, TextureView, TextureViewDescriptor,
+            BindGroup, BindGroupEntries, BindGroupLayout, BufferInitDescriptor, BufferUsages,
+            IndexFormat, Operations, PipelineCache, RenderPassColorAttachment,
+            RenderPassDescriptor, RenderPipeline, TexelCopyTextureInfo, TextureAspect,
+            TextureDescriptor, TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
         },
         renderer::RenderContext,
+        texture::TextureCache,
     },
 };
 
@@ -35,6 +34,7 @@ impl ViewNode for FilterPostProcessingNode {
     type ViewQuery = (
         &'static ExtractedOffscreenCamera,
         &'static Filters,
+        &'static FilterOffsets,
         &'static ViewTarget,
     );
 
@@ -42,7 +42,7 @@ impl ViewNode for FilterPostProcessingNode {
         &self,
         _graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext<'w>,
-        (offscreen_camera, filters, view_target): bevy::ecs::query::QueryItem<
+        (offscreen_camera, filters, offsets, view_target): bevy::ecs::query::QueryItem<
             'w,
             '_,
             Self::ViewQuery,
@@ -50,10 +50,23 @@ impl ViewNode for FilterPostProcessingNode {
         world: &'w bevy::ecs::world::World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let pipeline_cache = world.resource::<PipelineCache>();
+        let source_texture_layout = world.resource::<SourceTextureLayout>();
         let blur_filter_pipeline = world.resource::<BlurFilterPipeline>();
         let color_matrix_filter_pipeline = world.resource::<ColorMatrixFilterPipeline>();
         let glow_filter_pipeline = world.resource::<GlowFilterPipeline>();
         let bevel_filter_pipeline = world.resource::<BevelFilterPipeline>();
+
+        let filter_bind_group = world.resource::<FilterBindGroup>();
+
+        let texture_cache = world.resource::<TextureCache>();
+
+        let source_layout = &source_texture_layout.source_layout;
+        let blur_layout = &source_texture_layout.blur_texture_layout;
+
+        let mut color_pass_index = 0;
+        let mut blur_pass_index = 0;
+        let mut glow_pass_index = 0;
+        let mut bevel_pass_index = 0;
 
         // 以下算法均来自于Ruffle
         let size = offscreen_camera.size;
@@ -65,13 +78,23 @@ impl ViewNode for FilterPostProcessingNode {
                     else {
                         continue;
                     };
+                    let blur_offsets = &offsets.blur_offsets;
+
+                    let blur_bind_group = filter_bind_group
+                        .blur_bind_group
+                        .as_ref()
+                        .expect("必然存在");
+
                     apply_blur(
                         blur_filter,
+                        blur_bind_group,
+                        blur_offsets,
                         render_context,
                         pipeline,
                         blur_filter_pipeline,
+                        source_layout,
                         view_target,
-                        size,
+                        &mut blur_pass_index,
                     );
                 }
                 GlowFilter(glow_filter) => {
@@ -85,49 +108,50 @@ impl ViewNode for FilterPostProcessingNode {
                     else {
                         continue;
                     };
+
+                    let blur_offsets = &offsets.blur_offsets;
+
+                    let blur_bind_group = filter_bind_group
+                        .blur_bind_group
+                        .as_ref()
+                        .expect("必然存在");
+
                     let temp_texture_view = copy_source_texture(render_context, view_target);
                     apply_blur(
                         &glow_filter.inner_blur_filter(),
+                        blur_bind_group,
+                        blur_offsets,
                         render_context,
                         blur_filter_render_pipeline,
                         blur_filter_pipeline,
+                        source_layout,
                         view_target,
-                        size,
+                        &mut blur_pass_index,
                     );
+                    let offset = offsets.glow_offsets[glow_pass_index];
+                    glow_pass_index += 1;
+
+                    let glow_bind_group = filter_bind_group
+                        .glow_bind_group
+                        .as_ref()
+                        .expect("必然存在");
+
                     let post_process = view_target.post_process_write();
 
                     let render_device = render_context.render_device();
-                    let glow_buffer =
-                        render_device.create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some("glow_filter_bind_group"),
-                            contents: bytemuck::cast_slice(&[GlowFilterUniform {
-                                color: [
-                                    f32::from(glow_filter.color.r) / 255.0,
-                                    f32::from(glow_filter.color.g) / 255.0,
-                                    f32::from(glow_filter.color.b) / 255.0,
-                                    f32::from(glow_filter.color.a) / 255.0,
-                                ],
-                                strength: glow_filter.strength.to_f32(),
-                                inner: if glow_filter.is_inner() { 1 } else { 0 },
-                                knockout: if glow_filter.is_knockout() { 1 } else { 0 },
-                                composite_source: if glow_filter.composite_source() {
-                                    1
-                                } else {
-                                    0
-                                },
-                            }]),
-                            usage: BufferUsages::UNIFORM,
-                        });
-
                     let bind_group = render_device.create_bind_group(
-                        Some("glow_filter_bind_group"),
-                        &glow_filter_pipeline.layout,
+                        Some("source_bind_group"),
+                        source_layout,
                         &BindGroupEntries::sequential((
                             &temp_texture_view,
                             &glow_filter_pipeline.sampler,
-                            glow_buffer.as_entire_binding(),
-                            post_process.source,
                         )),
+                    );
+
+                    let blur_bind_group = render_device.create_bind_group(
+                        Some("blur_filter_bind_group"),
+                        blur_layout,
+                        &BindGroupEntries::single(post_process.source),
                     );
 
                     let mut render_pass = get_render_pass(
@@ -137,34 +161,29 @@ impl ViewNode for FilterPostProcessingNode {
                     );
                     render_pass.set_render_pipeline(glow_filter_render_pipeline);
                     render_pass.set_bind_group(0, &bind_group, &[]);
+                    render_pass.set_bind_group(1, &blur_bind_group, &[]);
+                    render_pass.set_bind_group(2, &glow_bind_group, &[offset]);
                     render_pass.draw(0..3, 0..1);
                 }
-                ColorMatrixFilter(color_matrix_filter) => {
+                ColorMatrixFilter(_) => {
                     let Some(pipeline) = pipeline_cache
                         .get_render_pipeline(color_matrix_filter_pipeline.pipeline_id)
                     else {
                         continue;
                     };
+
+                    let offset = offsets.color_offsets[color_pass_index];
+                    color_pass_index += 1;
+
                     let post_process = view_target.post_process_write();
-                    let color_matrix_uniform = ColorMatrixUniform {
-                        matrix: color_matrix_filter.matrix,
-                    };
                     let render_device = render_context.render_device();
 
-                    let color_matrix_buffer =
-                        render_device.create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some("color_matrix_uniform"),
-                            contents: bytemuck::cast_slice(&[color_matrix_uniform]),
-                            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                        });
-
-                    let bind_group = render_device.create_bind_group(
+                    let source_bind_group = render_device.create_bind_group(
                         Some("color_matrix_bind_group"),
-                        &color_matrix_filter_pipeline.layout,
+                        source_layout,
                         &BindGroupEntries::sequential((
                             post_process.source,
                             &color_matrix_filter_pipeline.sampler,
-                            color_matrix_buffer.as_entire_binding(),
                         )),
                     );
                     let mut render_pass = get_render_pass(
@@ -173,7 +192,15 @@ impl ViewNode for FilterPostProcessingNode {
                         "color_matrix_filter_render_pass",
                     );
                     render_pass.set_render_pipeline(pipeline);
-                    render_pass.set_bind_group(0, &bind_group, &[]);
+                    render_pass.set_bind_group(0, &source_bind_group, &[]);
+                    render_pass.set_bind_group(
+                        1,
+                        filter_bind_group
+                            .color_matrix_bind_group
+                            .as_ref()
+                            .expect("必然存在"),
+                        &[offset],
+                    );
                     render_pass.draw(0..3, 0..1);
                 }
                 BevelFilter(bevel_filter) => {
@@ -188,52 +215,41 @@ impl ViewNode for FilterPostProcessingNode {
                         continue;
                     };
 
+                    let blur_bind_group = filter_bind_group
+                        .blur_bind_group
+                        .as_ref()
+                        .expect("必然存在");
+
+                    let blur_offsets = &offsets.bevel_offsets;
+
                     let temp_texture_view = copy_source_texture(render_context, view_target);
                     apply_blur(
                         &bevel_filter.inner_blur_filter(),
+                        blur_bind_group,
+                        blur_offsets,
                         render_context,
                         blur_filter_render_pipeline,
                         blur_filter_pipeline,
+                        source_layout,
                         view_target,
-                        size,
+                        &mut blur_pass_index,
                     );
+
+                    let offset = offsets.bevel_offsets[bevel_pass_index];
+                    bevel_pass_index += 1;
+
+                    let bevel_bind_group = filter_bind_group
+                        .bevel_bind_group
+                        .as_ref()
+                        .expect("必然存在");
+
                     let post_process = view_target.post_process_write();
-                    let mut highlight_color = [
-                        f32::from(bevel_filter.highlight_color.r) / 255.0,
-                        f32::from(bevel_filter.highlight_color.g) / 255.0,
-                        f32::from(bevel_filter.highlight_color.b) / 255.0,
-                        f32::from(bevel_filter.highlight_color.a) / 255.0,
-                    ];
-                    highlight_color[0] *= highlight_color[3];
-                    highlight_color[1] *= highlight_color[3];
-                    highlight_color[2] *= highlight_color[3];
-                    let mut shadow_color = [
-                        f32::from(bevel_filter.shadow_color.r) / 255.0,
-                        f32::from(bevel_filter.shadow_color.g) / 255.0,
-                        f32::from(bevel_filter.shadow_color.b) / 255.0,
-                        f32::from(bevel_filter.shadow_color.a) / 255.0,
-                    ];
-                    shadow_color[0] *= shadow_color[3];
-                    shadow_color[1] *= shadow_color[3];
-                    shadow_color[2] *= shadow_color[3];
-                    let bevel_uniform = BevelUniform {
-                        highlight_color,
-                        shadow_color,
-                        strength: bevel_filter.strength.to_f32(),
-                        bevel_type: if bevel_filter.is_on_top() {
-                            2
-                        } else if bevel_filter.is_inner() {
-                            1
-                        } else {
-                            0
-                        },
-                        knockout: if bevel_filter.is_knockout() { 1 } else { 0 },
-                        composite_source: 1,
-                    };
+                    // TODO:
                     let distance = bevel_filter.distance.to_f32();
                     let angle = bevel_filter.angle.to_f32();
                     let filter_vertex_with_double_blur =
                         get_filter_vertex_with_double_blur(distance, angle, size.as_vec2());
+
                     let render_device = render_context.render_device();
                     let vertex_buffer =
                         render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -241,6 +257,7 @@ impl ViewNode for FilterPostProcessingNode {
                             contents: bytemuck::cast_slice(&filter_vertex_with_double_blur),
                             usage: BufferUsages::VERTEX,
                         });
+
                     let indices = vec![0, 1, 2, 0, 2, 3];
                     let indices_buffer =
                         render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -248,21 +265,20 @@ impl ViewNode for FilterPostProcessingNode {
                             contents: bytemuck::cast_slice(&indices),
                             usage: BufferUsages::INDEX,
                         });
-                    let bevel_buffer =
-                        render_device.create_buffer_with_data(&BufferInitDescriptor {
-                            label: Some("bevel_filter_buffer"),
-                            contents: bytemuck::cast_slice(&[bevel_uniform]),
-                            usage: BufferUsages::UNIFORM,
-                        });
+
                     let bind_group = render_device.create_bind_group(
                         "bevel_filter_bind_group",
                         &bevel_filter_pipeline.layout,
                         &BindGroupEntries::sequential((
                             &temp_texture_view,
                             &bevel_filter_pipeline.sampler,
-                            bevel_buffer.as_entire_binding(),
-                            post_process.source,
                         )),
+                    );
+
+                    let blur_bind_group = render_device.create_bind_group(
+                        Some("blur_filter_bind_group"),
+                        blur_layout,
+                        &BindGroupEntries::single(post_process.source),
                     );
 
                     let mut render_pass = get_render_pass(
@@ -272,6 +288,8 @@ impl ViewNode for FilterPostProcessingNode {
                     );
                     render_pass.set_render_pipeline(bevel_filter_render_pipeline);
                     render_pass.set_bind_group(0, &bind_group, &[]);
+                    render_pass.set_bind_group(1, &blur_bind_group, &[]);
+                    render_pass.set_bind_group(2, &bevel_bind_group, &[offset]);
                     render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                     render_pass.set_index_buffer(indices_buffer.slice(..), 0, IndexFormat::Uint32);
                     render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
@@ -296,14 +314,15 @@ impl ViewNode for FilterPostProcessingNode {
 
 fn apply_blur<'w>(
     blur_filter: &swf::BlurFilter,
+    blur_bind_group: &BindGroup,
+    blur_offsets: &Vec<u32>,
     render_context: &mut RenderContext<'w>,
     pipeline: &RenderPipeline,
     blur_filter_pipeline: &BlurFilterPipeline,
+    source_layout: &BindGroupLayout,
     view_target: &ViewTarget,
-    size: UVec2,
+    blur_pass_index: &mut usize,
 ) {
-    let width = size.x as f32;
-    let height = size.y as f32;
     for _ in 0..(blur_filter.num_passes() as usize) {
         for i in 0..2 {
             let horizontal = i % 2 == 0;
@@ -316,41 +335,20 @@ fn apply_blur<'w>(
             if full_size <= 1.0 {
                 continue;
             }
-            let radius = (full_size - 1.0) / 2.0;
-            let m = radius.ceil() - 1.0;
-            let alpha = ((radius - m) * 255.0).floor() / 255.0;
-            let last_offset = 1.0 / ((1.0 / alpha) + 1.0);
-            let last_weight = alpha + 1.0;
 
-            let uniform = BlurUniform {
-                direction: if horizontal {
-                    [1.0 / width, 0.0]
-                } else {
-                    [0.0, 1.0 / height]
-                },
-                full_size,
-                m,
-                m2: m * 2.0,
-                first_weight: alpha,
-                last_offset,
-                last_weight,
-            };
+            // let Some(offset) = blur_offsets.get(*blur_pass_index) else {
+            //     return;
+            // };
+            let offset = blur_offsets[*blur_pass_index];
+            *blur_pass_index += 1;
+
             let render_device = render_context.render_device();
-            let blur_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("blur_filter"),
-                contents: bytemuck::cast_slice(&[uniform]),
-                usage: BufferUsages::UNIFORM,
-            });
 
             let post_process = view_target.post_process_write();
             let bind_group = render_device.create_bind_group(
-                Some("blur_filter_bind_group"),
-                &blur_filter_pipeline.layout,
-                &BindGroupEntries::sequential((
-                    post_process.source,
-                    &blur_filter_pipeline.sampler,
-                    blur_buffer.as_entire_binding(),
-                )),
+                Some("source_bind_group"),
+                source_layout,
+                &BindGroupEntries::sequential((post_process.source, &blur_filter_pipeline.sampler)),
             );
             let mut render_pass = get_render_pass(
                 render_context,
@@ -359,6 +357,7 @@ fn apply_blur<'w>(
             );
             render_pass.set_render_pipeline(pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.set_bind_group(1, blur_bind_group, &[offset]);
             render_pass.draw(0..3, 0..1);
         }
     }
@@ -369,11 +368,13 @@ fn copy_source_texture<'a, 'w>(
     view_target: &ViewTarget,
 ) -> TextureView {
     let source_texture = view_target.post_process_write().source_texture;
+    let source = source_texture.as_image_copy();
+
     let size = source_texture.size();
     let temp_texture = render_context
         .render_device()
         .create_texture(&TextureDescriptor {
-            label: Some("intermediate_texture_id:"),
+            label: None,
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -383,12 +384,7 @@ fn copy_source_texture<'a, 'w>(
             view_formats: &[],
         });
     render_context.command_encoder().copy_texture_to_texture(
-        TexelCopyTextureInfo {
-            texture: source_texture,
-            mip_level: 0,
-            origin: Default::default(),
-            aspect: TextureAspect::All,
-        },
+        source,
         TexelCopyTextureInfo {
             texture: &temp_texture,
             mip_level: 0,

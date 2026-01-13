@@ -9,8 +9,10 @@ struct Filter {
 
 @group(0) @binding(0) var texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;
-@group(0) @binding(2) var<uniform> filter_args: Filter;
-@group(0) @binding(3) var blurred: texture_2d<f32>;
+
+@group(1) @binding(0) var blurred: texture_2d<f32>;
+
+@group(2) @binding(0) var<uniform> filter_args: Filter;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,

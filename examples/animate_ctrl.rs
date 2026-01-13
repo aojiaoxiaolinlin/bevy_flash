@@ -98,7 +98,7 @@ fn flash_complete(
         let Some(swf) = swf_res.get(flash.id()) else {
             return;
         };
-        player.set_play("WAI", swf, root.as_mut());
+        player.set_play("UDA", swf, root.as_mut());
         player.set_looping(true);
     }
 }

@@ -10,7 +10,7 @@ use bevy::{
         system::{Commands, Local, Query, Res, ResMut},
     },
     image::Image,
-    log::{info, warn_once},
+    log::warn_once,
     math::{IVec2, Mat4, UVec2, Vec3},
     mesh::Mesh,
     platform::collections::HashMap,
@@ -45,14 +45,14 @@ use crate::{
 #[derive(EntityEvent, Clone)]
 pub struct FlashCompleteEvent {
     /// 实体
-    entity: bevy::prelude::Entity,
+    entity: Entity,
     /// 当前播放的动画名
     name: Option<String>,
 }
 
 impl FlashCompleteEvent {
     /// 实体
-    pub fn entity(&self) -> bevy::prelude::Entity {
+    pub fn entity(&self) -> Entity {
         self.entity
     }
     pub fn name(&self) -> Option<&str> {
@@ -64,7 +64,7 @@ impl FlashCompleteEvent {
 #[derive(EntityEvent, Clone)]
 pub struct FlashFrameEvent {
     /// 实体
-    entity: bevy::prelude::Entity,
+    entity: Entity,
     /// 帧事件名
     name: String,
 }
@@ -452,7 +452,7 @@ fn process_display_list(
             context.pop_mask();
         }
         if display_object.clip_depth() > 0 && display_object.allow_as_mask() {
-            info!("Processing mask display object，{}", display_object.id());
+            // info!("Processing mask display object，{}", display_object.id());
             clip_depth_stack.push((clip_depth, display_object.clone()));
             clip_depth = display_object.clip_depth();
             // 1. 标记为遮罩
@@ -468,7 +468,7 @@ fn process_display_list(
             // 3. 标记遮罩活跃
             context.activate_mask();
         } else {
-            info!("Processing display object，{}", display_object.id());
+            // info!("Processing display object，{}", display_object.id());
             // 作为普通显示对象处理
             process_display_object(
                 display_object,

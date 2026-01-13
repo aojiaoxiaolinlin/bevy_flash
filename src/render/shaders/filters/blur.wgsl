@@ -26,7 +26,7 @@ struct BlurFilter {
 @group(0) @binding(0) var texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;
 
-@group(0) @binding(2) var<uniform> filter_args: BlurFilter;
+@group(1) @binding(0) var<uniform> filter_args: BlurFilter;
 
 
 @fragment
