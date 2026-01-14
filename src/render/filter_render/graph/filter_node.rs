@@ -12,6 +12,7 @@ use crate::{
     },
 };
 use bevy::{
+    ecs::entity::Entity,
     log::warn_once,
     render::{
         render_graph::ViewNode,
@@ -219,7 +220,7 @@ impl ViewNode for FilterPostProcessingNode {
                         .as_ref()
                         .expect("必然存在");
 
-                    let blur_offsets = &offsets.bevel_offsets;
+                    let blur_offsets = &offsets.blur_offsets;
 
                     let temp_texture_view = copy_source_texture(render_context, view_target);
                     apply_blur(
@@ -267,7 +268,7 @@ impl ViewNode for FilterPostProcessingNode {
 
                     let bind_group = render_device.create_bind_group(
                         "bevel_filter_bind_group",
-                        &pipeline_cache.get_bind_group_layout(&bevel_filter_pipeline.layout),
+                        source_layout,
                         &BindGroupEntries::sequential((
                             &temp_texture_view,
                             &bevel_filter_pipeline.sampler,
