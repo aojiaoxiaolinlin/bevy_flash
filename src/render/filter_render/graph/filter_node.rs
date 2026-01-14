@@ -12,7 +12,6 @@ use crate::{
     },
 };
 use bevy::{
-    ecs::entity::Entity,
     log::warn_once,
     render::{
         render_graph::ViewNode,
