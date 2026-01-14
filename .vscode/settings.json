@@ -1,5 +1,6 @@
 {
   "cSpell.words": [
+    "aojiaoxiaolinlin",
     "Bgra",
     "bitflags",
     "Blit",
@@ -36,6 +37,6 @@
     "Unorm",
     "Vsync",
     "wgsl",
-    "Zeroable",
+    "Zeroable"
   ],
 }
