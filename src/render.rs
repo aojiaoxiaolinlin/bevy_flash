@@ -12,7 +12,7 @@ use bevy::{
     asset::{AssetApp, AssetEventSystems, AssetId, AssetServer, Assets, Handle, RenderAssetUsages},
     core_pipeline::core_2d::Transparent2d,
     ecs::{
-        component::Tick,
+        change_detection::Tick,
         entity::Entity,
         lifecycle::RemovedComponents,
         query::{Changed, Or, With},
@@ -42,11 +42,10 @@ use bevy::{
             ViewSortedRenderPhases,
         },
         render_resource::{
-            AsBindGroupError, BindGroup, BindGroupLayout, BindingResources, BlendComponent,
-            BlendFactor, BlendOperation, BlendState, CachedRenderPipelineId, ColorWrites,
-            CompareFunction, PipelineCache, RenderPipelineDescriptor, SpecializedMeshPipeline,
-            SpecializedMeshPipelineError, SpecializedMeshPipelines, StencilFaceState,
-            StencilOperation, StencilState, TextureFormat,
+            AsBindGroupError, BindGroup, BindGroupLayoutDescriptor, BindingResources,
+            BlendComponent, BlendFactor, BlendOperation, BlendState, CachedRenderPipelineId,
+            ColorWrites, PipelineCache, RenderPipelineDescriptor, SpecializedMeshPipeline,
+            SpecializedMeshPipelineError, SpecializedMeshPipelines, StencilFaceState, StencilState,
         },
         renderer::RenderDevice,
         sync_world::{MainEntity, MainEntityHashMap},
@@ -54,7 +53,7 @@ use bevy::{
     },
     shader::{Shader, ShaderDefVal, ShaderRef, load_shader_library},
     sprite_render::{
-        EntitiesNeedingSpecialization, EntitySpecializationTicks, MATERIAL_2D_BIND_GROUP_INDEX,
+        EntitiesNeedingSpecialization, EntitySpecializationTickPair, MATERIAL_2D_BIND_GROUP_INDEX,
         Material2d, Material2dBindGroupId, Mesh2dPipelineKey, Mesh2dTransforms, MeshFlags,
         SetMesh2dViewBindGroup, ViewKeyCache, ViewSpecializationTicks, alpha_mode_pipeline_key,
     },
@@ -162,6 +161,7 @@ pub struct RenderPartMaterial2dInstance<M: Material2d> {
     material_id: AssetId<M>,
     blend_mode: BlendMode,
     mask_state: MaskState,
+    #[expect(unused)]
     num_masks: u32,
 }
 
@@ -387,7 +387,7 @@ where
         };
         render_app
             .init_resource::<RenderPartMaterial2dInstances<M>>()
-            .init_resource::<EntitySpecializationTicks<M>>()
+            .init_resource::<EntitySpecializationTickPair<M>>()
             .init_resource::<SpecializedPartMaterial2dPipelineCache<M>>()
             .init_resource::<SpecializedMeshPipelines<PartMaterial2dPipeline<M>>>()
             .add_render_command::<Transparent2d, DrawPartMaterial2d<M>>()
@@ -472,7 +472,7 @@ pub fn check_entities_needing_specialization<M>(
 
 pub fn extract_entities_needs_specialization<M>(
     entities_needing_specialization: Extract<Res<EntitiesNeedingSpecialization<M>>>,
-    mut entity_specialization_ticks: ResMut<EntitySpecializationTicks<M>>,
+    mut entity_specialization_ticks: ResMut<EntitySpecializationTickPair<M>>,
     mut removed_mesh_material_components: Extract<RemovedComponents<Flash>>,
     mut specialized_part_material_pipeline_cache: ResMut<SpecializedPartMaterial2dPipelineCache<M>>,
     views: Query<&MainEntity, With<ExtractedView>>,
@@ -501,13 +501,14 @@ pub fn extract_entities_needs_specialization<M>(
 #[derive(Resource)]
 pub struct PartMaterial2dPipeline<M: Material2d> {
     pub mesh2d_pipeline: PartMesh2dPipeline,
-    pub material2d_layout: BindGroupLayout,
+    pub material2d_layout: BindGroupLayoutDescriptor,
     pub vertex_shader: Option<Handle<Shader>>,
     pub fragment_shader: Option<Handle<Shader>>,
     marker: PhantomData<M>,
 }
 
 impl<M: Material2d> PartMaterial2dPipeline<M> {
+    #[expect(unused)]
     fn mask_render_state(stencil_state: StencilFaceState) -> StencilState {
         StencilState {
             front: stencil_state,
@@ -684,7 +685,7 @@ pub fn init_part_material_2d_pipeline<M: Material2d>(
     asset_server: Res<AssetServer>,
     part_mesh_2d_pipeline: Res<PartMesh2dPipeline>,
 ) {
-    let material2d_layout = M::bind_group_layout(&render_device);
+    let material2d_layout = M::bind_group_layout_descriptor(&render_device);
 
     commands.insert_resource(PartMaterial2dPipeline::<M> {
         mesh2d_pipeline: part_mesh_2d_pipeline.clone(),
@@ -716,7 +717,7 @@ fn specialize_part_material2d<M: Material2d>(
     transparent_render_phase: Res<ViewSortedRenderPhases<Transparent2d>>,
     views: Query<(&MainEntity, &ExtractedView, &RenderVisibleEntities)>,
     view_key_cache: Res<ViewKeyCache>,
-    entity_specialization_ticks: Res<EntitySpecializationTicks<M>>,
+    entity_specialization_ticks: Res<EntitySpecializationTickPair<M>>,
     view_specialization_ticks: Res<ViewSpecializationTicks>,
     ticks: SystemChangeTick,
     mut specialized_part_material_pipeline_cache: ResMut<SpecializedPartMaterial2dPipelineCache<M>>,
@@ -972,6 +973,7 @@ impl<M: Material2d> RenderAsset for PreparedPartMaterial2d<M> {
 
     type Param = (
         SRes<RenderDevice>,
+        SRes<PipelineCache>,
         SRes<PartMaterial2dPipeline<M>>,
         SRes<DrawFunctions<Transparent2d>>,
         M::Param,
@@ -980,13 +982,18 @@ impl<M: Material2d> RenderAsset for PreparedPartMaterial2d<M> {
     fn prepare_asset(
         material: Self::SourceAsset,
         _: AssetId<Self::SourceAsset>,
-        (render_device, pipeline, opaque_draw_functions, material_param): &mut SystemParamItem<
+        (render_device,pipeline_cache, pipeline, opaque_draw_functions, material_param): &mut SystemParamItem<
             Self::Param,
         >,
         _: Option<&Self>,
     ) -> Result<Self, PrepareAssetError<Self::SourceAsset>> {
         let bind_group_data = material.bind_group_data();
-        match material.as_bind_group(&pipeline.material2d_layout, render_device, material_param) {
+        match material.as_bind_group(
+            &pipeline.material2d_layout,
+            render_device,
+            pipeline_cache,
+            material_param,
+        ) {
             Ok(prepared) => {
                 let mut mesh_pipeline_key_bits = Mesh2dPipelineKey::empty();
                 mesh_pipeline_key_bits.insert(alpha_mode_pipeline_key(material.alpha_mode()));

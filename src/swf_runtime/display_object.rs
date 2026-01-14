@@ -125,6 +125,7 @@ impl ImageCache {
                 actual_width as u32,
                 actual_height as u32,
                 TextureFormat::Rgba8Unorm,
+                None,
             );
             image.asset_usage = RenderAssetUsages::RENDER_WORLD;
             if let Some(image_cache_info) = &mut self.image {

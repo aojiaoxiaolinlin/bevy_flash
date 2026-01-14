@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use bevy::render::render_resource::PipelineCache;
 use bevy::{
     app::Plugin,
     camera::{NormalizedRenderTarget, RenderTarget},
@@ -179,8 +180,8 @@ impl ViewTarget {
     }
 
     #[inline]
-    pub fn out_texture_format(&self) -> TextureFormat {
-        self.out_texture.format
+    pub fn out_texture_view_format(&self) -> TextureFormat {
+        self.out_texture.view_format
     }
 
     pub fn post_process_write(&self) -> PostProcessWrite<'_> {
@@ -483,6 +484,7 @@ fn prepare_offscreen_shape_bind_group(
     glow_pipeline: Res<GlowFilterPipeline>,
     bevel_pipeline: Res<BevelFilterPipeline>,
     render_device: Res<RenderDevice>,
+    pipeline_cache: Res<PipelineCache>,
     filter_uniform_buffers: Res<FilterUniformBuffers>,
 ) {
     if query.is_empty() {
@@ -491,7 +493,8 @@ fn prepare_offscreen_shape_bind_group(
     let view_buffer = &filter_uniform_buffers.view_uniform_buffer;
     let view_bind_group = render_device.create_bind_group(
         "offscreen_main_transparent_pass_2d_bind_group",
-        &offscreen_shape_part_mesh2d_pipeline.view_bind_group_layout,
+        &pipeline_cache
+            .get_bind_group_layout(&offscreen_shape_part_mesh2d_pipeline.view_bind_group_layout),
         &BindGroupEntries::single(view_buffer.binding().unwrap()),
     );
 
@@ -499,7 +502,9 @@ fn prepare_offscreen_shape_bind_group(
 
     let transform_bind_group = render_device.create_bind_group(
         "offscreen_main_transparent_pass_2d_transform_bind_group",
-        &offscreen_shape_part_mesh2d_pipeline.transform_bind_group_layout,
+        &pipeline_cache.get_bind_group_layout(
+            &offscreen_shape_part_mesh2d_pipeline.transform_bind_group_layout,
+        ),
         &BindGroupEntries::single(transform_buffer.binding().unwrap()),
     );
 
@@ -507,7 +512,7 @@ fn prepare_offscreen_shape_bind_group(
     let color_matrix_bind_group = if !color_matrix_buffer.is_empty() {
         let color_matrix_bind_group = render_device.create_bind_group(
             "color_matrix_filter_bind_group",
-            &color_matrix_pipeline.layout,
+            &pipeline_cache.get_bind_group_layout(&color_matrix_pipeline.layout),
             &BindGroupEntries::single(color_matrix_buffer.binding().unwrap()),
         );
         Some(color_matrix_bind_group)
@@ -519,7 +524,7 @@ fn prepare_offscreen_shape_bind_group(
     let blur_bind_group = if !blur_buffer.is_empty() {
         let blur_bind_group = render_device.create_bind_group(
             "blur_filter_bind_group",
-            &blur_pipeline.layout,
+            &pipeline_cache.get_bind_group_layout(&blur_pipeline.layout),
             &BindGroupEntries::single(blur_buffer.binding().unwrap()),
         );
         Some(blur_bind_group)
@@ -531,7 +536,7 @@ fn prepare_offscreen_shape_bind_group(
     let glow_bind_group = if !glow_buffer.is_empty() {
         let glow_bind_group = render_device.create_bind_group(
             "glow_filter_bind_group",
-            &glow_pipeline.layout,
+            &pipeline_cache.get_bind_group_layout(&glow_pipeline.layout),
             &BindGroupEntries::single(glow_buffer.binding().unwrap()),
         );
         Some(glow_bind_group)
@@ -543,7 +548,7 @@ fn prepare_offscreen_shape_bind_group(
     let bevel_bind_group = if !bevel_buffer.is_empty() {
         let bevel_bind_group = render_device.create_bind_group(
             "bevel_filter_bind_group",
-            &bevel_pipeline.layout,
+            &pipeline_cache.get_bind_group_layout(&bevel_pipeline.layout),
             &BindGroupEntries::single(bevel_buffer.binding().unwrap()),
         );
         Some(bevel_bind_group)

@@ -77,7 +77,7 @@ fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
 |bevy|bevy_flash|
 |--|--|
 |0.17|0.1|
-
+|0.18|0.2|
 
 ## Contributing
 If you also want to complete this plugin, you are welcome to submit a Pull Request (PR) or raise an issue.  

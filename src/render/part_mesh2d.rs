@@ -30,13 +30,13 @@ use bevy::{
             ViewSortedRenderPhases,
         },
         render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, BlendState,
-            CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState,
-            DepthStencilState, FragmentState, FrontFace, GpuArrayBuffer, GpuArrayBufferable,
-            MultisampleState, PolygonMode, PrimitiveState, RenderPipelineDescriptor, ShaderStages,
-            ShaderType, SpecializedMeshPipeline, SpecializedMeshPipelineError,
-            SpecializedMeshPipelines, StencilFaceState, StencilState, TextureFormat, VertexState,
-            binding_types::uniform_buffer,
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
+            BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction,
+            DepthBiasState, DepthStencilState, FragmentState, FrontFace, GpuArrayBuffer,
+            GpuArrayBufferable, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
+            RenderPipelineDescriptor, ShaderStages, ShaderType, SpecializedMeshPipeline,
+            SpecializedMeshPipelineError, SpecializedMeshPipelines, StencilFaceState, StencilState,
+            TextureFormat, VertexState, binding_types::uniform_buffer,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::{MainEntity, MainEntityHashMap},
@@ -126,8 +126,8 @@ pub struct RenderPartMesh2dInstances(MainEntityHashMap<IndexMap<usize, RenderPar
 /// Render pipeline data for a given [`PartMaterial2d`]
 #[derive(Resource, Clone)]
 pub struct PartMesh2dPipeline {
-    pub view_layout: BindGroupLayout,
-    pub mesh_layout: BindGroupLayout,
+    pub view_layout: BindGroupLayoutDescriptor,
+    pub mesh_layout: BindGroupLayoutDescriptor,
     pub shader: Handle<Shader>,
     #[expect(unused)]
     pub per_object_buffer_batch_size: Option<u32>,
@@ -138,7 +138,7 @@ pub fn init_part_mesh_2d_pipeline(
     mesh2d_pipeline: Res<Mesh2dPipeline>,
 ) {
     let tonemapping_lut_entries = get_lut_bind_group_layout_entries();
-    let view_layout = render_device.create_bind_group_layout(
+    let view_layout = BindGroupLayoutDescriptor::new(
         "mesh2d_view_layout",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::VERTEX_FRAGMENT,
@@ -151,18 +151,20 @@ pub fn init_part_mesh_2d_pipeline(
         ),
     );
 
-    let mesh_layout = render_device.create_bind_group_layout(
-        "part_mesh2d_layout",
+    let mesh_layout = BindGroupLayoutDescriptor::new(
+        "mesh2d_layout",
         &BindGroupLayoutEntries::single(
             ShaderStages::VERTEX_FRAGMENT,
-            GpuArrayBuffer::<PartMesh2dUniform>::binding_layout(&render_device),
+            GpuArrayBuffer::<PartMesh2dUniform>::binding_layout(&render_device.limits()),
         ),
     );
 
     commands.insert_resource(PartMesh2dPipeline {
         view_layout,
         mesh_layout,
-        per_object_buffer_batch_size: GpuArrayBuffer::<Mesh2dUniform>::batch_size(&render_device),
+        per_object_buffer_batch_size: GpuArrayBuffer::<Mesh2dUniform>::batch_size(
+            &render_device.limits(),
+        ),
         shader: mesh2d_pipeline.shader.clone(),
     });
 }
@@ -176,13 +178,14 @@ pub fn prepare_part_mesh2d_bind_group(
     mut commands: Commands,
     part_mesh2d_pipeline: Res<PartMesh2dPipeline>,
     render_device: Res<RenderDevice>,
+    pipeline_cache: Res<PipelineCache>,
     part_mesh2d_uniforms: Res<BatchedInstanceBuffer<PartMesh2dUniform>>,
 ) {
     if let Some(binding) = part_mesh2d_uniforms.instance_data_binding() {
         commands.insert_resource(PartMesh2dBindGroup {
             value: render_device.create_bind_group(
                 "part_mesh2d_bind_group",
-                &part_mesh2d_pipeline.mesh_layout,
+                &pipeline_cache.get_bind_group_layout(&part_mesh2d_pipeline.mesh_layout),
                 &BindGroupEntries::single(binding),
             ),
         });
@@ -191,7 +194,7 @@ pub fn prepare_part_mesh2d_bind_group(
 
 pub fn init_batched_instance_buffer(mut commands: Commands, render_device: Res<RenderDevice>) {
     commands.insert_resource(BatchedInstanceBuffer::<PartMesh2dUniform>::new(
-        &render_device,
+        &render_device.limits(),
     ));
 }
 
@@ -436,7 +439,7 @@ impl<PP: PartPhaseItem> RenderCommand<PP> for DrawPartMesh2d {
                     return RenderCommandResult::Skip;
                 };
 
-                pass.set_index_buffer(index_buffer_slice.buffer.slice(..), 0, *index_format);
+                pass.set_index_buffer(index_buffer_slice.buffer.slice(..), *index_format);
 
                 pass.draw_indexed(
                     index_buffer_slice.range.start..(index_buffer_slice.range.start + count),

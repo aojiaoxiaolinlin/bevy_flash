@@ -109,7 +109,7 @@ impl MovieLibrary {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, TypePath)]
 pub(crate) struct SwfLoader;
 
 impl AssetLoader for SwfLoader {

@@ -31,13 +31,14 @@ use bevy::{
         mesh::RenderMesh,
         render_asset::RenderAssets,
         render_resource::{
-            AsBindGroup, BindGroupLayout, BindGroupLayoutEntries, BlendComponent, BlendFactor,
-            BlendOperation, BlendState, BufferUsages, BufferVec, CachedRenderPipelineId,
-            ColorTargetState, ColorWrites, DynamicUniformBuffer, FragmentState, FrontFace,
-            MultisampleState, PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType,
-            SpecializedMeshPipeline, SpecializedMeshPipelines, SpecializedRenderPipelines,
-            TextureFormat, TextureSampleType, VertexState, VertexStepMode,
+            AsBindGroup, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BlendComponent,
+            BlendFactor, BlendOperation, BlendState, BufferUsages, BufferVec,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, DynamicUniformBuffer,
+            FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            ShaderType, SpecializedMeshPipeline, SpecializedMeshPipelines,
+            SpecializedRenderPipelines, TextureFormat, TextureSampleType, VertexState,
+            VertexStepMode,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::{RenderDevice, RenderQueue},
@@ -159,7 +160,7 @@ pub fn prepare_offscreen_view_upscaling_pipelines(
         };
 
         let key = BlitPipelineKey {
-            texture_format: view_target.out_texture_format(),
+            texture_format: view_target.out_texture_view_format(),
             blend_state,
             samples: 1,
         };
@@ -254,23 +255,23 @@ impl From<&BlendMode> for OffscreenMesh2dKey {
 
 #[derive(Resource, Clone)]
 pub struct OffscreenShapePartMesh2dPipeline {
-    pub view_bind_group_layout: BindGroupLayout,
-    pub transform_bind_group_layout: BindGroupLayout,
+    pub view_bind_group_layout: BindGroupLayoutDescriptor,
+    pub transform_bind_group_layout: BindGroupLayoutDescriptor,
 
-    pub gradient_bind_group_layout: BindGroupLayout,
-    pub bitmap_bind_group_layout: BindGroupLayout,
+    pub gradient_bind_group_layout: BindGroupLayoutDescriptor,
+    pub bitmap_bind_group_layout: BindGroupLayoutDescriptor,
     /// 某些特殊的位图填充好像需要特殊处理，这个暂时保留
     #[expect(unused)]
     pub sampler: Sampler,
 }
 
 pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Res<RenderDevice>) {
-    let view_bind_group_layout = render_device.create_bind_group_layout(
+    let view_bind_group_layout = BindGroupLayoutDescriptor::new(
         "纹理变换矩阵布局",
         &BindGroupLayoutEntries::single(ShaderStages::VERTEX, uniform_buffer::<Mat4>(true)),
     );
 
-    let transform_bind_group_layout = render_device.create_bind_group_layout(
+    let transform_bind_group_layout = BindGroupLayoutDescriptor::new(
         "变换矩阵布局",
         &BindGroupLayoutEntries::single(
             ShaderStages::VERTEX_FRAGMENT,
@@ -278,8 +279,8 @@ pub fn init_offscreen_texture_pipeline(mut commands: Commands, render_device: Re
         ),
     );
 
-    let gradient_bind_group_layout = GradientMaterial::bind_group_layout(&render_device);
-    let bitmap_bind_group_layout = BitmapMaterial::bind_group_layout(&render_device);
+    let gradient_bind_group_layout = GradientMaterial::bind_group_layout_descriptor(&render_device);
+    let bitmap_bind_group_layout = BitmapMaterial::bind_group_layout_descriptor(&render_device);
 
     let sampler = render_device.create_sampler(&SamplerDescriptor::default());
 
@@ -451,13 +452,13 @@ impl SpecializedMeshPipeline for OffscreenShapePartMesh2dPipeline {
 
 #[derive(Resource)]
 pub struct SourceTextureLayout {
-    source_layout: BindGroupLayout,
+    source_layout: BindGroupLayoutDescriptor,
 
-    blur_texture_layout: BindGroupLayout,
+    blur_texture_layout: BindGroupLayoutDescriptor,
 }
 
-fn init_source_texture_layout(mut commands: Commands, render_device: Res<RenderDevice>) {
-    let source_layout = render_device.create_bind_group_layout(
+fn init_source_texture_layout(mut commands: Commands) {
+    let source_layout = BindGroupLayoutDescriptor::new(
         "source_texture_bind_group_layout",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
@@ -468,7 +469,7 @@ fn init_source_texture_layout(mut commands: Commands, render_device: Res<RenderD
         ),
     );
 
-    let blur_texture_layout = render_device.create_bind_group_layout(
+    let blur_texture_layout = BindGroupLayoutDescriptor::new(
         "blur_texture_bind_group_layout",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
@@ -644,7 +645,7 @@ pub struct FilterVertexWithDoubleBlur {
 
 #[derive(Resource)]
 pub struct BlurFilterPipeline {
-    pub layout: BindGroupLayout,
+    pub layout: BindGroupLayoutDescriptor,
     pub sampler: Sampler,
     pub pipeline_id: CachedRenderPipelineId,
 }
@@ -657,7 +658,7 @@ pub(crate) fn init_blur_filter_pipeline(
     assert_server: Res<AssetServer>,
     source_texture_layout: Res<SourceTextureLayout>,
 ) {
-    let layout = render_device.create_bind_group_layout(
+    let layout = BindGroupLayoutDescriptor::new(
         "blur_filter_bind_group_layout",
         &BindGroupLayoutEntries::single(
             ShaderStages::FRAGMENT,
@@ -699,7 +700,7 @@ pub(crate) fn init_blur_filter_pipeline(
 
 #[derive(Resource)]
 pub struct ColorMatrixFilterPipeline {
-    pub layout: BindGroupLayout,
+    pub layout: BindGroupLayoutDescriptor,
     pub sampler: Sampler,
     pub pipeline_id: CachedRenderPipelineId,
 }
@@ -712,7 +713,7 @@ pub(crate) fn init_color_matrix_filter_pipeline(
     assert_server: Res<AssetServer>,
     source_texture_layout: Res<SourceTextureLayout>,
 ) {
-    let layout = render_device.create_bind_group_layout(
+    let layout = BindGroupLayoutDescriptor::new(
         "color_matrix_bind_group_layout",
         &BindGroupLayoutEntries::single(
             ShaderStages::FRAGMENT,
@@ -756,7 +757,7 @@ pub(crate) fn init_color_matrix_filter_pipeline(
 
 #[derive(Resource)]
 pub struct GlowFilterPipeline {
-    pub layout: BindGroupLayout,
+    pub layout: BindGroupLayoutDescriptor,
     pub sampler: Sampler,
     pub pipeline_id: CachedRenderPipelineId,
 }
@@ -769,7 +770,7 @@ pub(crate) fn init_glow_filter_pipeline(
     assert_server: Res<AssetServer>,
     source_texture_layout: Res<SourceTextureLayout>,
 ) {
-    let layout = render_device.create_bind_group_layout(
+    let layout = BindGroupLayoutDescriptor::new(
         "glow_filter_bind_group_layout",
         &BindGroupLayoutEntries::single(
             ShaderStages::FRAGMENT,
@@ -814,7 +815,7 @@ pub(crate) fn init_glow_filter_pipeline(
 
 #[derive(Resource)]
 pub struct BevelFilterPipeline {
-    pub layout: BindGroupLayout,
+    pub layout: BindGroupLayoutDescriptor,
     pub sampler: Sampler,
     pub pipeline_id: CachedRenderPipelineId,
 }
@@ -826,7 +827,7 @@ pub(crate) fn init_bevel_filter_pipeline(
     assert_server: Res<AssetServer>,
     source_texture_layout: Res<SourceTextureLayout>,
 ) {
-    let layout = render_device.create_bind_group_layout(
+    let layout = BindGroupLayoutDescriptor::new(
         "glow_filter_bind_group_layout",
         &BindGroupLayoutEntries::single(
             ShaderStages::FRAGMENT,

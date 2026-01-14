@@ -44,6 +44,10 @@ impl Node for OffscreenTextureMultiPassPostProcessingDriverNode {
                 offscreen_camera.render_graph,
                 vec![],
                 Some(sorted_offscreen_camera.entity),
+                Some(format!(
+                    "Offscreen Render {} ({})",
+                    sorted_offscreen_camera.order, sorted_offscreen_camera.entity
+                )),
             )?;
         }
         Ok(())

@@ -23,7 +23,6 @@ use bevy::{
             TextureDescriptor, TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
         },
         renderer::RenderContext,
-        texture::TextureCache,
     },
 };
 
@@ -58,8 +57,10 @@ impl ViewNode for FilterPostProcessingNode {
 
         let filter_bind_group = world.resource::<FilterBindGroup>();
 
-        let source_layout = &source_texture_layout.source_layout;
-        let blur_layout = &source_texture_layout.blur_texture_layout;
+        let source_layout =
+            &pipeline_cache.get_bind_group_layout(&source_texture_layout.source_layout);
+        let blur_layout =
+            &pipeline_cache.get_bind_group_layout(&source_texture_layout.blur_texture_layout);
 
         let mut color_pass_index = 0;
         let mut blur_pass_index = 0;
@@ -266,7 +267,7 @@ impl ViewNode for FilterPostProcessingNode {
 
                     let bind_group = render_device.create_bind_group(
                         "bevel_filter_bind_group",
-                        &bevel_filter_pipeline.layout,
+                        &pipeline_cache.get_bind_group_layout(&bevel_filter_pipeline.layout),
                         &BindGroupEntries::sequential((
                             &temp_texture_view,
                             &bevel_filter_pipeline.sampler,
@@ -289,7 +290,7 @@ impl ViewNode for FilterPostProcessingNode {
                     render_pass.set_bind_group(1, &blur_bind_group, &[]);
                     render_pass.set_bind_group(2, &bevel_bind_group, &[offset]);
                     render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(indices_buffer.slice(..), 0, IndexFormat::Uint32);
+                    render_pass.set_index_buffer(indices_buffer.slice(..), IndexFormat::Uint32);
                     render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
                 }
                 DropShadowFilter(..) => {

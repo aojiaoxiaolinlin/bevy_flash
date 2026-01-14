@@ -132,7 +132,6 @@ impl ViewNode for OffscreenMainTransparentPass2dNode {
                                 };
                                 render_pass.set_index_buffer(
                                     index_buffer_slice.buffer.slice(..),
-                                    0,
                                     *index_format,
                                 );
 
