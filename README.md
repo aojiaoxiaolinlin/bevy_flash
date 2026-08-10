@@ -1,3 +1,5 @@
+
+
 # Bevy Flash
 
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/aojiaoxiaolinlin/bevy_flash/#license)
@@ -62,14 +64,14 @@ cargo run --example sample
 Minimal usage:
 
 ```rust
-fn setup(mut commands: Commands, assert_server: Res<AssetServer>) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
     commands.spawn((
-        Flash(assert_server.load("spirit2159src.swf")),
+        Flash(asset_server.load("spirit2159src.swf")),
         FlashPlayer::from_animation_name("WAI").with_loop(true),
         Transform::from_scale(Vec3::splat(2.0)),
     ));
-    commands.spawn(Flash(assert_server.load("loading_event_test.swf")));
+    commands.spawn(Flash(asset_server.load("loading_event_test.swf")));
 }
 ```
 
