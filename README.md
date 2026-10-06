@@ -1,4 +1,14 @@
-# bevy_flash_remake
+# Bevy Flash
+
+[![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/aojiaoxiaolinlin/bevy_flash/#license)
+[![Crates.io](https://img.shields.io/crates/v/bevy_flash.svg)](https://crates.io/crates/bevy_flash)
+[![Downloads](https://img.shields.io/crates/d/bevy_flash.svg)](https://crates.io/crates/bevy_flash)
+[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aojiaoxiaolinlin/bevy_flash)
+[![Bevy Tracking](https://img.shields.io/badge/Bevy%20tracking-main-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
+[![Discord](https://img.shields.io/discord/1420207300710236180.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/aDzUKVE4)
+
+Bring Flash animations into the Bevy game engine, fully WASM compatible!
+
 
 面向 Bevy 的 Flash 矢量动画和 UI 库。SWF 由 [vatf](https://github.com/aojiaoxiaolinlin/vatf) 提前编译为 VAB；运行时加载烘焙帧，不解释 ActionScript，也不计算普通 Sprite 时间轴。
 
