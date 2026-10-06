@@ -79,6 +79,7 @@ fn vertex_quad(
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Single-mip inputs use explicit LOD because material selection varies by instance.
     let draw = draws[in.instance_index];
     // The VATF material transform is a 2D affine mat3 embedded in the first
     // three columns of Mat4. Its translation therefore lives in column 2,
@@ -86,11 +87,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv_matrix = mat3x3<f32>(draw.uv[0].xyz, draw.uv[1].xyz, draw.uv[2].xyz);
     let uv = (uv_matrix * vec3(in.local_position, 1.0)).xy;
     if draw.material.w == 3.0 {
-        return encoded_premultiplied_to_output(textureSample(tex, samp, uv));
+        return encoded_premultiplied_to_output(textureSampleLevel(tex, samp, uv, 0.0));
     }
     var color = vec4(to_srgb(in.color.rgb), in.color.a);
     if draw.material.w == 1.0 {
-        color = textureSample(tex, samp, uv);
+        color = textureSampleLevel(tex, samp, uv, 0.0);
         if color.a > 0.0 {
             color = vec4(color.rgb / color.a, color.a);
         }
@@ -112,7 +113,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         } else {
             t = fract(t);
         }
-        color = textureSample(tex, samp, vec2((t * 255.0 + 0.5) / 256.0, 0.5));
+        color = textureSampleLevel(tex, samp, vec2((t * 255.0 + 0.5) / 256.0, 0.5), 0.0);
     }
     color = clamp(color * draw.multiply + draw.add, vec4(0.0), vec4(1.0));
     return encoded_premultiplied_to_output(vec4(color.rgb * color.a, color.a));

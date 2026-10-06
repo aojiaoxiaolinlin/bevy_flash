@@ -46,7 +46,8 @@ fn blur_alpha(uv: vec2<f32>) -> f32 {
     if uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 {
         return 0.0;
     }
-    return textureSample(blurred, blurred_sampler, uv).a;
+    // Explicit LOD permits sampling after the per-fragment bounds check on WebGPU.
+    return textureSampleLevel(blurred, blurred_sampler, uv, 0.0).a;
 }
 
 fn gradient_color(value: f32) -> vec4<f32> {

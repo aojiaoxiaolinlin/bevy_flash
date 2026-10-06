@@ -2769,12 +2769,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "git"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dff153f69b6fcddc77357d4a3f54fb5118d1be002123eff90f585477c2024a75"
-
-[[package]]
 name = "gl_generator"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5468,7 +5462,6 @@ dependencies = [
  "clap",
  "flate2",
  "gif",
- "git",
  "image",
  "indexmap",
  "jpeg-decoder",

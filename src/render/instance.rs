@@ -1,8 +1,9 @@
+use bevy::platform::time::Instant;
 use std::{
     collections::{HashSet, VecDeque},
     sync::{Arc, Mutex, atomic::Ordering},
 };
-use std::{hash::Hash, ops::Range, time::Instant};
+use std::{hash::Hash, ops::Range};
 
 use bevy::{
     asset::{AssetEvent, AssetEventSystems, AssetId, embedded_asset, load_embedded_asset},
