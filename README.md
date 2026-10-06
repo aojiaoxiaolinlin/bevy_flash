@@ -18,7 +18,7 @@ Bring Flash animations into the Bevy game engine, fully WASM compatible!
 ## 渲染展示
 
 以下是已有 GPU 测试直接渲染与读回的图片，保留透明背景，不是 JPEXS 导出的 PNG。
-静态截图展示某一帧，不代表与 Flash/Ruffle 的完整像素一致性验证。
+静态截图展示某一帧。
 
 ### 角色动画、位图与滤镜
 
