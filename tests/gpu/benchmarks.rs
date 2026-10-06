@@ -65,11 +65,11 @@ fn spirit_frames_to_png() {
         })
     );
     fn bounds(
-        nodes: &[bevy_flash_remake::vab_asset::VabCommand],
+        nodes: &[bevy_flash::vab_asset::VabCommand],
         asset: &VabAsset,
         b: &mut [f32; 4],
     ) {
-        use bevy_flash_remake::vab_asset::VabCommand;
+        use bevy_flash::vab_asset::VabCommand;
         for n in nodes {
             match n {
                 VabCommand::RenderShape { handle, transform } => {

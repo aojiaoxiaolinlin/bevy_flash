@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::Path};
 
 use bevy::{asset::Handle, math::Vec3};
-use bevy_flash_remake::{
+use bevy_flash::{
     sampling::VabSkin,
     vab_asset::{MeshMaterial, RenderMeshGroup, VabAsset, VabCommand},
 };

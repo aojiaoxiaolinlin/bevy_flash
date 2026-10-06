@@ -1,6 +1,6 @@
 //! SWF sources → Bevy processed cache → ordinary VAB/UI loaders.
 use bevy::{asset::AssetMode, prelude::*};
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     asset_processing::{VabAssetProcessorPlugin, vab_processed_asset_path},
     vab_graphic::VabAssetLabel,

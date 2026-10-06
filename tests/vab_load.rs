@@ -10,13 +10,13 @@ use bevy::app::App;
 use bevy::asset::{AssetApp, AssetPlugin, AssetServer, Assets, Handle, LoadState};
 use bevy::image::Image;
 use bevy::mesh::Mesh;
-use bevy_flash_remake::vab_asset::{CommandList, VabAsset, VabCommand};
+use bevy_flash::vab_asset::{CommandList, VabAsset, VabCommand};
 use vatf::baked::BakedNode;
 use vatf::reader::VabReader;
 
 #[test]
 fn native_login_button_loads_named_states_with_shared_registration() {
-    use bevy_flash_remake::{
+    use bevy_flash::{
         vab_button::VabButton,
         vab_graphic::{VabAssetLabel, VabGraphic},
     };
@@ -74,7 +74,7 @@ fn native_login_button_loads_named_states_with_shared_registration() {
 
 #[test]
 fn named_ui_graphics_load_without_root_placement_and_share_meshes() {
-    use bevy_flash_remake::vab_graphic::{VabAssetLabel, VabGraphic};
+    use bevy_flash::vab_graphic::{VabAssetLabel, VabGraphic};
     let directory = asset_directory();
     std::fs::create_dir_all(&directory).unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/ui_demo.swf");
@@ -137,7 +137,7 @@ fn collect_shape_ids(nodes: &[BakedNode], out: &mut Vec<u16>) {
 
 /// Directory holding the freshly compiled test asset.
 fn asset_directory() -> PathBuf {
-    std::env::temp_dir().join(format!("bevy_flash_remake_load_{}", std::process::id()))
+    std::env::temp_dir().join(format!("bevy_flash_load_{}", std::process::id()))
 }
 
 fn fixture_swf() -> PathBuf {
@@ -245,7 +245,7 @@ fn build_app(asset_directory: &Path) -> App {
             file_path: asset_directory.to_string_lossy().into_owned(),
             ..Default::default()
         })
-        .add_plugins(bevy_flash_remake::FlashPlayerPlugin)
+        .add_plugins(bevy_flash::FlashPlayerPlugin)
         // Types the loader registers as labelled sub-assets.
         .init_asset::<Image>()
         .init_asset::<Mesh>();

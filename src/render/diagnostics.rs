@@ -16,7 +16,7 @@ use super::{FlashRenderDiagnostics, VabFilterWorkload};
 ///
 /// ```no_run
 /// use bevy::prelude::*;
-/// use bevy_flash_remake::{FlashPlayerPlugin, render::VabDiagnosticsPlugin};
+/// use bevy_flash::{FlashPlayerPlugin, render::VabDiagnosticsPlugin};
 /// App::new()
 ///     .add_plugins((DefaultPlugins, FlashPlayerPlugin, VabDiagnosticsPlugin::default()))
 ///     .run();

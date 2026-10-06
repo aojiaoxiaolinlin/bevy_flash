@@ -17,7 +17,7 @@ use bevy::{
     window::{ExitCondition, WindowPlugin},
     winit::WinitPlugin,
 };
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     material::BitmapMaterial,
     render::{

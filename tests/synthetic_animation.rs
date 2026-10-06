@@ -11,7 +11,7 @@
 
 use bevy::asset::Handle;
 use bevy::math::Vec3;
-use bevy_flash_remake::vab_asset::{
+use bevy_flash::vab_asset::{
     CommandList, MeshMaterial, RenderMeshGroup, VabAsset, VabBlendMode, VabCommand,
 };
 use vatf::animation::{AnimBlurFilter, AnimFilter, AnimTransform};

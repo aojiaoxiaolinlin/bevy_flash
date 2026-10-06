@@ -1,4 +1,4 @@
-use bevy_flash_remake::{
+use bevy_flash::{
     vab_asset::VabAsset,
     vab_player::{PlaybackEvent, VabPlayer},
 };
@@ -230,7 +230,7 @@ fn ecs_system_emits_messages_and_resets_when_asset_changes() {
         prelude::*,
         time::TimeUpdateStrategy,
     };
-    use bevy_flash_remake::{
+    use bevy_flash::{
         FlashPlayerPlugin, vab_asset::VabAssetHandle, vab_player::VabFrameEvent,
     };
     let mut app = App::new();

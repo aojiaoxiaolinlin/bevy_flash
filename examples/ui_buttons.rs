@@ -1,7 +1,7 @@
 //! Native SWF vector button: hover/press, shared raster cache and stable layout.
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     vab_graphic::VabAssetLabel,
     vab_ui::{VabButtonNode, VabUiPlugin},

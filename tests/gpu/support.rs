@@ -38,7 +38,7 @@ pub(super) fn app_with_diagnostic_options(
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
     #[cfg(feature = "ui")]
-    app.add_plugins(bevy_flash_remake::vab_ui::VabUiPlugin);
+    app.add_plugins(bevy_flash::vab_ui::VabUiPlugin);
     while app.plugins_state() != bevy::app::PluginsState::Ready {
         app.update();
     }

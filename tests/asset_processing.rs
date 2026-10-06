@@ -11,7 +11,7 @@ use bevy::{
     prelude::*,
     tasks::block_on,
 };
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     asset_processing::{
         SwfCompileMode, SwfCompileSettings, SwfToVabProcessor, VabAssetProcessorPlugin,

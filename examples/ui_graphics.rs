@@ -1,6 +1,6 @@
 //! Static vector UI: layout/DPI-sized rasterization with shared caching.
 use bevy::prelude::*;
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     vab_graphic::VabAssetLabel,
     vab_ui::{VabImageFit, VabImageNode, VabUiPlugin},

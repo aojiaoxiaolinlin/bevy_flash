@@ -10,7 +10,7 @@
 
 ```rust,ignore
 use bevy::{asset::AssetMode, prelude::*};
-use bevy_flash_remake::{FlashPlayerPlugin, asset_processing::{
+use bevy_flash::{FlashPlayerPlugin, asset_processing::{
     VabAssetProcessorPlugin, vab_processed_asset_path,
 }};
 
@@ -36,7 +36,7 @@ App::new().add_plugins((
 (
     meta_format_version: "1.0",
     asset: Process(
-        processor: "bevy_flash_remake::asset_processing::SwfToVabProcessor",
+        processor: "bevy_flash::asset_processing::SwfToVabProcessor",
         settings: (mode: AnimatedUi),
     ),
 )

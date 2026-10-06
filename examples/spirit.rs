@@ -1,6 +1,6 @@
 //! Minimal VAB playback example. For performance diagnostics, run spirit_diagnostics.
 use bevy::prelude::*;
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     render::{TransientTexturePoolSettings, VabFilterMsaa},
     vab_asset::{VabAsset, VabAssetHandle},

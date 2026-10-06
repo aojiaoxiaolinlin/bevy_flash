@@ -8,7 +8,7 @@
 //! have to be tuned per asset.
 
 use bevy::{camera::ScalingMode, prelude::*};
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     sampling::VabSkin,
     vab_asset::{CommandList, VabAsset, VabAssetHandle, VabCommand},

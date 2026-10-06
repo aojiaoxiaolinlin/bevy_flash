@@ -1,6 +1,6 @@
 //! Animated exported UI. Space pauses; arrows change playback speed.
 use bevy::prelude::*;
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     vab_ui::{VabImageNode, VabUiPlayback, VabUiPlugin},
 };

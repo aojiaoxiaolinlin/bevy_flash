@@ -11,7 +11,7 @@ use bevy::{
     diagnostic::{DiagnosticPath, DiagnosticsStore, FrameCount},
     prelude::*,
 };
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     render::{
         TransientTexturePoolSettings, VAB_FILTER_DIAGNOSTIC_SLOTS, VabDiagnosticsPlugin,

@@ -52,7 +52,7 @@ let graphic: Handle<VabGraphic> = asset_server.load(
 );
 ```
 
-Types live in `bevy_flash_remake::vab_graphic`. A VabGraphic contains original
+Types live in `bevy_flash::vab_graphic`. A VabGraphic contains original
 geometric bounds and a shared-handle, single-frame rendering asset. Its geometry
 is centered in Flash coordinates; the existing world renderer handles Y reversal.
 The root animation's translation normalization is never used for UI symbols.
@@ -66,7 +66,7 @@ Internal loader labels now start with `__vab/`; they are not public APIs.
 ## Cached UI rendering
 
 The default `ui` Cargo feature exposes `VabUiPlugin`, `VabImageNode` and
-`VabUiCacheSettings` in `bevy_flash_remake::vab_ui`. Animation-only hosts can
+`VabUiCacheSettings` in `bevy_flash::vab_ui`. Animation-only hosts can
 set `default-features = false`. Add `VabUiPlugin` alongside `FlashPlayerPlugin`
 and Bevy's UI plugins:
 

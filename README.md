@@ -67,7 +67,7 @@ SWF 的 hit 是命中几何，不是点击或焦点外观。截图来源与重�
 
 ```rust
 use bevy::prelude::*;
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     vab_asset::VabAssetHandle,
     vab_player::VabPlayer,
@@ -117,7 +117,7 @@ fallback 需要显式指定。通过 `MessageReader<VabFrameEvent>` / `MessageRe
 
 ```rust
 use bevy::prelude::*;
-use bevy_flash_remake::{FlashPlayerPlugin, vab_ui::{VabButtonNode, VabImageNode, VabUiPlugin}};
+use bevy_flash::{FlashPlayerPlugin, vab_ui::{VabButtonNode, VabImageNode, VabUiPlugin}};
 
 fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     commands.spawn(Camera2d);
@@ -196,7 +196,7 @@ Bevy 管理源文件和配置失效；`vab_processed_asset_path` 按编译器修
 Rust/
 ├── bevy/
 ├── vatf/
-└── bevy_flash_remake/
+└── bevy_flash/
 ```
 
 vatf 的 UI 与共用编译接口已合入 `main`，本库使用该主分支的接口，无需切换旧的 UI 开发分支。开发期间更换 vatf 修订时，需保持接口与 VAB 工作格式配套；格式或编译行为改变后的产物应重新生成。
@@ -206,7 +206,7 @@ vatf 的 UI 与共用编译接口已合入 `main`，本库使用该主分支的�
 ```toml
 [dependencies]
 bevy = { path = "../bevy", default-features = false, features = ["2d", "ui_bevy_render"] }
-bevy_flash_remake = { path = "../bevy_flash_remake" }
+bevy_flash = { path = "../bevy_flash" }
 ```
 
 ```powershell
@@ -241,7 +241,7 @@ cargo test --test render_gpu instances:: -- --ignored --test-threads=1
 
 ## Compatibility
 
-| Bevy | bevy_flash_remake |
+| Bevy | bevy_flash |
 |---|---|
 | 0.17 | 0.1 |
 | 0.18 | 0.2 |

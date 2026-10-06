@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_flash_remake::{
+use bevy_flash::{
     FlashPlayerPlugin,
     sampling::VabSkin,
     vab_asset::{VabAsset, VabAssetHandle},

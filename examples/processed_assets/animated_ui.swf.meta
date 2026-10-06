@@ -1,7 +1,7 @@
 (
     meta_format_version: "1.0",
     asset: Process(
-        processor: "bevy_flash_remake::asset_processing::SwfToVabProcessor",
+        processor: "bevy_flash::asset_processing::SwfToVabProcessor",
         settings: (mode: AnimatedUi),
     ),
 )

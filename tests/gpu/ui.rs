@@ -5,7 +5,7 @@ use super::*;
 #[cfg(feature = "ui")]
 #[ignore = "requires GPU"]
 fn hidden_ui_recreates_an_evicted_unfinished_request() {
-    use bevy_flash_remake::vab_ui::{VabImageNode, VabUiCacheSettings, VabUiSystems};
+    use bevy_flash::vab_ui::{VabImageNode, VabUiCacheSettings, VabUiSystems};
     #[derive(Resource, Default)]
     struct Stalled(bool);
     fn stall_first_request(
@@ -82,7 +82,7 @@ fn hidden_ui_recreates_an_evicted_unfinished_request() {
 #[test]
 #[ignore = "requires GPU"]
 fn ui_export_rasterizes_centered_graphic() {
-    use bevy_flash_remake::vab_graphic::VabGraphic;
+    use bevy_flash::vab_graphic::VabGraphic;
     let mut app = app(PathBuf::from("assets"));
     let graphic: Handle<VabGraphic> = app
         .world()
@@ -137,7 +137,7 @@ fn ui_export_rasterizes_centered_graphic() {
 #[test]
 #[ignore = "requires GPU"]
 fn nameplate_ui_renders_without_editable_text() {
-    use bevy_flash_remake::vab_graphic::VabGraphic;
+    use bevy_flash::vab_graphic::VabGraphic;
     let directory = std::env::temp_dir().join("vab_nameplate_gpu");
     std::fs::create_dir_all(&directory).unwrap();
     vatf::convert_swf_ui_to_vab(
@@ -197,7 +197,7 @@ fn nameplate_ui_renders_without_editable_text() {
 #[cfg(feature = "ui")]
 #[ignore = "requires GPU"]
 fn cached_ui_shares_rasters_stops_rendering_and_invalidates() {
-    use bevy_flash_remake::vab_ui::{VabImageNode, VabUiCacheSettings};
+    use bevy_flash::vab_ui::{VabImageNode, VabUiCacheSettings};
     let mut app = app(PathBuf::from("assets"));
 
     let screen = target(&mut app, UVec2::new(800, 600));
@@ -268,7 +268,7 @@ fn cached_ui_shares_rasters_stops_rendering_and_invalidates() {
     let previous = image(&app, a);
     let graphic_id = app.world().get::<VabImageNode>(a).unwrap().graphic.id();
     app.world_mut()
-        .resource_mut::<Assets<bevy_flash_remake::vab_graphic::VabGraphic>>()
+        .resource_mut::<Assets<bevy_flash::vab_graphic::VabGraphic>>()
         .get_mut(graphic_id)
         .unwrap()
         .source_bounds[0] -= 1.0;
@@ -307,7 +307,7 @@ fn cached_ui_shares_rasters_stops_rendering_and_invalidates() {
 #[cfg(feature = "ui")]
 #[ignore = "requires GPU"]
 fn ui_intrinsic_size_and_aspect_fit() {
-    use bevy_flash_remake::vab_ui::{VabImageFit, VabImageNode};
+    use bevy_flash::vab_ui::{VabImageFit, VabImageNode};
     let mut app = app(PathBuf::from("assets"));
     let screen = target(&mut app, UVec2::new(800, 1000));
     app.world_mut().spawn((
@@ -431,12 +431,12 @@ fn ui_intrinsic_size_and_aspect_fit() {
 #[ignore = "requires GPU"]
 fn animated_ui_updates_only_changed_frames_and_shares_results() {
     use bevy::time::TimeUpdateStrategy;
-    use bevy_flash_remake::vab_ui::{VabImageNode, VabUiPlayback};
+    use bevy_flash::vab_ui::{VabImageNode, VabUiPlayback};
     let mut app = app(PathBuf::from("assets"));
     app.world_mut()
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
     app.world_mut()
-        .resource_mut::<bevy_flash_remake::vab_ui::VabUiCacheSettings>()
+        .resource_mut::<bevy_flash::vab_ui::VabUiCacheSettings>()
         .unused_frames = 1000;
     let screen = target(&mut app, UVec2::new(800, 600));
     app.world_mut().spawn((
@@ -479,7 +479,7 @@ fn animated_ui_updates_only_changed_frames_and_shares_results() {
     settle(&mut app);
     let g = app
         .world()
-        .resource::<Assets<bevy_flash_remake::vab_graphic::VabGraphic>>()
+        .resource::<Assets<bevy_flash::vab_graphic::VabGraphic>>()
         .get(&graphic)
         .unwrap();
     assert_eq!(g.frame_count, 6);
@@ -561,7 +561,7 @@ fn animated_ui_updates_only_changed_frames_and_shares_results() {
 #[ignore = "requires GPU"]
 fn animated_ui_publishes_only_completed_rasters_during_continuous_playback() {
     use bevy::time::TimeUpdateStrategy;
-    use bevy_flash_remake::vab_ui::{VabImageNode, VabUiCacheSettings, VabUiSystems};
+    use bevy_flash::vab_ui::{VabImageNode, VabUiCacheSettings, VabUiSystems};
     #[derive(Resource, Default)]
     struct Published(std::collections::HashSet<bevy::asset::AssetId<Image>>);
     fn check(
@@ -629,7 +629,7 @@ fn animated_ui_publishes_only_completed_rasters_during_continuous_playback() {
 #[cfg(feature = "ui")]
 #[ignore = "requires GPU"]
 fn native_login_button_switches_states_without_layout_jumps_and_reuses_rasters() {
-    use bevy_flash_remake::{
+    use bevy_flash::{
         vab_button::VabButton,
         vab_ui::{VabButtonNode, VabImageNode, VabUiSystems},
     };
@@ -650,7 +650,7 @@ fn native_login_button_switches_states_without_layout_jumps_and_reuses_rasters()
             set_interaction.before(VabUiSystems::SelectButton),
         );
     app.world_mut()
-        .resource_mut::<bevy_flash_remake::vab_ui::VabUiCacheSettings>()
+        .resource_mut::<bevy_flash::vab_ui::VabUiCacheSettings>()
         .unused_frames = 1000;
     let screen = target(&mut app, UVec2::new(1000, 400));
     app.world_mut().spawn((
@@ -752,7 +752,7 @@ fn native_login_button_switches_states_without_layout_jumps_and_reuses_rasters()
 #[cfg(feature = "ui")]
 #[ignore = "requires GPU"]
 fn native_login_button_states_render_different_pixels() {
-    use bevy_flash_remake::{vab_button::VabButton, vab_graphic::VabGraphic};
+    use bevy_flash::{vab_button::VabButton, vab_graphic::VabGraphic};
     let mut app = app(PathBuf::from("assets"));
     let button: Handle<VabButton> = app
         .world()
@@ -818,7 +818,7 @@ fn native_login_button_states_render_different_pixels() {
 #[cfg(feature = "ui")]
 #[ignore = "requires GPU"]
 fn background551284_export_animates_and_renders() {
-    use bevy_flash_remake::vab_graphic::VabGraphic;
+    use bevy_flash::vab_graphic::VabGraphic;
     let dir = std::env::temp_dir().join("vab_background551284");
     std::fs::create_dir_all(&dir).unwrap();
     vatf::convert_swf_animated_ui_to_vab(

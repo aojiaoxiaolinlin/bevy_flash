@@ -838,7 +838,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_flash_remake"
+name = "bevy_flash"
 version = "0.1.0"
 dependencies = [
  "anyhow",
