@@ -15,7 +15,7 @@ use bevy_flash::{
     vab_player::{VabCompleteEvent, VabFrameEvent, VabPlayer},
 };
 
-const ASSET_PATH: &str = "spirit2954src.vab";
+const ASSET_PATH: &str = "Dra_LeShan3_battle.vab";
 
 /// Output-pixel scale for the instance.
 const SPIRIT_SCALE: f32 = 2.0;
@@ -24,6 +24,9 @@ const SPIRIT_SCALE: f32 = 2.0;
 /// the clip list sits in.
 const VIEW_WIDTH_FACTOR: f32 = 2.1;
 const VIEW_HEIGHT_FACTOR: f32 = 1.35;
+
+/// Shift the content centre right to leave room for the controls on the left.
+const CONTENT_RIGHT_OFFSET: f32 = 0.22;
 
 const FONT_SIZE: f32 = 16.0;
 const PANEL_PADDING: f32 = 8.0;
@@ -284,7 +287,8 @@ fn place_spirit(layout: Res<VabLayout>, mut spirit: Query<&mut Transform, With<S
     if layout.content_size.x <= 0.0 || layout.content_size.y <= 0.0 {
         return;
     }
-    let x = -SPIRIT_SCALE * layout.content_center.x;
+    let view_width = SPIRIT_SCALE * layout.content_size.x * VIEW_WIDTH_FACTOR;
+    let x = -SPIRIT_SCALE * layout.content_center.x + view_width * CONTENT_RIGHT_OFFSET;
     let y = SPIRIT_SCALE * layout.content_center.y;
     for mut transform in &mut spirit {
         if (transform.translation.x - x).abs() > f32::EPSILON

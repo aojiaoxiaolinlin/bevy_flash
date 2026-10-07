@@ -1,6 +1,6 @@
 # VAB v1 播放接口
 
-输入 SWF 的根 MC 必须是动画根。根时间轴中除 `event_` 外的标签都定义动作；带标签的动作表由编译器移除各动作的初始根放置平移。插件已完成加载、离线帧采样、事件、换肤，以及通过 Camera2d/Transparent2d 的实体渲染、遮罩、Blur、Glow 和固定功能混合。
+输入 SWF 的根 MC 必须是动画根。根时间轴中除 `event_` 外的标签都定义动作；编译默认保留根放置平移，显式 NormalizeClipStart 可移除各动作的初始根放置平移。插件已完成加载、离线帧采样、事件、换肤，以及通过 Camera2d/Transparent2d 的实体渲染、遮罩、Blur、Glow 和固定功能混合。
 
 ## 加载与实例
 
@@ -32,7 +32,7 @@ let commands = asset.sample(player.clip(), player.current_frame, &skin, Vec3::ON
 
 sample 的 scale 为正的输出像素缩放；几何与滤镜范围使用同一输出像素坐标。翻转/旋转属于后续宿主显示变换，不用负的滤镜缩放表达。
 
-带动作标签的资产以每段动作首个非空帧的唯一根对象平移为源布局偏移，编译时从整段统一减去；无动作标签的普通场景保留 SWF 根局部坐标。场景渲染只翻转 Y，不根据 bounds 或视口自动平移。跨资源统一脚底等语义原点的人工 `anchor_origin` 与舞台适配仍是未实施设计，完整契约见 [`coordinates-and-origin.md`](coordinates-and-origin.md)。
+选择 NormalizeClipStart 时，带动作标签的资产以每段动作首个非空帧的唯一根对象平移为源布局偏移，编译时从整段统一减去；无动作标签的普通场景保留 SWF 根局部坐标。场景渲染只翻转 Y，不根据 bounds 或视口自动平移。跨资源统一脚底等语义原点的人工 `anchor_origin` 与舞台适配仍是未实施设计，完整契约见 [`coordinates-and-origin.md`](coordinates-and-origin.md)。
 
 ## 消息
 

@@ -1,6 +1,6 @@
 # VAB 坐标、动作表规范化与锚点设计
 
-状态：动作表的初始根平移规范化已于 2026-09-22 实施；人工语义锚点和舞台适配仍是后续设计。VAB 仍为发布前版本 1。
+状态：2026-10-07 起根平移默认保留，逐动作规范化改为转换选项；人工语义锚点和舞台适配仍是后续设计。VAB 仍为发布前版本 1。
 
 ## 坐标基础
 
@@ -22,7 +22,9 @@ BevyWorld = EntityTranslation + (VabLocal.x, -VabLocal.y) * EntityScale
 
 有些合并 SWF 是动作素材表：根时间轴的每个动作段只放置一个控制子 MC，不同动作被摆在 Flash 舞台的不同位置。`123620.swf` 就属于这种结构。如果直接保留根 PlaceObject 平移，切换动作会把角色移动到素材表中的另一个位置。
 
-编译器现在使用以下明确契约：
+默认 `RootTranslationPolicy::Preserve` 保留作者的根放置平移及动作对齐补偿，也允许多个根对象。已有 VAB 不会自动改变；恢复被删除的偏移需要重新从 SWF 编译。
+
+仅在选择 `RootTranslationPolicy::NormalizeClipStart` 时，使用以下规范化契约（根标签规则适用于两种策略）：
 
 - 根时间轴中除 `event_` 外的每个标签都定义动作；
 - `anim_xxx` 仍受支持，运行时名称为 `xxx`；其他标签保留原名；
@@ -51,6 +53,22 @@ normalized_point(frame) = original_point(frame) - clip_origin
 
 这条规则不读取图形 bounds，因此不会随姿势变化产生帧间抖动。它解决的是“不同动作在素材表上摆放位置不同”，而不是自动猜测脚底。
 
+## 转换设置
+
+```rust
+use vatf::{RootTranslationPolicy, SwfCompileSettings};
+let settings = SwfCompileSettings {
+    root_translation: RootTranslationPolicy::NormalizeClipStart,
+    ..Default::default()
+};
+```
+
+CLI：`vatf input.swf --normalize-clip-start -o output.vab`。省略该参数即保留坐标。
+Bevy 处理器使用同一设置，源 `.swf.meta` 的 settings 中可写
+`root_translation: NormalizeClipStart`；旧元数据省略字段时选择 Preserve。
+编译器修订号为 2，隔离旧处理缓存；VAB 仍为版本 1。
+现有已归零示例无需重生成，重生成时应显式传入上述参数。
+
 ## 已验证素材
 
 `spirit2159src.swf` 的多个动作原本使用同一个根平移，规范化后继续相互对齐。
@@ -70,7 +88,7 @@ normalized_point(frame) = original_point(frame) - clip_origin
 攻击：脚底局部位置 50 + 根放置 250 = 根空间脚底 300
 ```
 
-如果这种 SWF 已经把所有动作正确对齐到一个公共根空间，逐动作抵消不同的根平移会删除作者的补偿。当前实现因此不是对任意 SWF 的启发式修复，而是带动作标签输入格式的一部分：标签动作段被视为独立摆放的动作素材。已经具有公共语义原点的素材应在导入前统一外层布局，或未来使用显式导入模式。当前测试中的 spirit 素材各动作根平移相同，不存在该冲突。
+如果这种 SWF 已经把所有动作正确对齐到一个公共根空间，逐动作抵消不同的根平移会删除作者的补偿。因此已经对齐的素材应使用默认 Preserve；分散摆放的动作素材表才显式选择 NormalizeClipStart。当前测试中的 spirit 素材各动作根平移相同，不存在该冲突。
 
 不能使用以下方法替代当前规则：
 

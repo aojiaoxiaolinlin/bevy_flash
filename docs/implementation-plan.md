@@ -10,7 +10,7 @@ Bevy 资产预处理已接入：普通动画、静态 UI、动态 UI 共用 vatf
 
 文档入口与模块地图见 [README](../README.md) 和 [architecture.md](architecture.md)。
 
-输入契约：根 MC 就是动画根。本工程不识别包装层、不补帧、不运行 ActionScript。带根动作标签的素材采用“每段动作至多一个根级控制对象”的结构，编译器会抵消每段动作首个非空帧的根放置平移；无根动作标签的普通场景保持原坐标与多对象结构。普通子 MC 由父帧确定；`skin_<slot>` 实例通过子时间轴的帧标签直接定义具名静态变体。
+输入契约：根 MC 就是动画根。本工程不识别包装层、不补帧、不运行 ActionScript。显式 NormalizeClipStart 模式下，带根动作标签的素材采用“每段动作至多一个根级控制对象”的结构，编译器会抵消每段动作首个非空帧的根放置平移；无根动作标签的普通场景保持原坐标与多对象结构。普通子 MC 由父帧确定；`skin_<slot>` 实例通过子时间轴的帧标签直接定义具名静态变体。
 
 坐标与原点设计见 [`coordinates-and-origin.md`](coordinates-and-origin.md)。动作表的逐片段源布局平移已在编译期规范化；运行时只翻转 Y。跨资源共享语义原点所需的 `anchor_origin`、舞台 bounds 和 clip 联合 bounds 尚未实施。
 
@@ -32,7 +32,7 @@ P5 已完成：不可 Clone 的 RAII Lease、按完整 TextureDescriptor 分池�
 
 1. 根时间轴中除 event_xxx 外的每个标签都定义动作 [start, next_start)；最后一个到根末尾。anim_xxx 兼容写法会去掉 anim_ 前缀，其余标签原名即动作名。无动作标签时使用 default 整段；有标签时第一个必须位于第 0 帧，规范化后重复/空动画名报错。
 2. event_xxx 根标签保存为列表，允许同名多次出现，编译为片段局部帧号；子标签不参与播放控制。
-3. 普通子帧遵循 (父局部帧 - place_frame) mod 子帧数，不重置子相位。带动作标签时，每段根帧至多有一个根级控制对象；取首个非空帧的 PlaceObject 平移 `(tx, ty)`，对该段所有烘焙结果统一左乘 `Translate(-tx, -ty)`。只移除源动作表中的舞台摆放位置，保留缩放、旋转、斜切以及后续帧相对于动作首帧的根运动。空片段偏移为零，多根对象报错。无动作标签的普通场景不执行此规则。
+3. 普通子帧遵循 (父局部帧 - place_frame) mod 子帧数，不重置子相位。显式 NormalizeClipStart 且带动作标签时，每段根帧至多有一个根级控制对象；取首个非空帧的 PlaceObject 平移 `(tx, ty)`，对该段所有烘焙结果统一左乘 `Translate(-tx, -ty)`。只移除源动作表中的舞台摆放位置，保留缩放、旋转、斜切以及后续帧相对于动作首帧的根运动。空片段偏移为零，多根对象报错。无动作标签的普通场景不执行此规则。
 4. 离线展开普通 sprite 时间轴与变换；保留滤镜/混合/遮罩边界和 skin 槽，运行时不再解释普通 sprite 时间轴。
    静态 `DefineText/DefineText2` 同样在编译期按字体字形、文本矩阵、字号、颜色和 advance 展开为合成 Shape 与单帧子时间轴，运行时不保留字体或文本状态。
 5. 换肤使用单一明确约定：PlaceObject 实例名 `skin_xxx` 定义槽 `xxx`，所引用子时间轴的帧标签直接定义具名变体，未标记帧不参与换肤。默认显示第一个具名变体；每实体按槽和名称设置，支持批量原子设置；未知名称返回错误。保留槽外部变换和分组，不生成变体的笛卡尔积。
@@ -110,3 +110,5 @@ P5 已完成：不可 Clone 的 RAII Lease、按完整 TextureDescriptor 分池�
 6. [x] **补充真实显存指标。** 保留借出 lease 的 live/peak，同时增加池内总纹理/逻辑驻留字节、空闲纹理/字节、bucket count，以及最大桶的数量/字节；总驻留覆盖空闲和被持久滤镜缓存持有的纹理。字节包括 block、mip、layer/depth、MSAA sample，不包含 wgpu 未公开的后端对齐与驱动元数据。
 7. [x] **以基准决定跨动画批处理。** 旧版可在多个相同 VAB、相同帧且排序相邻时跨实体合并相同 mesh/material。单动画内部通常没有相同网格，spirit 抽样 33 个实例形成 32 个包。release 基准中，从 1 个实例/1 draw 增至 100 个实例/100 draw 的 `App::update` 增量约为 `56.8 µs`；交错帧再增加 50 draw 的增量约为 `7.4 µs`。当前不实现跨动画合批，保持一个动画一个 `Transparent2d` 项及其原子透明排序。以后只有目标平台 GPU 时间或真实游戏基准确认瓶颈时，才重新评估无滤镜、无遮罩、无隔离层且 packet 布局完全一致的整动画实例批处理。
 8. **建立对比基准。** 至少覆盖单个 spirit、100 个相同无滤镜实例、100 个不同帧实例、多滤镜实例、暂停实例和双相机，记录帧采样 CPU、Prepare CPU、draw call、filter pass、池驻留字节和 GPU frame time。
+
+- 2026-10-07：转换新增 RootTranslationPolicy，默认 Preserve 保留作者对齐；NormalizeClipStart 为显式选项，CLI 与资产处理器共用。编译器修订号 2，VAB 版本保持 1。

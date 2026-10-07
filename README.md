@@ -252,3 +252,16 @@ cargo test --test render_gpu instances:: -- --ignored --test-threads=1
 本仓库中的源代码、文档等内容，除非另有说明，版权归 [本人] 所有，并依据 [MIT/Apache-2.0] 许可证授权。
 
 本仓库中用于演示的美术资产，包括但不限于 `assets` 目录下的 SWF、PNG、JPG、GIF 等文件，版权归原作者所有。除非另有说明，这些美术资产仅用于本仓库的演示和测试目的，不得用于其他商业或非商业用途。
+
+### 动作坐标导入
+
+SWF 转换默认保留根放置平移，包括作者用于动作对齐的补偿。
+若素材将各动作独立摆在舞台不同位置，可显式归零：
+
+```sh
+cargo run --release --manifest-path ../vatf/Cargo.toml -- assets/spirit2159src.swf --normalize-clip-start -o assets/spirit2159src.vab
+```
+
+现有动作示例 VAB 已使用归零方式烘焙，重生成时加此参数以维持坐标。
+Bevy 资产处理器共享 `SwfCompileSettings::root_translation`，默认 `Preserve`；
+需要归零时选 `NormalizeClipStart`。详见 [坐标与锚点](docs/coordinates-and-origin.md)。

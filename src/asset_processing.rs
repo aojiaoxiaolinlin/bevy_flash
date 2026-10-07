@@ -11,7 +11,7 @@ use bevy::{
 use std::path::{Path, PathBuf};
 
 use crate::vab_asset::VabLoader;
-pub use vatf::{COMPILER_REVISION, SwfCompileMode, SwfCompileSettings};
+pub use vatf::{COMPILER_REVISION, RootTranslationPolicy, SwfCompileMode, SwfCompileSettings};
 
 /// A revisioned cache root: compiler updates invalidate cached results without
 /// changing the VAB layout version or editing user-authored source metadata.

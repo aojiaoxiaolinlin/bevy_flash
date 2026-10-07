@@ -36,7 +36,10 @@ fn directory(name: &str) -> PathBuf {
 fn metadata(path: &Path, mode: SwfCompileMode) {
     let meta = AssetMeta::<(), SwfToVabProcessor>::new(AssetAction::Process {
         processor: <SwfToVabProcessor as bevy::reflect::TypePath>::type_path().into(),
-        settings: SwfCompileSettings { mode },
+        settings: SwfCompileSettings {
+            mode,
+            ..Default::default()
+        },
     });
     fs::write(path, meta.serialize()).unwrap();
 }
@@ -133,7 +136,8 @@ fn processed_ui_cache_reuses_and_invalidates_source_and_settings() {
         vatf::compile_swf(
             &bytes,
             &SwfCompileSettings {
-                mode: SwfCompileMode::StaticUi
+                mode: SwfCompileMode::StaticUi,
+                ..Default::default()
             }
         )
         .unwrap()
@@ -261,7 +265,10 @@ fn compiler_byte_and_file_apis_match_all_modes() {
         ("ui_demo", SwfCompileMode::Animation),
     ] {
         let input = PathBuf::from(format!("assets/{name}.swf"));
-        let settings = SwfCompileSettings { mode };
+        let settings = SwfCompileSettings {
+            mode,
+            ..Default::default()
+        };
         let compiled = vatf::compile_swf(&fs::read(&input).unwrap(), &settings).unwrap();
         let output = root.join(format!("{mode:?}.vab"));
         let report = vatf::convert_swf(&input, &output, &settings).unwrap();
@@ -276,7 +283,28 @@ fn compiler_byte_and_file_apis_match_all_modes() {
 fn invalid_source_fails_processing_and_example_metadata_is_valid() {
     for name in ["ui_demo", "animated_ui", "login"] {
         let meta = fs::read(format!("examples/processed_assets/{name}.swf.meta")).unwrap();
-        AssetMeta::<(), SwfToVabProcessor>::deserialize(&meta).unwrap();
+        let decoded = AssetMeta::<(), SwfToVabProcessor>::deserialize(&meta).unwrap();
+        let AssetAction::Process { mut settings, .. } = decoded.asset else {
+            panic!("expected processor metadata");
+        };
+        assert_eq!(
+            settings.root_translation,
+            vatf::RootTranslationPolicy::Preserve
+        );
+        settings.root_translation = vatf::RootTranslationPolicy::NormalizeClipStart;
+        let explicit = AssetMeta::<(), SwfToVabProcessor>::new(AssetAction::Process {
+            processor: <SwfToVabProcessor as bevy::reflect::TypePath>::type_path().into(),
+            settings,
+        });
+        let decoded =
+            AssetMeta::<(), SwfToVabProcessor>::deserialize(&explicit.serialize()).unwrap();
+        let AssetAction::Process { settings, .. } = decoded.asset else {
+            panic!("expected processor metadata");
+        };
+        assert_eq!(
+            settings.root_translation,
+            vatf::RootTranslationPolicy::NormalizeClipStart
+        );
     }
     let root = directory("invalid");
     fs::write(root.join("source/broken.swf"), b"not a SWF").unwrap();
@@ -402,6 +430,7 @@ fn watcher_events_reprocess_and_reload_existing_subasset_handles() {
         &bytes,
         &SwfCompileSettings {
             mode: SwfCompileMode::StaticUi,
+            ..Default::default()
         },
     )
     .unwrap()
