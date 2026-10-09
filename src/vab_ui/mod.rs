@@ -84,6 +84,9 @@ impl Default for VabUiCacheSettings {
 pub struct VabUiPlugin;
 impl Plugin for VabUiPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<bevy::ui_widgets::ButtonPlugin>() {
+            app.add_plugins(bevy::ui_widgets::ButtonPlugin);
+        }
         app.init_resource::<VabUiCacheSettings>()
             .init_resource::<RasterCache>()
             .add_systems(

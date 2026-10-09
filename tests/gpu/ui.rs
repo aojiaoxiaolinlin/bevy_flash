@@ -634,21 +634,34 @@ fn native_login_button_switches_states_without_layout_jumps_and_reuses_rasters()
         vab_ui::{VabButtonNode, VabImageNode, VabUiSystems},
     };
     #[derive(Resource)]
-    struct Requested(Interaction);
+    struct Requested {
+        hovered: bool,
+        pressed: bool,
+    }
     fn set_interaction(
         state: Res<Requested>,
-        mut nodes: Query<&mut Interaction, With<VabButtonNode>>,
+        mut commands: Commands,
+        nodes: Query<Entity, With<VabButtonNode>>,
     ) {
-        for mut interaction in &mut nodes {
-            *interaction = state.0;
+        for entity in &nodes {
+            let mut node = commands.entity(entity);
+            node.insert(bevy::picking::hover::Hovered(state.hovered));
+            if state.pressed {
+                node.insert(bevy::ui::Pressed);
+            } else {
+                node.remove::<bevy::ui::Pressed>();
+            }
         }
     }
     let mut app = app(PathBuf::from("assets"));
-    app.insert_resource(Requested(Interaction::None))
-        .add_systems(
-            PostUpdate,
-            set_interaction.before(VabUiSystems::SelectButton),
-        );
+    app.insert_resource(Requested {
+        hovered: false,
+        pressed: false,
+    })
+    .add_systems(
+        PostUpdate,
+        set_interaction.before(VabUiSystems::SelectButton),
+    );
     app.world_mut()
         .resource_mut::<bevy_flash::vab_ui::VabUiCacheSettings>()
         .unused_frames = 1000;
@@ -702,25 +715,23 @@ fn native_login_button_switches_states_without_layout_jumps_and_reuses_rasters()
     let layout = app.world().get::<ComputedNode>(entities[0]).unwrap().size;
     assert!(layout.y > 0.0);
     let baseline = draws(&app);
-    for (index, interaction) in [
-        Interaction::Hovered,
-        Interaction::Pressed,
-        Interaction::None,
-    ]
-    .into_iter()
-    .enumerate()
+    for (index, (hovered, pressed)) in [(true, false), (true, true), (false, false)]
+        .into_iter()
+        .enumerate()
     {
-        app.world_mut().resource_mut::<Requested>().0 = interaction;
+        *app.world_mut().resource_mut::<Requested>() = Requested { hovered, pressed };
         settle(&mut app);
         let asset = app
             .world()
             .resource::<Assets<VabButton>>()
             .get(&button)
             .unwrap();
-        let expected = match interaction {
-            Interaction::None => &asset.up,
-            Interaction::Hovered => &asset.over,
-            Interaction::Pressed => &asset.down,
+        let expected = if pressed {
+            &asset.down
+        } else if hovered {
+            &asset.over
+        } else {
+            &asset.up
         };
         assert_eq!(
             &app.world()

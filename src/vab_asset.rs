@@ -305,6 +305,7 @@ fn accumulate_command_bounds(asset: &VabAsset, commands: &CommandList, bounds: &
 
 /// Wrapper component so a loaded `VabAsset` can be attached to a Bevy entity.
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 #[component(on_add = add_visibility_class::<VabAssetHandle>)]
 #[require(Transform, Visibility, VisibilityClass)]
 pub struct VabAssetHandle(pub Handle<VabAsset>);

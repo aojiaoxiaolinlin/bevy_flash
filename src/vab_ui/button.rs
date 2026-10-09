@@ -1,12 +1,17 @@
 //! Native button state selection; business actions belong to the host.
 use super::VabImageNode;
-use bevy::{prelude::*, ui::InteractionDisabled};
+use bevy::{
+    picking::hover::Hovered,
+    prelude::*,
+    ui::{InteractionDisabled, Pressed},
+    ui_widgets::Button,
+};
 
 /// Native vector button with Bevy's rectangular interaction and cached state images.
 /// Add InteractionDisabled to show the up state and suppress state changes.
 /// Business actions remain the application's responsibility.
 #[derive(Component, Clone)]
-#[require(Button, VabImageNode::new(Handle::default()))]
+#[require(Button, Hovered, VabImageNode::new(Handle::default()))]
 pub struct VabButtonNode {
     pub button: Handle<crate::vab_button::VabButton>,
 }
@@ -16,27 +21,29 @@ impl VabButtonNode {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub(super) fn select_button_images(
     buttons: Res<Assets<crate::vab_button::VabButton>>,
     mut nodes: Query<(
         &VabButtonNode,
-        &Interaction,
+        &Hovered,
+        Has<Pressed>,
         Has<InteractionDisabled>,
         &mut VabImageNode,
     )>,
 ) {
-    for (node, interaction, disabled, mut image) in &mut nodes {
+    for (node, hovered, pressed, disabled, mut image) in &mut nodes {
         let Some(button) = buttons.get(&node.button) else {
             continue;
         };
         let graphic = if disabled {
             &button.up
+        } else if pressed {
+            &button.down
+        } else if hovered.get() {
+            &button.over
         } else {
-            match interaction {
-                Interaction::None => &button.up,
-                Interaction::Hovered => &button.over,
-                Interaction::Pressed => &button.down,
-            }
+            &button.up
         };
         if image.graphic != *graphic {
             image.graphic = graphic.clone();
@@ -73,12 +80,18 @@ mod button_tests {
         app.insert_resource(buttons)
             .add_systems(Update, select_button_images);
         let entity = app.world_mut().spawn(VabButtonNode::new(button)).id();
-        for (interaction, expected) in [
-            (Interaction::None, &up),
-            (Interaction::Hovered, &over),
-            (Interaction::Pressed, &down),
+        for (hovered, pressed, expected) in [
+            (false, false, &up),
+            (true, false, &over),
+            (true, true, &down),
         ] {
-            *app.world_mut().get_mut::<Interaction>(entity).unwrap() = interaction;
+            let mut node = app.world_mut().entity_mut(entity);
+            node.insert(Hovered(hovered));
+            if pressed {
+                node.insert(Pressed);
+            } else {
+                node.remove::<Pressed>();
+            }
             app.update();
             assert_eq!(
                 &app.world().get::<VabImageNode>(entity).unwrap().graphic,

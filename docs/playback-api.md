@@ -84,7 +84,7 @@ sample 的 scale 为正的输出像素缩放；几何与滤镜范围使用同一
 commands.spawn((Camera2d, CompositingSpace::Srgb));
 ```
 
-这个组件属于相机；`Camera2d` 不会自动插入它。VAB 的网格与隔离层 pipeline 会读取相机配置并使用 Bevy 的 `SRGB_COMPOSITING` 约定，在 `Rgba8Unorm` 主目标上按编码 sRGB 数值混合，最后由 Bevy 转换到显示表面。没有该组件或显式使用 `CompositingSpace::Linear` 时，VAB 会按 Bevy 默认的线性空间参与场景合成。
+这个组件属于相机；`Camera2d` 不会自动插入它。VAB 的网格与隔离层 pipeline 会读取视图的 `ResolvedCompositingSpace` 并使用 Bevy 的 `SRGB_OUTPUT` shader 标记，在 `Rgba8Unorm` 主目标上按编码 sRGB 数值混合，最后由 Bevy 转换到显示表面。没有该组件或显式使用 `CompositingSpace::Linear` 时，VAB 会按 Bevy 默认的线性空间参与场景合成。
 
 Lighten 当前使用 WGPU `BlendOperation::Max` 作为过渡实现，与旧版 `bevy_flash` 一致。它比较预乘 Alpha 的附件颜色，纯不透明区域符合逐通道 Lighten，半透明及抗锯齿边缘与 Flash/Ruffle 的双纹理公式存在已知偏差；隔离边界已保留，后续取得相机颜色输入后可替换为精确实现。
 

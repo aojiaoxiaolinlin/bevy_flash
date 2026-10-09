@@ -1,4 +1,4 @@
-#import bevy_sprite::mesh2d_view_bindings::view
+import bevy_sprite_render::mesh2d::view_bindings::view;
 
 struct Draw {
     world_from_local: mat4x4<f32>,
@@ -28,18 +28,18 @@ fn to_linear(v: vec3<f32>) -> vec3<f32> {
 }
 
 fn encoded_premultiplied_to_output(encoded: vec4<f32>) -> vec4<f32> {
-#ifdef SRGB_COMPOSITING
-    // The Camera2d main target is Rgba8Unorm. Bevy converts the completed
-    // camera texture to the display surface in its final blit.
-    return encoded;
-#else
-    let straight_rgb = select(
-        vec3(0.0),
-        encoded.rgb / max(encoded.a, 0.000001),
-        encoded.a > 0.0,
-    );
-    return vec4(to_linear(straight_rgb) * encoded.a, encoded.a);
-#endif
+    @if(SRGB_OUTPUT) {
+        // The Camera2d main target is Rgba8Unorm. Bevy converts the completed
+        // camera texture to the display surface in its final blit.
+        return encoded;
+    } @else {
+        let straight_rgb = select(
+            vec3(0.0),
+            encoded.rgb / max(encoded.a, 0.000001),
+            encoded.a > 0.0,
+        );
+        return vec4(to_linear(straight_rgb) * encoded.a, encoded.a);
+    }
 }
 
 @vertex

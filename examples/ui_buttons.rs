@@ -11,7 +11,8 @@ fn main() {
     App::new()
         .add_plugins((DefaultPlugins, FlashPlayerPlugin, VabUiPlugin))
         .add_systems(Startup, setup)
-        .add_systems(Update, (clicked, toggle_disabled))
+        .add_observer(clicked)
+        .add_systems(Update, toggle_disabled)
         .run();
 }
 fn setup(mut commands: Commands, assets: Res<AssetServer>) {
@@ -41,17 +42,9 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
         "Hover and press the login buttons; Space toggles disabled. SWF hit geometry is retained; interaction uses the UI node rectangle."
     );
 }
-#[allow(clippy::type_complexity)]
-fn clicked(
-    nodes: Query<
-        (&Interaction, Has<InteractionDisabled>),
-        (With<VabButtonNode>, Changed<Interaction>),
-    >,
-) {
-    for (interaction, disabled) in &nodes {
-        if !disabled && *interaction == Interaction::Pressed {
-            info!("login pressed");
-        }
+fn clicked(event: On<bevy::ui_widgets::Activate>, nodes: Query<(), With<VabButtonNode>>) {
+    if nodes.contains(event.entity) {
+        info!("login activated");
     }
 }
 fn toggle_disabled(

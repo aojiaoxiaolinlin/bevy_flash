@@ -48,6 +48,7 @@ pub(super) struct TextureAllocationOwner {
 /// Controls textures retained by the shared transient render-target pool.
 /// Live leases may temporarily exceed the budget; only idle textures are evictable.
 #[derive(Resource, ExtractResource, Clone, Debug)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct TransientTexturePoolSettings {
     pub max_resident_bytes: u64,
     pub max_unused_frames: u64,

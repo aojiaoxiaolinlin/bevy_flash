@@ -17,7 +17,6 @@ use bevy::{
     prelude::*,
     render::{
         Extract, ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems,
-        camera::ExtractedCamera,
         diagnostic::RecordDiagnostics,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         mesh::{RenderMesh, RenderMeshBufferInfo, allocator::MeshAllocator},
@@ -30,7 +29,10 @@ use bevy::{
         renderer::{RenderContext, RenderDevice, RenderQueue},
         sync_world::RenderEntity,
         texture::GpuImage,
-        view::{ExtractedView, Msaa, RenderVisibleEntities, RetainedViewEntity},
+        view::{
+            ExtractedView, Msaa, RenderVisibleEntities, ResolvedCompositingSpace,
+            RetainedViewEntity,
+        },
     },
     sprite_render::{
         Mesh2dPipeline, Mesh2dPipelineKey, SetMesh2dViewBindGroup, init_mesh_2d_pipeline,
@@ -154,7 +156,7 @@ impl VabFilterWorkload {
 
 impl Plugin for VabInstanceRenderPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "shaders/vab_instance.wgsl");
+        embedded_asset!(app, "shaders/vab_instance.wesl");
         app.init_resource::<VabAssetRevisions>()
             .init_resource::<VabMaterialRevision>()
             .init_resource::<VabGpuSourceRevision>()
@@ -293,6 +295,7 @@ struct VabSampleCache {
 
 /// Bounds persistent filtered outputs without retaining every animation frame.
 #[derive(Resource, ExtractResource, Clone)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct VabFilterCacheSettings {
     /// Hard limit for persistent single-sampled filter outputs. The transient
     /// textures used while producing a cache miss are accounted separately.
@@ -304,6 +307,7 @@ pub struct VabFilterCacheSettings {
 /// Sample count for VAB filter isolation targets in the scene renderer.
 /// The final `Transparent2d` draw always uses the camera's own MSAA setting.
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[extract_app(bevy::render::RenderApp)]
 pub enum VabFilterMsaa {
     /// Match each camera's MSAA setting, preserving the existing edge quality.
     #[default]
@@ -648,7 +652,7 @@ fn init_vab_instance_pipeline(
         view_layout: mesh_pipeline.view_layout.clone(),
         draw_layout,
         texture_layout,
-        shader: load_embedded_asset!(asset_server.as_ref(), "shaders/vab_instance.wgsl"),
+        shader: load_embedded_asset!(asset_server.as_ref(), "shaders/vab_instance.wesl"),
         fallback_texture,
         sampler,
     });
@@ -670,7 +674,7 @@ impl SpecializedMeshPipeline for VabInstancePipeline {
             Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
         ])?;
         let shader_defs = if key.0.contains(Mesh2dPipelineKey::SRGB_COMPOSITING) {
-            vec!["SRGB_COMPOSITING".into()]
+            vec!["SRGB_OUTPUT".into()]
         } else {
             Vec::new()
         };
@@ -698,7 +702,7 @@ impl SpecializedMeshPipeline for VabInstancePipeline {
                 ..default()
             }),
             primitive: PrimitiveState {
-                topology: key.0.primitive_topology(),
+                topology: key.0.as_base_mesh_pipeline_key().primitive_topology(),
                 cull_mode: None,
                 ..default()
             },
@@ -742,7 +746,7 @@ impl VabInstancePipeline {
             fragment: Some(FragmentState {
                 shader: self.shader.clone(),
                 shader_defs: if srgb_compositing {
-                    vec!["SRGB_COMPOSITING".into()]
+                    vec!["SRGB_OUTPUT".into()]
                 } else {
                     Vec::new()
                 },
@@ -1072,7 +1076,7 @@ fn queue_vab_instance_data(
         (
             &Msaa,
             &ExtractedView,
-            &ExtractedCamera,
+            &ResolvedCompositingSpace,
             &RenderVisibleEntities,
         ),
         With<Camera2d>,
@@ -1116,7 +1120,7 @@ fn queue_vab_instance_data(
                     view_msaa: *msaa,
                     filter_msaa: filter_msaa.resolve(*msaa),
                     target_format: view.target_format,
-                    srgb_compositing: camera.compositing_space == Some(CompositingSpace::Srgb),
+                    srgb_compositing: camera.0 == Some(CompositingSpace::Srgb),
                     sample_generation: instance.sample_generation,
                     gpu_source_revision: instance.gpu_source_revision,
                 },
@@ -1321,10 +1325,7 @@ fn prepare_vab_instance_bind_groups(
                         let packet_pipeline = meshes.get(draw.mesh).and_then(|mesh| {
                             let mesh_key = Mesh2dPipelineKey::from_msaa_samples(view_samples)
                                 | Mesh2dPipelineKey::from_target_format(instance.target_format)
-                                | Mesh2dPipelineKey::from_primitive_topology_and_strip_index(
-                                    mesh.primitive_topology(),
-                                    mesh.index_format(),
-                                );
+                                | Mesh2dPipelineKey::from(mesh.key_bits.bits());
                             let mesh_key = if instance.srgb_compositing {
                                 mesh_key | Mesh2dPipelineKey::SRGB_COMPOSITING
                             } else {
@@ -1699,7 +1700,7 @@ fn queue_vab_instances(
     mut phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
     views: Query<(
         &ExtractedView,
-        &ExtractedCamera,
+        &ResolvedCompositingSpace,
         &RenderVisibleEntities,
         &Msaa,
     )>,
@@ -1708,7 +1709,7 @@ fn queue_vab_instances(
     diagnostics.vab_instances_queued = 0;
     let draw_function = draw_functions.read().id::<DrawVabInstance>();
     for (view, camera, visible, msaa) in &views {
-        let srgb_compositing = camera.compositing_space == Some(CompositingSpace::Srgb);
+        let srgb_compositing = camera.0 == Some(CompositingSpace::Srgb);
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -1727,10 +1728,7 @@ fn queue_vab_instances(
                     let mesh = meshes.get(draw.mesh)?;
                     let mesh_key = Mesh2dPipelineKey::from_msaa_samples(msaa.samples())
                         | Mesh2dPipelineKey::from_target_format(view.target_format)
-                        | Mesh2dPipelineKey::from_primitive_topology_and_strip_index(
-                            mesh.primitive_topology(),
-                            mesh.index_format(),
-                        );
+                        | Mesh2dPipelineKey::from(mesh.key_bits.bits());
                     let mesh_key = if srgb_compositing {
                         mesh_key | Mesh2dPipelineKey::SRGB_COMPOSITING
                     } else {

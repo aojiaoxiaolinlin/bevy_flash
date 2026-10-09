@@ -69,6 +69,7 @@ pub struct RenderOffscreenTexture;
 /// Attach to the same entity as VabAssetHandle and VabPlayer.
 /// `origin` is the output-pixel coordinate mapped to the image's top-left corner.
 #[derive(Component, ExtractComponent, Clone)]
+#[extract_app(bevy::render::RenderApp)]
 #[require(Msaa, RenderOffscreenTexture)]
 pub struct OffscreenViewTarget {
     pub target: ImageRenderTarget,
@@ -157,6 +158,7 @@ use std::sync::{
 // Shared completion token: set only after successful render command encoding.
 // Pending GPU assets keep the job alive; no guessed frame delay is used.
 #[derive(Component, Clone, Default, bevy::render::extract_component::ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct RasterOnce(pub Arc<AtomicBool>);
 impl RasterOnce {
     pub fn complete(&self) -> bool {

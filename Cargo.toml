@@ -1,16 +1,17 @@
 [package]
 name = "bevy_flash"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
+rust-version = "1.97.1"
 
 [features]
 default = ["ui"]
-ui = ["bevy/bevy_ui", "bevy/bevy_ui_render"]
+ui = ["bevy/bevy_ui", "bevy/bevy_ui_render", "bevy/bevy_ui_widgets", "bevy/ui_picking"]
 asset_processor = ["bevy/asset_processor"]
 
 [dependencies]
 vatf = { git = "https://github.com/aojiaoxiaolinlin/vatf.git" }
-bevy = { version = "0.19", default-features = false, features = [
+bevy = { version = "0.20", default-features = false, features = [
     "bevy_asset",
     "bevy_render",
     "bevy_core_pipeline",
@@ -25,13 +26,19 @@ bytemuck = { version = "1.21.0", features = ["derive"] }
 image = "0.25.10"
 
 
+[build-dependencies]
+wesl = "0.6"
+
 [dev-dependencies]
+# Enable the FPS overlay without installing the 3D render debug overlay in 2D apps.
+bevy_dev_tools = { version = "0.20", features = ["render"] }
 # `ui_bevy_render` is the smallest feature set that both exposes `bevy_ui`'s
 # `Text`/`Node` and actually renders them; `2d` alone only reaches `common_api`.
-bevy = { version = "0.19", default-features = false, features = [
+bevy = { version = "0.20", default-features = false, features = [
     "2d",
     "ui_bevy_render",
     "bevy_dev_tools",
+    "debug",
 ] }
 
 [[example]]

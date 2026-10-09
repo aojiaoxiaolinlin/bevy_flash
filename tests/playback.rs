@@ -230,9 +230,7 @@ fn ecs_system_emits_messages_and_resets_when_asset_changes() {
         prelude::*,
         time::TimeUpdateStrategy,
     };
-    use bevy_flash::{
-        FlashPlayerPlugin, vab_asset::VabAssetHandle, vab_player::VabFrameEvent,
-    };
+    use bevy_flash::{FlashPlayerPlugin, vab_asset::VabAssetHandle, vab_player::VabFrameEvent};
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default(), FlashPlayerPlugin));
     app.insert_resource(TimeUpdateStrategy::ManualDuration(

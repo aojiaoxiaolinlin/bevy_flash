@@ -7,7 +7,7 @@
 //! The instance is placed and framed from measured frame bounds, so no constants
 //! have to be tuned per asset.
 
-use bevy::{camera::ScalingMode, prelude::*};
+use bevy::{camera::ScalingMode, prelude::*, ui::Pressed, ui_widgets::Button};
 use bevy_flash::{
     FlashPlayerPlugin,
     sampling::VabSkin,
@@ -334,7 +334,7 @@ fn clip_list_control(
     keyboard: Res<ButtonInput<KeyCode>>,
     assets: Res<Assets<VabAsset>>,
     mut list: ResMut<ClipList>,
-    rows: Query<(&ClipRow, &Interaction), Changed<Interaction>>,
+    rows: Query<&ClipRow, Added<Pressed>>,
     mut spirit: Query<(&VabAssetHandle, &mut VabPlayer), With<Spirit>>,
 ) {
     let Ok((handle, mut player)) = spirit.single_mut() else {
@@ -376,8 +376,8 @@ fn clip_list_control(
     if keyboard.just_pressed(KeyCode::KeyT) {
         requested = Some((list.cursor, Request::Terminal));
     }
-    for (row, interaction) in &rows {
-        if *interaction == Interaction::Pressed && row.0 < count {
+    for row in &rows {
+        if row.0 < count {
             list.cursor = row.0;
             requested = Some((row.0, Request::Once));
         }

@@ -42,6 +42,7 @@ pub enum Op {
 }
 
 #[derive(Component, Clone, ExtractComponent, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ExtractedFrame {
     pub ops: Vec<Op>,
     pub error: Option<String>,
@@ -141,7 +142,6 @@ fn resolve_until(
     bitmaps: &Assets<BitmapMaterial>,
     gradients: &Assets<GradientMaterial>,
 ) -> anyhow::Result<Vec<Op>> {
-    use anyhow::Context;
     let mut ops = Vec::new();
     while let Some(command) = commands.get(*index) {
         if stop.is_some_and(|stop| is_stop(command, stop)) {
@@ -150,10 +150,10 @@ fn resolve_until(
         *index += 1;
         ops.push(match command {
             VabCommand::RenderShape { handle, transform } => {
-                let mesh = asset
-                    .render_meshes
-                    .get(*handle)
-                    .context("invalid shape handle")?;
+                let mesh = anyhow::Context::context(
+                    asset.render_meshes.get(*handle),
+                    "invalid shape handle",
+                )?;
                 let mut draw = Draw {
                     mesh: mesh.mesh.id(),
                     local_bounds: mesh.local_bounds,
@@ -166,15 +166,19 @@ fn resolve_until(
                 match &mesh.material {
                     MeshMaterial::Color => {}
                     MeshMaterial::Bitmap(handle) => {
-                        let material = bitmaps.get(handle).context("bitmap material not loaded")?;
+                        let material = anyhow::Context::context(
+                            bitmaps.get(handle),
+                            "bitmap material not loaded",
+                        )?;
                         draw.texture = Some(material.texture.id());
                         draw.uv = material.texture_transform;
                         draw.kind = 1;
                     }
                     MeshMaterial::Gradient(handle) => {
-                        let material = gradients
-                            .get(handle)
-                            .context("gradient material not loaded")?;
+                        let material = anyhow::Context::context(
+                            gradients.get(handle),
+                            "gradient material not loaded",
+                        )?;
                         draw.texture = Some(material.texture.id());
                         draw.uv = material.texture_transform;
                         draw.kind = 2;

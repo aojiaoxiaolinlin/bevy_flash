@@ -139,7 +139,7 @@ fn main() {
 }
 ```
 
-UI 导出名来自 SWF 的 `ExportAssets`。只指定宽度时，高度按资源比例测量；静态 UI、动态 UI 和按钮都复用同一个矢量渲染器及尺寸缓存。新图片绘制完成前保留上一张画面。按钮由 Bevy `Interaction` 选择 `up/over/down`，业务事件仍由宿主处理。
+UI 导出名来自 SWF 的 `ExportAssets`。只指定宽度时，高度按资源比例测量；静态 UI、动态 UI 和按钮都复用同一个矢量渲染器及尺寸缓存。新图片绘制完成前保留上一张画面。按钮由 Bevy `Hovered` / `Pressed` 选择 `up/over/down`，业务逻辑通过 `ui_widgets::Activate` 事件由宿主处理。
 
 同时指定宽高时默认 Contain 保持比例；需要变形时才使用 `VabImageFit::Stretch`。
 动态导出同样使用 `VabImageNode`，通过 `VabUiPlayback` 控制暂停和速度。
@@ -190,23 +190,16 @@ Bevy 管理源文件和配置失效；`vab_processed_asset_path` 按编译器修
 
 ## 开发与验证
 
-使用满足 Bevy 源码 `rust-version` 要求的 Rust 工具链，以及同级目录的 `../bevy`（版本见兼容性表）和 `../vatf`（编译器与读取器）。当前使用路径依赖，尚不能直接按 crates.io 版本安装。
+本工程使用 crates.io 的 Bevy 和 Git 版 vatf，不再要求同级目录有 Bevy 源码。Rust 最低版本为 1.97.1；仓库的 `rust-toolchain.toml` 会选择对应工具链。
 
-```text
-Rust/
-├── bevy/
-├── vatf/
-└── bevy_flash/
-```
+vatf 的接口和 VAB 工作格式需要配套；更新编译器导致格式或编译行为改变时，应重新生成资源。
 
-vatf 的 UI 与共用编译接口已合入 `main`，本库使用该主分支的接口，无需切换旧的 UI 开发分支。开发期间更换 vatf 修订时，需保持接口与 VAB 工作格式配套；格式或编译行为改变后的产物应重新生成。
-
-宿主项目按实际目录调整依赖路径：
+宿主项目可以通过 Git 引用本库：
 
 ```toml
 [dependencies]
-bevy = { path = "../bevy", default-features = false, features = ["2d", "ui_bevy_render"] }
-bevy_flash = { path = "../bevy_flash" }
+bevy = { version = "0.20", default-features = false, features = ["2d", "ui_bevy_render"] }
+bevy_flash = { git = "https://github.com/aojiaoxiaolinlin/bevy_flash.git" }
 ```
 
 ```powershell
@@ -244,7 +237,8 @@ cargo test --test render_gpu instances:: -- --ignored --test-threads=1
 | Bevy | bevy_flash |
 |---|---|
 | 0.17 | 0.1 |
-| 0.19 | 0.2（开发中） |
+| 0.19 | 0.2 |
+| 0.20 | 0.3（开发中） |
 
 ## 版权与第三方美术资产声明
 

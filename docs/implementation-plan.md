@@ -112,3 +112,7 @@ P5 已完成：不可 Clone 的 RAII Lease、按完整 TextureDescriptor 分池�
 8. **建立对比基准。** 至少覆盖单个 spirit、100 个相同无滤镜实例、100 个不同帧实例、多滤镜实例、暂停实例和双相机，记录帧采样 CPU、Prepare CPU、draw call、filter pass、池驻留字节和 GPU frame time。
 
 - 2026-10-07：转换新增 RootTranslationPolicy，默认 Preserve 保留作者对齐；NormalizeClipStart 为显式选项，CLI 与资产处理器共用。编译器修订号 2，VAB 版本保持 1。
+
+- 2026-10-09：迁移至 Bevy 0.20 / bevy_flash 0.3。依赖使用 crates.io Bevy 和 Git vatf，最低 Rust 1.97.1；实例 shader 迁移 WESL，使用 ResolvedCompositingSpace / SRGB_OUTPUT，提取 derive 指定 RenderApp，适配 wgpu 30 与基础网格管线 key。按钮迁移至 ui_widgets::Button、Hovered / Pressed 与 Activate。VAB 工作格式保持不变，现有资源无需重新生成。验证：39 项 CPU 与 28 项 GPU 功能回归、全目标全功能 Clippy 及 WebGPU/WASM 编译。迁移参考：https://bevy.org/learn/migration-guides/0-19-to-0-20/ 。
+
+- 2026-10-09：所有在用 Shader 源码统一为 WESL。9 个私有离屏/滤镜入口通过 build.rs 预编译并嵌入，6 个全屏滤镜共享 fullscreen 模块；清理未引用的旧 WGSL。该改动保持滤镜数学与渲染流程不变，不增加运行时 WESL 转换。28 项 GPU 功能回归通过。

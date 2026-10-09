@@ -35,7 +35,7 @@ vatf 负责源格式解析、时间轴展开与 VAB 序列化。运行时不重�
 | `vab_graphic.rs`、`vab_button.rs` | 公开 UI 资产与具名加载标签 |
 | `vab_player.rs`、`sampling.rs` | 根播放状态、事件、动作链和烘焙帧采样 |
 | `vab_ui/mod.rs` | 公开 UI 组件、配置和插件调度 |
-| `vab_ui/button.rs` | Bevy Interaction 到原生按钮状态的选择 |
+| `vab_ui/button.rs` | Bevy Hovered / Pressed 到原生按钮状态的选择 |
 | `vab_ui/layout.rs` | 资源固有尺寸与 Bevy 布局测量 |
 | `vab_ui/raster.rs` | 可见 UI 播放推进、离屏任务创建和图片发布 |
 | `vab_ui/cache.rs` | 缓存键、失效、待完成请求、任务回收及空闲淘汰 |
@@ -68,3 +68,16 @@ vatf 负责源格式解析、时间轴展开与 VAB 序列化。运行时不重�
 - `benchmarks.rs`：真实动画读回与性能基准。
 
 大型渲染模块尚未全面拆分。后续只有职责明确且回归覆盖充分时再拆滤镜执行和实例准备，避免在接入资产预处理时同时改变 GPU 生命周期。
+
+## Shader 源码与构建
+
+库内 Shader 源码统一位于 `src/render/shaders/*.wesl`。世界实例的
+`vab_instance.wesl` 通过 Bevy `embedded_asset!` 加载，由 Bevy 处理视图相关的
+编译条件。离屏、合成、滤镜和遮罩直接使用 wgpu 管线；`build.rs` 在构建时
+将对应 WESL 编译到 `OUT_DIR/*.wgsl`，Rust 使用 `include_str!` 嵌入生成结果。
+宿主无需安装 WESL CLI，也无需分发这些生成文件，运行时不做额外的 WESL 转换。
+
+六种全屏滤镜共享 `fullscreen.wesl` 的顶点与 UV 实现，保持左上角为 `(0, 0)`。
+构建脚本跟踪入口及导入文件的变化；修改共享模块会重新生成依赖它的 Shader。
+已无加载入口的旧 WGSL 文件已移除。修改滤镜数学或颜色空间时，继续通过
+`tests/gpu/filters.rs` 和实例/UI GPU 回归验证输出。

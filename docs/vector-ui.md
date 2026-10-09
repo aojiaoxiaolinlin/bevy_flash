@@ -174,8 +174,10 @@ commands.spawn((
 ```
 
 `VabButton` lives in `vab_button`; `VabButtonNode` lives in `vab_ui`. The node
-requires Bevy Button/Interaction and VabImageNode. None/Hovered/Pressed select
-up/over/down respectively. Button records preserve depth, placement matrices,
+requires Bevy `ui_widgets::Button`, `picking::hover::Hovered` and VabImageNode.
+The default, hovered and `ui::Pressed` states select up/over/down respectively.
+`VabUiPlugin` installs `ButtonPlugin` unless the host already installed it.
+Handle business actions with an observer for `ui_widgets::Activate`. Button records preserve depth, placement matrices,
 color transforms, filters and blend modes, within the renderer's existing
 blend support. All display states share one geometric registration and one
 visual layout rectangle including filter padding, so state changes retain

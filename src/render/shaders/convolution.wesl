@@ -1,3 +1,5 @@
+import super::fullscreen::{Out, fullscreen_vertex};
+
 struct Params {
     source_size: vec2<f32>,
     divisor: f32,
@@ -23,25 +25,9 @@ struct Kernel {
 @group(1) @binding(1) var source_sampler: sampler;
 @group(2) @binding(0) var<storage, read> kernel: Kernel;
 
-struct Out {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
 @vertex
 fn vertex(@builtin(vertex_index) index: u32) -> Out {
-    let positions = array<vec2<f32>, 6>(
-        vec2(-1.0, 1.0), vec2(1.0, 1.0), vec2(-1.0, -1.0),
-        vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(1.0, -1.0)
-    );
-    let uvs = array<vec2<f32>, 6>(
-        vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
-        vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 1.0)
-    );
-    var out: Out;
-    out.position = vec4(positions[index], 0.0, 1.0);
-    out.uv = uvs[index];
-    return out;
+    return fullscreen_vertex(index);
 }
 
 fn straight_sample(position: vec2<i32>, dimensions: vec2<i32>) -> vec4<f32> {

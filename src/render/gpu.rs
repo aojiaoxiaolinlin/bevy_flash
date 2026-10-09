@@ -3,7 +3,7 @@ use super::{
     extract::{ExtractedFrame, Op},
     texture_cache::{FrameInternalTextureCache, TextureAllocationSite, TexturePurpose},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     asset::AssetId,
     mesh::MeshVertexBufferLayoutRef,
@@ -323,45 +323,68 @@ impl FromWorld for FlashGpu {
             });
         let shape_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
             label: Some("flash_shape"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/shape.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                env!("OUT_DIR"),
+                "/shape.wgsl"
+            )))),
         });
         let composite_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
             label: Some("flash_composite"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/composite.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                env!("OUT_DIR"),
+                "/composite.wgsl"
+            )))),
         });
         let blur_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
             label: Some("flash_blur"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/blur.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                env!("OUT_DIR"),
+                "/blur.wgsl"
+            )))),
         });
         let glow_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
             label: Some("flash_glow"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/glow.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                env!("OUT_DIR"),
+                "/glow.wgsl"
+            )))),
         });
         let bevel_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
             label: Some("flash_bevel"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/bevel.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                env!("OUT_DIR"),
+                "/bevel.wgsl"
+            )))),
         });
         let color_matrix_shader =
             device.create_and_validate_shader_module(ShaderModuleDescriptor {
                 label: Some("flash_color_matrix"),
-                source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(
-                    "shaders/color_matrix.wgsl"
-                ))),
+                source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                    env!("OUT_DIR"),
+                    "/color_matrix.wgsl"
+                )))),
             });
         let convolution_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
             label: Some("flash_convolution"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/convolution.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                env!("OUT_DIR"),
+                "/convolution.wgsl"
+            )))),
         });
         let gradient_filter_shader =
             device.create_and_validate_shader_module(ShaderModuleDescriptor {
                 label: Some("flash_gradient_filter"),
-                source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(
-                    "shaders/gradient_filter.wgsl"
-                ))),
+                source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                    env!("OUT_DIR"),
+                    "/gradient_filter.wgsl"
+                )))),
             });
         let alpha_mask_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
             label: Some("flash_alpha_mask"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/alpha_mask.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+                env!("OUT_DIR"),
+                "/alpha_mask.wgsl"
+            )))),
         });
         let sampler = device.create_sampler(&SamplerDescriptor {
             label: Some("flash_linear_clamp"),
@@ -506,11 +529,11 @@ impl FlashGpu {
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
             Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
         ])?;
-        let buffers = [RawVertexBufferLayout {
+        let buffers = [Some(RawVertexBufferLayout {
             array_stride: layout.array_stride,
             step_mode: layout.step_mode,
             attributes: &layout.attributes,
-        }];
+        })];
         let pipeline = self.pipeline(
             device,
             &self.shape_shader,
@@ -857,7 +880,7 @@ impl FlashGpu {
         &self,
         device: &RenderDevice,
         shader: &ShaderModule,
-        buffers: &[RawVertexBufferLayout],
+        buffers: &[Option<RawVertexBufferLayout>],
         format: TextureFormat,
         samples: u32,
         blend: Option<BlendState>,

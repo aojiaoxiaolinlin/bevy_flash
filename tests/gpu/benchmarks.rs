@@ -64,11 +64,7 @@ fn spirit_frames_to_png() {
             c
         })
     );
-    fn bounds(
-        nodes: &[bevy_flash::vab_asset::VabCommand],
-        asset: &VabAsset,
-        b: &mut [f32; 4],
-    ) {
+    fn bounds(nodes: &[bevy_flash::vab_asset::VabCommand], asset: &VabAsset, b: &mut [f32; 4]) {
         use bevy_flash::vab_asset::VabCommand;
         for n in nodes {
             match n {
