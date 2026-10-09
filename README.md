@@ -244,8 +244,7 @@ cargo test --test render_gpu instances:: -- --ignored --test-threads=1
 | Bevy | bevy_flash |
 |---|---|
 | 0.17 | 0.1 |
-| 0.18 | 0.2 |
-| 0.19 | 0.3（开发中） |
+| 0.19 | 0.2（开发中） |
 
 ## 版权与第三方美术资产声明
 
