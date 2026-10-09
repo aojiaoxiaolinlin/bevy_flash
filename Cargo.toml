@@ -9,8 +9,8 @@ ui = ["bevy/bevy_ui", "bevy/bevy_ui_render"]
 asset_processor = ["bevy/asset_processor"]
 
 [dependencies]
-vatf = { path = "../vatf" }
-bevy = { path = "../bevy", default-features = false, features = [
+vatf = { git = "https://github.com/aojiaoxiaolinlin/vatf.git" }
+bevy = { version = "0.19", default-features = false, features = [
     "bevy_asset",
     "bevy_render",
     "bevy_core_pipeline",
@@ -28,7 +28,7 @@ image = "0.25.10"
 [dev-dependencies]
 # `ui_bevy_render` is the smallest feature set that both exposes `bevy_ui`'s
 # `Text`/`Node` and actually renders them; `2d` alone only reaches `common_api`.
-bevy = { path = "../bevy", default-features = false, features = [
+bevy = { version = "0.19", default-features = false, features = [
     "2d",
     "ui_bevy_render",
     "bevy_dev_tools",
