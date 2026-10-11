@@ -26,9 +26,6 @@ bytemuck = { version = "1.21.0", features = ["derive"] }
 image = "0.25.10"
 
 
-[build-dependencies]
-wesl = "0.6"
-
 [dev-dependencies]
 # Enable the FPS overlay without installing the 3D render debug overlay in 2D apps.
 bevy_dev_tools = { version = "0.20", features = ["render"] }

@@ -1023,7 +1023,6 @@ dependencies = [
  "bytemuck",
  "image",
  "vatf",
- "wesl",
 ]
 
 [[package]]

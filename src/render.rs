@@ -31,6 +31,7 @@ pub use texture_cache::TransientTexturePoolSettings;
 pub struct FlashRenderPlugin;
 impl Plugin for FlashRenderPlugin {
     fn build(&self, app: &mut App) {
+        gpu::register_shaders(app);
         app.add_plugins((
             ExtractComponentPlugin::<OffscreenViewTarget>::default(),
             ExtractComponentPlugin::<RasterOnce>::default(),

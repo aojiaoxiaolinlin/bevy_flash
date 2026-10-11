@@ -255,9 +255,11 @@ fn track_vab_material_revision(
     }
 }
 
+#[allow(clippy::unnecessary_fold)] // Consume every Shader event, including after the first change.
 fn track_vab_gpu_source_revision(
     mut images: Option<MessageReader<AssetEvent<Image>>>,
     mut meshes: Option<MessageReader<AssetEvent<Mesh>>>,
+    mut shaders: Option<MessageReader<AssetEvent<Shader>>>,
     mut revision: ResMut<VabGpuSourceRevision>,
 ) {
     let image_changed = images
@@ -266,7 +268,15 @@ fn track_vab_gpu_source_revision(
     let mesh_changed = meshes
         .as_mut()
         .is_some_and(|events| events.read().next().is_some());
-    if image_changed || mesh_changed {
+    let shader_changed = shaders.as_mut().is_some_and(|events| {
+        events.read().fold(false, |dirty, event| {
+            matches!(
+                event,
+                AssetEvent::Modified { .. } | AssetEvent::Removed { .. }
+            ) || dirty
+        })
+    });
+    if image_changed || mesh_changed || shader_changed {
         revision.0 = revision.0.wrapping_add(1);
     }
 }
@@ -1269,7 +1279,7 @@ fn prepare_vab_instance_bind_groups(
     let mut prepared_entities = HashSet::<Entity>::new();
     let mut live_uniform_slots = HashSet::new();
     texture_groups.0.retain(|id, _| images.get(*id).is_some());
-    for ((view, entity), instance) in &resources.instances {
+    'instances: for ((view, entity), instance) in &resources.instances {
         let view_samples = instance.view_msaa.samples();
         let filter_samples = instance.filter_msaa.samples();
         let scale = instance.scale;
@@ -1401,18 +1411,29 @@ fn prepare_vab_instance_bind_groups(
                         } else {
                             let uniform_buffer =
                                 filter_uniform_buffers.0.entry(cache_slot).or_default();
-                            let Ok((layer, allocated)) = gpu::prepare_layer(
+                            let result = gpu::prepare_layer(
                                 isolated_ops,
                                 pixel_bounds,
                                 filter_samples,
                                 &mut flash_gpu,
+                                &pipeline_cache,
                                 &render_device,
                                 &render_queue,
                                 &meshes,
                                 &images,
                                 uniform_buffer,
-                            ) else {
-                                continue;
+                            );
+                            let (layer, allocated) = match result {
+                                Ok(prepared) => prepared,
+                                Err(error) => {
+                                    let message = error.to_string();
+                                    if message.starts_with("pending") {
+                                        diagnostics.pending_views += 1;
+                                    } else {
+                                        diagnostics.errors.push(message);
+                                    }
+                                    continue 'instances;
+                                }
                             };
                             if allocated {
                                 diagnostics.filter_uniform_buffer_allocations += 1;
@@ -1452,6 +1473,17 @@ fn prepare_vab_instance_bind_groups(
                 }
                 _ => unreachable!("scaled instance operation changed kind"),
             }
+        }
+        // Preserve entity-level ordering while any screen pipeline compiles.
+        if packets.iter().any(|packet| {
+            let id = match packet {
+                PreparedVabPacket::Draw(packet) => packet.pipeline,
+                PreparedVabPacket::Layer(packet) => packet.pipeline,
+            };
+            id.and_then(|id| pipeline_cache.get_render_pipeline(id))
+                .is_none()
+        }) {
+            continue;
         }
         if packets.is_empty() {
             continue;

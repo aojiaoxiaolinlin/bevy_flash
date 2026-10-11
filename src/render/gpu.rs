@@ -5,8 +5,8 @@ use super::{
 };
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
-    asset::AssetId,
-    mesh::MeshVertexBufferLayoutRef,
+    asset::{AssetId, embedded_asset, load_embedded_asset},
+    mesh::{MeshVertexBufferLayoutRef, VertexBufferLayout},
     platform::collections::{HashMap, HashSet},
     prelude::*,
     render::{
@@ -17,9 +17,10 @@ use bevy::{
         texture::GpuImage,
         view::Msaa,
     },
+    shader::ShaderCacheError,
 };
 use bytemuck::{Pod, Zeroable};
-use std::{borrow::Cow, num::NonZeroU64, sync::atomic::AtomicU64};
+use std::{num::NonZeroU64, sync::atomic::AtomicU64};
 use vatf::animation::{
     AnimBevelFilter, AnimBlurFilter, AnimColorMatrixFilter, AnimConvolutionFilter,
     AnimDropShadowFilter, AnimFilter, AnimGlowFilter, AnimGradientFilter, AnimGradientRecord,
@@ -202,44 +203,69 @@ pub struct FlashRenderDiagnostics {
     pub vab_prepare_bind_groups_cpu_ns: u64,
 }
 
+pub(super) fn register_shaders(app: &mut App) {
+    embedded_asset!(app, "shaders/shape.wesl");
+    embedded_asset!(app, "shaders/composite.wesl");
+    embedded_asset!(app, "shaders/blur.wesl");
+    embedded_asset!(app, "shaders/glow.wesl");
+    embedded_asset!(app, "shaders/bevel.wesl");
+    embedded_asset!(app, "shaders/color_matrix.wesl");
+    embedded_asset!(app, "shaders/convolution.wesl");
+    embedded_asset!(app, "shaders/gradient_filter.wesl");
+    embedded_asset!(app, "shaders/alpha_mask.wesl");
+    embedded_asset!(app, "shaders/fullscreen.wesl");
+}
+
 #[derive(Resource)]
 pub struct FlashGpu {
     uniform_layout: BindGroupLayout,
     texture_layout: BindGroupLayout,
-    pipeline_layout: PipelineLayout,
-    glow_pipeline_layout: PipelineLayout,
-    convolution_pipeline_layout: PipelineLayout,
+    pipeline_layout: Vec<BindGroupLayoutDescriptor>,
+    glow_pipeline_layout: Vec<BindGroupLayoutDescriptor>,
+    convolution_pipeline_layout: Vec<BindGroupLayoutDescriptor>,
     convolution_kernel_layout: BindGroupLayout,
-    gradient_filter_pipeline_layout: PipelineLayout,
-    shape_shader: ShaderModule,
-    composite_shader: ShaderModule,
-    blur_shader: ShaderModule,
-    glow_shader: ShaderModule,
-    bevel_shader: ShaderModule,
-    color_matrix_shader: ShaderModule,
-    convolution_shader: ShaderModule,
-    gradient_filter_shader: ShaderModule,
-    alpha_mask_shader: ShaderModule,
-    shapes: HashMap<(MeshVertexBufferLayoutRef, u32), RenderPipeline>,
-    composites: HashMap<(TextureFormat, u32, bool), RenderPipeline>,
-    layer_composites: HashMap<(TextureFormat, u32, VabBlendMode), RenderPipeline>,
-    blurs: HashMap<TextureFormat, RenderPipeline>,
-    glows: HashMap<TextureFormat, RenderPipeline>,
-    bevels: HashMap<TextureFormat, RenderPipeline>,
-    color_matrices: HashMap<TextureFormat, RenderPipeline>,
-    convolutions: HashMap<TextureFormat, RenderPipeline>,
+    gradient_filter_pipeline_layout: Vec<BindGroupLayoutDescriptor>,
+    _fullscreen_shader: Handle<Shader>,
+    shape_shader: Handle<Shader>,
+    composite_shader: Handle<Shader>,
+    blur_shader: Handle<Shader>,
+    glow_shader: Handle<Shader>,
+    bevel_shader: Handle<Shader>,
+    color_matrix_shader: Handle<Shader>,
+    convolution_shader: Handle<Shader>,
+    gradient_filter_shader: Handle<Shader>,
+    alpha_mask_shader: Handle<Shader>,
+    shapes: HashMap<(MeshVertexBufferLayoutRef, u32), CachedRenderPipelineId>,
+    composites: HashMap<(TextureFormat, u32, bool), CachedRenderPipelineId>,
+    layer_composites: HashMap<(TextureFormat, u32, VabBlendMode), CachedRenderPipelineId>,
+    blurs: HashMap<TextureFormat, CachedRenderPipelineId>,
+    glows: HashMap<TextureFormat, CachedRenderPipelineId>,
+    bevels: HashMap<TextureFormat, CachedRenderPipelineId>,
+    color_matrices: HashMap<TextureFormat, CachedRenderPipelineId>,
+    convolutions: HashMap<TextureFormat, CachedRenderPipelineId>,
     convolution_kernels: HashMap<ConvolutionKernelKey, BindGroup>,
-    gradient_filters: HashMap<TextureFormat, RenderPipeline>,
+    gradient_filters: HashMap<TextureFormat, CachedRenderPipelineId>,
     gradient_ramps: HashMap<GradientRampKey, BindGroup>,
-    alpha_masks: HashMap<(TextureFormat, u32), RenderPipeline>,
+    alpha_masks: HashMap<(TextureFormat, u32), CachedRenderPipelineId>,
     white: BindGroup,
     sampler: Sampler,
 }
 
 impl FromWorld for FlashGpu {
     fn from_world(world: &mut World) -> Self {
+        let shape_shader = load_embedded_asset!(world, "shaders/shape.wesl");
+        let composite_shader = load_embedded_asset!(world, "shaders/composite.wesl");
+        let blur_shader = load_embedded_asset!(world, "shaders/blur.wesl");
+        let glow_shader = load_embedded_asset!(world, "shaders/glow.wesl");
+        let bevel_shader = load_embedded_asset!(world, "shaders/bevel.wesl");
+        let color_matrix_shader = load_embedded_asset!(world, "shaders/color_matrix.wesl");
+        let convolution_shader = load_embedded_asset!(world, "shaders/convolution.wesl");
+        let gradient_filter_shader = load_embedded_asset!(world, "shaders/gradient_filter.wesl");
+        let alpha_mask_shader = load_embedded_asset!(world, "shaders/alpha_mask.wesl");
+        let fullscreen_shader = load_embedded_asset!(world, "shaders/fullscreen.wesl");
         let device = world.resource::<RenderDevice>();
-        let uniform_layout = device.create_bind_group_layout(
+        let cache = world.resource::<PipelineCache>();
+        let uniform_layout = BindGroupLayoutDescriptor::new(
             "flash_uniform_layout",
             &[BindGroupLayoutEntry {
                 binding: 0,
@@ -252,7 +278,7 @@ impl FromWorld for FlashGpu {
                 count: None,
             }],
         );
-        let texture_layout = device.create_bind_group_layout(
+        let texture_layout = BindGroupLayoutDescriptor::new(
             "flash_texture_layout",
             &[
                 BindGroupLayoutEntry {
@@ -273,21 +299,7 @@ impl FromWorld for FlashGpu {
                 },
             ],
         );
-        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("flash_layout"),
-            bind_group_layouts: &[Some(&uniform_layout), Some(&texture_layout)],
-            immediate_size: 0,
-        });
-        let glow_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("flash_glow_layout"),
-            bind_group_layouts: &[
-                Some(&uniform_layout),
-                Some(&texture_layout),
-                Some(&texture_layout),
-            ],
-            immediate_size: 0,
-        });
-        let convolution_kernel_layout = device.create_bind_group_layout(
+        let convolution_kernel_layout = BindGroupLayoutDescriptor::new(
             "flash_convolution_kernel_layout",
             &[BindGroupLayoutEntry {
                 binding: 0,
@@ -300,92 +312,26 @@ impl FromWorld for FlashGpu {
                 count: None,
             }],
         );
-        let convolution_pipeline_layout =
-            device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("flash_convolution_layout"),
-                bind_group_layouts: &[
-                    Some(&uniform_layout),
-                    Some(&texture_layout),
-                    Some(&convolution_kernel_layout),
-                ],
-                immediate_size: 0,
-            });
-        let gradient_filter_pipeline_layout =
-            device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("flash_gradient_filter_layout"),
-                bind_group_layouts: &[
-                    Some(&uniform_layout),
-                    Some(&texture_layout),
-                    Some(&texture_layout),
-                    Some(&texture_layout),
-                ],
-                immediate_size: 0,
-            });
-        let shape_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
-            label: Some("flash_shape"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                env!("OUT_DIR"),
-                "/shape.wgsl"
-            )))),
-        });
-        let composite_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
-            label: Some("flash_composite"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                env!("OUT_DIR"),
-                "/composite.wgsl"
-            )))),
-        });
-        let blur_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
-            label: Some("flash_blur"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                env!("OUT_DIR"),
-                "/blur.wgsl"
-            )))),
-        });
-        let glow_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
-            label: Some("flash_glow"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                env!("OUT_DIR"),
-                "/glow.wgsl"
-            )))),
-        });
-        let bevel_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
-            label: Some("flash_bevel"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                env!("OUT_DIR"),
-                "/bevel.wgsl"
-            )))),
-        });
-        let color_matrix_shader =
-            device.create_and_validate_shader_module(ShaderModuleDescriptor {
-                label: Some("flash_color_matrix"),
-                source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                    env!("OUT_DIR"),
-                    "/color_matrix.wgsl"
-                )))),
-            });
-        let convolution_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
-            label: Some("flash_convolution"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                env!("OUT_DIR"),
-                "/convolution.wgsl"
-            )))),
-        });
-        let gradient_filter_shader =
-            device.create_and_validate_shader_module(ShaderModuleDescriptor {
-                label: Some("flash_gradient_filter"),
-                source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                    env!("OUT_DIR"),
-                    "/gradient_filter.wgsl"
-                )))),
-            });
-        let alpha_mask_shader = device.create_and_validate_shader_module(ShaderModuleDescriptor {
-            label: Some("flash_alpha_mask"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
-                env!("OUT_DIR"),
-                "/alpha_mask.wgsl"
-            )))),
-        });
+        let pipeline_layout = vec![uniform_layout.clone(), texture_layout.clone()];
+        let glow_pipeline_layout = vec![
+            uniform_layout.clone(),
+            texture_layout.clone(),
+            texture_layout.clone(),
+        ];
+        let convolution_pipeline_layout = vec![
+            uniform_layout.clone(),
+            texture_layout.clone(),
+            convolution_kernel_layout.clone(),
+        ];
+        let gradient_filter_pipeline_layout = vec![
+            uniform_layout.clone(),
+            texture_layout.clone(),
+            texture_layout.clone(),
+            texture_layout.clone(),
+        ];
+        let uniform_layout = cache.get_bind_group_layout(&uniform_layout);
+        let texture_layout = cache.get_bind_group_layout(&texture_layout);
+        let convolution_kernel_layout = cache.get_bind_group_layout(&convolution_kernel_layout);
         let sampler = device.create_sampler(&SamplerDescriptor {
             label: Some("flash_linear_clamp"),
             mag_filter: FilterMode::Linear,
@@ -418,6 +364,7 @@ impl FromWorld for FlashGpu {
             &sampler,
         );
         Self {
+            _fullscreen_shader: fullscreen_shader,
             uniform_layout,
             texture_layout,
             pipeline_layout,
@@ -517,199 +464,172 @@ fn gradient_ramp_bytes(colors: &[AnimGradientRecord]) -> Vec<u8> {
 impl FlashGpu {
     fn shape_pipeline(
         &mut self,
-        device: &RenderDevice,
+        cache: &PipelineCache,
         mesh: &RenderMesh,
         samples: u32,
-    ) -> Result<RenderPipeline> {
+    ) -> Result<CachedRenderPipelineId> {
         let key = (mesh.layout.clone(), samples);
-        if let Some(pipeline) = self.shapes.get(&key) {
-            return Ok(pipeline.clone());
+        if let Some(id) = self.shapes.get(&key) {
+            return Ok(*id);
         }
         let layout = mesh.layout.0.get_layout(&[
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
             Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
         ])?;
-        let buffers = [Some(RawVertexBufferLayout {
-            array_stride: layout.array_stride,
-            step_mode: layout.step_mode,
-            attributes: &layout.attributes,
-        })];
-        let pipeline = self.pipeline(
-            device,
+        let id = queue_pipeline(
+            cache,
             &self.shape_shader,
-            &buffers,
+            self.pipeline_layout.clone(),
+            vec![layout],
             TextureFormat::Rgba8Unorm,
             samples,
             Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
         );
-        self.shapes.insert(key, pipeline.clone());
-        Ok(pipeline)
+        self.shapes.insert(key, id);
+        Ok(id)
     }
     fn composite_pipeline(
         &mut self,
-        device: &RenderDevice,
+        cache: &PipelineCache,
         format: TextureFormat,
         samples: u32,
         blend: bool,
-    ) -> RenderPipeline {
+    ) -> CachedRenderPipelineId {
         let key = (format, samples, blend);
-        if let Some(pipeline) = self.composites.get(&key) {
-            return pipeline.clone();
-        }
-        let pipeline = self.pipeline(
-            device,
-            &self.composite_shader,
-            &[],
-            format,
-            samples,
-            blend.then_some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-        );
-        self.composites.insert(key, pipeline.clone());
-        pipeline
+        *self.composites.entry(key).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.composite_shader,
+                self.pipeline_layout.clone(),
+                vec![],
+                format,
+                samples,
+                blend.then_some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            )
+        })
     }
     fn layer_composite_pipeline(
         &mut self,
-        device: &RenderDevice,
+        cache: &PipelineCache,
         format: TextureFormat,
         samples: u32,
         blend: VabBlendMode,
-    ) -> RenderPipeline {
+    ) -> CachedRenderPipelineId {
         let key = (format, samples, blend);
-        if let Some(pipeline) = self.layer_composites.get(&key) {
-            return pipeline.clone();
-        }
-        let pipeline = self.pipeline(
-            device,
-            &self.composite_shader,
-            &[],
-            format,
-            samples,
-            Some(fixed_blend_state(blend)),
-        );
-        self.layer_composites.insert(key, pipeline.clone());
-        pipeline
+        *self.layer_composites.entry(key).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.composite_shader,
+                self.pipeline_layout.clone(),
+                vec![],
+                format,
+                samples,
+                Some(fixed_blend_state(blend)),
+            )
+        })
     }
-    fn blur_pipeline(&mut self, device: &RenderDevice, format: TextureFormat) -> RenderPipeline {
-        if let Some(pipeline) = self.blurs.get(&format) {
-            return pipeline.clone();
-        }
-        let pipeline = self.pipeline(device, &self.blur_shader, &[], format, 1, None);
-        self.blurs.insert(format, pipeline.clone());
-        pipeline
+    fn blur_pipeline(
+        &mut self,
+        cache: &PipelineCache,
+        format: TextureFormat,
+    ) -> CachedRenderPipelineId {
+        *self.blurs.entry(format).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.blur_shader,
+                self.pipeline_layout.clone(),
+                vec![],
+                format,
+                1,
+                None,
+            )
+        })
     }
-    fn glow_pipeline(&mut self, device: &RenderDevice, format: TextureFormat) -> RenderPipeline {
-        if let Some(pipeline) = self.glows.get(&format) {
-            return pipeline.clone();
-        }
-        let pipeline = device.create_render_pipeline(&RawRenderPipelineDescriptor {
-            label: Some("flash_glow_pipeline"),
-            layout: Some(&self.glow_pipeline_layout),
-            vertex: RawVertexState {
-                module: &self.glow_shader,
-                entry_point: Some("vertex"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(RawFragmentState {
-                module: &self.glow_shader,
-                entry_point: Some("fragment"),
-                targets: &[Some(ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        self.glows.insert(format, pipeline.clone());
-        pipeline
+    fn glow_pipeline(
+        &mut self,
+        cache: &PipelineCache,
+        format: TextureFormat,
+    ) -> CachedRenderPipelineId {
+        *self.glows.entry(format).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.glow_shader,
+                self.glow_pipeline_layout.clone(),
+                vec![],
+                format,
+                1,
+                None,
+            )
+        })
     }
-    fn bevel_pipeline(&mut self, device: &RenderDevice, format: TextureFormat) -> RenderPipeline {
-        if let Some(pipeline) = self.bevels.get(&format) {
-            return pipeline.clone();
-        }
-        let pipeline = device.create_render_pipeline(&RawRenderPipelineDescriptor {
-            label: Some("flash_bevel_pipeline"),
-            layout: Some(&self.glow_pipeline_layout),
-            vertex: RawVertexState {
-                module: &self.bevel_shader,
-                entry_point: Some("vertex"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(RawFragmentState {
-                module: &self.bevel_shader,
-                entry_point: Some("fragment"),
-                targets: &[Some(ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        self.bevels.insert(format, pipeline.clone());
-        pipeline
+    fn bevel_pipeline(
+        &mut self,
+        cache: &PipelineCache,
+        format: TextureFormat,
+    ) -> CachedRenderPipelineId {
+        *self.bevels.entry(format).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.bevel_shader,
+                self.glow_pipeline_layout.clone(),
+                vec![],
+                format,
+                1,
+                None,
+            )
+        })
     }
     fn color_matrix_pipeline(
         &mut self,
-        device: &RenderDevice,
+        cache: &PipelineCache,
         format: TextureFormat,
-    ) -> RenderPipeline {
-        if let Some(pipeline) = self.color_matrices.get(&format) {
-            return pipeline.clone();
-        }
-        let pipeline = self.pipeline(device, &self.color_matrix_shader, &[], format, 1, None);
-        self.color_matrices.insert(format, pipeline.clone());
-        pipeline
+    ) -> CachedRenderPipelineId {
+        *self.color_matrices.entry(format).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.color_matrix_shader,
+                self.pipeline_layout.clone(),
+                vec![],
+                format,
+                1,
+                None,
+            )
+        })
     }
     fn convolution_pipeline(
         &mut self,
-        device: &RenderDevice,
+        cache: &PipelineCache,
         format: TextureFormat,
-    ) -> RenderPipeline {
-        if let Some(pipeline) = self.convolutions.get(&format) {
-            return pipeline.clone();
-        }
-        let pipeline = device.create_render_pipeline(&RawRenderPipelineDescriptor {
-            label: Some("flash_convolution_pipeline"),
-            layout: Some(&self.convolution_pipeline_layout),
-            vertex: RawVertexState {
-                module: &self.convolution_shader,
-                entry_point: Some("vertex"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(RawFragmentState {
-                module: &self.convolution_shader,
-                entry_point: Some("fragment"),
-                targets: &[Some(ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        self.convolutions.insert(format, pipeline.clone());
-        pipeline
+    ) -> CachedRenderPipelineId {
+        *self.convolutions.entry(format).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.convolution_shader,
+                self.convolution_pipeline_layout.clone(),
+                vec![],
+                format,
+                1,
+                None,
+            )
+        })
     }
-
+    fn gradient_filter_pipeline(
+        &mut self,
+        cache: &PipelineCache,
+        format: TextureFormat,
+    ) -> CachedRenderPipelineId {
+        *self.gradient_filters.entry(format).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.gradient_filter_shader,
+                self.gradient_filter_pipeline_layout.clone(),
+                vec![],
+                format,
+                1,
+                None,
+            )
+        })
+    }
     fn convolution_kernel_group(
         &mut self,
         device: &RenderDevice,
@@ -739,43 +659,6 @@ impl FlashGpu {
         self.convolution_kernels.insert(key, group.clone());
         group
     }
-    fn gradient_filter_pipeline(
-        &mut self,
-        device: &RenderDevice,
-        format: TextureFormat,
-    ) -> RenderPipeline {
-        if let Some(pipeline) = self.gradient_filters.get(&format) {
-            return pipeline.clone();
-        }
-        let pipeline = device.create_render_pipeline(&RawRenderPipelineDescriptor {
-            label: Some("flash_gradient_filter_pipeline"),
-            layout: Some(&self.gradient_filter_pipeline_layout),
-            vertex: RawVertexState {
-                module: &self.gradient_filter_shader,
-                entry_point: Some("vertex"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(RawFragmentState {
-                module: &self.gradient_filter_shader,
-                entry_point: Some("fragment"),
-                targets: &[Some(ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        self.gradient_filters.insert(format, pipeline.clone());
-        pipeline
-    }
-
     fn gradient_ramp_group(
         &mut self,
         device: &RenderDevice,
@@ -837,82 +720,197 @@ impl FlashGpu {
     }
     fn alpha_mask_pipeline(
         &mut self,
-        device: &RenderDevice,
+        cache: &PipelineCache,
         format: TextureFormat,
         samples: u32,
-    ) -> RenderPipeline {
+    ) -> CachedRenderPipelineId {
         let key = (format, samples);
-        if let Some(pipeline) = self.alpha_masks.get(&key) {
-            return pipeline.clone();
-        }
-        let pipeline = device.create_render_pipeline(&RawRenderPipelineDescriptor {
-            label: Some("flash_alpha_mask_pipeline"),
-            layout: Some(&self.glow_pipeline_layout),
-            vertex: RawVertexState {
-                module: &self.alpha_mask_shader,
-                entry_point: Some("vertex"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(RawFragmentState {
-                module: &self.alpha_mask_shader,
-                entry_point: Some("fragment"),
-                targets: &[Some(ColorTargetState {
-                    format,
-                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: samples,
-                ..Default::default()
-            },
-            multiview_mask: None,
-            cache: None,
-        });
-        self.alpha_masks.insert(key, pipeline.clone());
-        pipeline
-    }
-    fn pipeline(
-        &self,
-        device: &RenderDevice,
-        shader: &ShaderModule,
-        buffers: &[Option<RawVertexBufferLayout>],
-        format: TextureFormat,
-        samples: u32,
-        blend: Option<BlendState>,
-    ) -> RenderPipeline {
-        device.create_render_pipeline(&RawRenderPipelineDescriptor {
-            label: Some("flash_pipeline"),
-            layout: Some(&self.pipeline_layout),
-            vertex: RawVertexState {
-                module: shader,
-                entry_point: Some("vertex"),
-                buffers,
-                compilation_options: Default::default(),
-            },
-            fragment: Some(RawFragmentState {
-                module: shader,
-                entry_point: Some("fragment"),
-                targets: &[Some(ColorTargetState {
-                    format,
-                    blend,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: samples,
-                ..Default::default()
-            },
-            multiview_mask: None,
-            cache: None,
+        *self.alpha_masks.entry(key).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.alpha_mask_shader,
+                self.glow_pipeline_layout.clone(),
+                vec![],
+                format,
+                samples,
+                Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            )
         })
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn queue_pipeline(
+    cache: &PipelineCache,
+    shader: &Handle<Shader>,
+    layout: Vec<BindGroupLayoutDescriptor>,
+    buffers: Vec<VertexBufferLayout>,
+    format: TextureFormat,
+    samples: u32,
+    blend: Option<BlendState>,
+) -> CachedRenderPipelineId {
+    cache.queue_render_pipeline(RenderPipelineDescriptor {
+        label: Some("flash_pipeline".into()),
+        layout,
+        vertex: VertexState {
+            shader: shader.clone(),
+            entry_point: Some("vertex".into()),
+            buffers,
+            ..default()
+        },
+        fragment: Some(FragmentState {
+            shader: shader.clone(),
+            entry_point: Some("fragment".into()),
+            targets: vec![Some(ColorTargetState {
+                format,
+                blend,
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        multisample: MultisampleState {
+            count: samples,
+            ..default()
+        },
+        ..default()
+    })
+}
+
+fn ready_pipeline(cache: &PipelineCache, id: CachedRenderPipelineId) -> Result<RenderPipeline> {
+    if let Some(pipeline) = cache.get_render_pipeline(id) {
+        return Ok(pipeline.clone());
+    }
+    // Shader assets and imported modules can arrive after the first queue pass.
+    match cache.get_render_pipeline_state(id) {
+        CachedPipelineState::Err(
+            ShaderCacheError::ShaderNotLoaded(_) | ShaderCacheError::ShaderImportNotYetAvailable,
+        ) => {}
+        CachedPipelineState::Err(error) => {
+            anyhow::bail!("Flash pipeline compilation failed: {error}")
+        }
+        _ => {}
+    }
+    anyhow::bail!("pending Flash pipeline")
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+enum FilterPipeline {
+    Blur,
+    Glow,
+    Bevel,
+    ColorMatrix,
+    Convolution,
+    Gradient,
+    Mask,
+}
+
+/// A complete snapshot for one submission. Rendering never queues a pipeline.
+#[derive(Default)]
+struct PreparedPipelines(HashMap<FilterPipeline, RenderPipeline>);
+impl PreparedPipelines {
+    fn get(&self, kind: FilterPipeline) -> RenderPipeline {
+        self.0
+            .get(&kind)
+            .expect("pipeline preflight must cover every prepared filter")
+            .clone()
+    }
+}
+
+impl FlashGpu {
+    fn request_ops(
+        &mut self,
+        ops: &[Op],
+        samples: u32,
+        cache: &PipelineCache,
+        meshes: &RenderAssets<RenderMesh>,
+        ids: &mut Vec<CachedRenderPipelineId>,
+        filters: &mut HashMap<FilterPipeline, CachedRenderPipelineId>,
+    ) -> Result<()> {
+        let format = TextureFormat::Rgba8Unorm;
+        for op in ops {
+            match op {
+                Op::Draw(draw) => {
+                    if let Some(mesh) = meshes.get(draw.mesh) {
+                        ids.push(self.shape_pipeline(cache, mesh, samples)?);
+                    }
+                }
+                Op::Mask { mask, content, .. } => {
+                    filters.insert(
+                        FilterPipeline::Mask,
+                        self.alpha_mask_pipeline(cache, format, samples),
+                    );
+                    self.request_ops(mask, samples, cache, meshes, ids, filters)?;
+                    self.request_ops(content, samples, cache, meshes, ids, filters)?;
+                }
+                Op::Layer {
+                    ops,
+                    filters: effects,
+                    blend,
+                    ..
+                } => {
+                    ids.push(self.layer_composite_pipeline(cache, format, samples, *blend));
+                    self.request_ops(ops, samples, cache, meshes, ids, filters)?;
+                    for effect in effects {
+                        let (kind, id) = match effect {
+                            AnimFilter::BlurFilter(_) => {
+                                (FilterPipeline::Blur, self.blur_pipeline(cache, format))
+                            }
+                            AnimFilter::GlowFilter(_) | AnimFilter::DropShadowFilter(_) => {
+                                (FilterPipeline::Glow, self.glow_pipeline(cache, format))
+                            }
+                            AnimFilter::BevelFilter(_) => {
+                                (FilterPipeline::Bevel, self.bevel_pipeline(cache, format))
+                            }
+                            AnimFilter::ColorMatrixFilter(_) => (
+                                FilterPipeline::ColorMatrix,
+                                self.color_matrix_pipeline(cache, format),
+                            ),
+                            AnimFilter::ConvolutionFilter(_) => (
+                                FilterPipeline::Convolution,
+                                self.convolution_pipeline(cache, format),
+                            ),
+                            AnimFilter::GradientGlowFilter(_)
+                            | AnimFilter::GradientBevelFilter(_) => (
+                                FilterPipeline::Gradient,
+                                self.gradient_filter_pipeline(cache, format),
+                            ),
+                        };
+                        filters.insert(kind, id);
+                        if matches!(
+                            kind,
+                            FilterPipeline::Glow | FilterPipeline::Bevel | FilterPipeline::Gradient
+                        ) {
+                            filters.insert(FilterPipeline::Blur, self.blur_pipeline(cache, format));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn prepare_pipelines(
+        &mut self,
+        ops: &[Op],
+        samples: u32,
+        cache: &PipelineCache,
+        meshes: &RenderAssets<RenderMesh>,
+        output: Option<CachedRenderPipelineId>,
+    ) -> Result<PreparedPipelines> {
+        let mut ids = Vec::new();
+        let mut filters = HashMap::default();
+        // Queue the entire tree before checking readiness, allowing parallel compilation.
+        self.request_ops(ops, samples, cache, meshes, &mut ids, &mut filters)?;
+        ids.extend(output);
+        ids.extend(filters.values().copied());
+        for id in ids {
+            ready_pipeline(cache, id)?;
+        }
+        Ok(PreparedPipelines(
+            filters
+                .into_iter()
+                .map(|(kind, id)| ready_pipeline(cache, id).map(|pipeline| (kind, pipeline)))
+                .collect::<Result<_>>()?,
+        ))
     }
 }
 
@@ -1004,6 +1002,7 @@ enum PreparedOp {
     },
 }
 pub(super) struct PreparedLayer {
+    pipelines: PreparedPipelines,
     ops: Vec<PreparedOp>,
     uniforms: BindGroup,
     pub(super) bounds: [f32; 4],
@@ -1470,6 +1469,7 @@ fn prepare_ops(
     bounds: [f32; 4],
     samples: u32,
     gpu: &mut FlashGpu,
+    cache: &PipelineCache,
     device: &RenderDevice,
     queue: &RenderQueue,
     meshes: &RenderAssets<RenderMesh>,
@@ -1513,7 +1513,7 @@ fn prepare_ops(
                 })?;
                 PreparedOp::Draw(PreparedDraw {
                     mesh: draw.mesh,
-                    pipeline: gpu.shape_pipeline(device, mesh, samples)?,
+                    pipeline: ready_pipeline(cache, gpu.shape_pipeline(cache, mesh, samples)?)?,
                     texture,
                     offset,
                 })
@@ -1532,10 +1532,10 @@ fn prepare_ops(
                     "invalid mask dimensions"
                 );
                 let mask = prepare_ops(
-                    mask, child, samples, gpu, device, queue, meshes, images, uniforms,
+                    mask, child, samples, gpu, cache, device, queue, meshes, images, uniforms,
                 )?;
                 let content = prepare_ops(
-                    content, child, samples, gpu, device, queue, meshes, images, uniforms,
+                    content, child, samples, gpu, cache, device, queue, meshes, images, uniforms,
                 )?;
                 let offset = uniforms.push(&CompositeUniform {
                     rect: child,
@@ -1565,7 +1565,7 @@ fn prepare_ops(
                     "invalid layer dimensions"
                 );
                 let ops = prepare_ops(
-                    ops, child, samples, gpu, device, queue, meshes, images, uniforms,
+                    ops, child, samples, gpu, cache, device, queue, meshes, images, uniforms,
                 )?;
                 let mut prepared_filters = Vec::new();
                 for filter in filters {
@@ -1638,12 +1638,15 @@ fn prepare_ops(
                     bounds: child,
                     offset,
                     filters: prepared_filters,
-                    composite: gpu.layer_composite_pipeline(
-                        device,
-                        TextureFormat::Rgba8Unorm,
-                        samples,
-                        *blend,
-                    ),
+                    composite: ready_pipeline(
+                        cache,
+                        gpu.layer_composite_pipeline(
+                            cache,
+                            TextureFormat::Rgba8Unorm,
+                            samples,
+                            *blend,
+                        ),
+                    )?,
                 }
             }
         });
@@ -1657,12 +1660,14 @@ pub(super) fn prepare_layer(
     bounds: [f32; 4],
     samples: u32,
     gpu: &mut FlashGpu,
+    cache: &PipelineCache,
     device: &RenderDevice,
     queue: &RenderQueue,
     meshes: &RenderAssets<RenderMesh>,
     images: &RenderAssets<GpuImage>,
     uniform_buffer: &mut ReusableUniformBuffer,
 ) -> Result<(PreparedLayer, bool)> {
+    let pipelines = gpu.prepare_pipelines(ops, samples, cache, meshes, None)?;
     let mut uniforms = Uniforms {
         bytes: Vec::new(),
         alignment: (device.limits().min_uniform_buffer_offset_alignment as usize).max(128),
@@ -1672,6 +1677,7 @@ pub(super) fn prepare_layer(
         bounds,
         samples,
         gpu,
+        cache,
         device,
         queue,
         meshes,
@@ -1687,6 +1693,7 @@ pub(super) fn prepare_layer(
     );
     Ok((
         PreparedLayer {
+            pipelines,
             ops,
             uniforms,
             bounds,
@@ -1703,6 +1710,7 @@ pub fn prepare_frames(
     mut commands: Commands,
     query: Query<(Entity, &ExtractedFrame, &OffscreenViewTarget, &Msaa)>,
     mut gpu: ResMut<FlashGpu>,
+    cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     meshes: Res<RenderAssets<RenderMesh>>,
@@ -1747,6 +1755,15 @@ pub fn prepare_frames(
                 target.size.x as f32,
                 target.size.y as f32,
             ];
+            let output_id =
+                gpu.composite_pipeline(&cache, output.texture_descriptor.format, 1, false);
+            let pipelines = gpu.prepare_pipelines(
+                &frame.ops,
+                msaa.samples(),
+                &cache,
+                &meshes,
+                Some(output_id),
+            )?;
             let mut uniforms = Uniforms {
                 bytes: Vec::new(),
                 alignment: (device.limits().min_uniform_buffer_offset_alignment as usize).max(128),
@@ -1756,6 +1773,7 @@ pub fn prepare_frames(
                 bounds,
                 msaa.samples(),
                 &mut gpu,
+                &cache,
                 &device,
                 &queue,
                 &meshes,
@@ -1782,12 +1800,13 @@ pub fn prepare_frames(
             }
             Ok(PreparedFrame {
                 layer: PreparedLayer {
+                    pipelines,
                     ops,
                     uniforms,
                     bounds,
                 },
                 output_offset,
-                output: gpu.composite_pipeline(&device, output.texture_descriptor.format, 1, false),
+                output: ready_pipeline(&cache, output_id)?,
             })
         })();
         match result {
@@ -1921,7 +1940,7 @@ fn render_blur_and_two_texture_filter(
             bounds,
         },
     );
-    let blur_pipeline = gpu.blur_pipeline(device, TextureFormat::Rgba8Unorm);
+    let blur_pipeline = prepared.pipelines.get(FilterPipeline::Blur);
     let mut blurred_in_other = false;
     for (pass_index, blur_offset) in blur_offsets.iter().enumerate() {
         let (source, destination) = if pass_index == 0 {
@@ -2075,8 +2094,7 @@ fn render_ops(
                 mask_target.main_view(),
                 &gpu.sampler,
             );
-            let pipeline =
-                gpu.alpha_mask_pipeline(device, TextureFormat::Rgba8Unorm, msaa.samples());
+            let pipeline = prepared.pipelines.get(FilterPipeline::Mask);
             let attachment = [Some(target.load_color_attachment())];
             let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
                 label: Some("flash_alpha_mask"),
@@ -2126,7 +2144,7 @@ fn render_ops(
             for filter in filters {
                 match filter {
                     PreparedFilter::Blur(offsets) => {
-                        let pipeline = gpu.blur_pipeline(device, TextureFormat::Rgba8Unorm);
+                        let pipeline = prepared.pipelines.get(FilterPipeline::Blur);
                         for blur_offset in offsets {
                             let write = child.post_process_write();
                             render_single_texture_filter_pass(
@@ -2147,7 +2165,7 @@ fn render_ops(
                         blur_offsets,
                         glow_offset,
                     } => {
-                        let glow_pipeline = gpu.glow_pipeline(device, TextureFormat::Rgba8Unorm);
+                        let glow_pipeline = prepared.pipelines.get(FilterPipeline::Glow);
                         render_blur_and_two_texture_filter(
                             &mut child,
                             *bounds,
@@ -2169,7 +2187,7 @@ fn render_ops(
                         blur_offsets,
                         bevel_offset,
                     } => {
-                        let bevel_pipeline = gpu.bevel_pipeline(device, TextureFormat::Rgba8Unorm);
+                        let bevel_pipeline = prepared.pipelines.get(FilterPipeline::Bevel);
                         render_blur_and_two_texture_filter(
                             &mut child,
                             *bounds,
@@ -2188,7 +2206,7 @@ fn render_ops(
                         );
                     }
                     PreparedFilter::ColorMatrix(offset) => {
-                        let pipeline = gpu.color_matrix_pipeline(device, TextureFormat::Rgba8Unorm);
+                        let pipeline = prepared.pipelines.get(FilterPipeline::ColorMatrix);
                         let write = child.post_process_write();
                         render_single_texture_filter_pass(
                             write.source,
@@ -2204,7 +2222,7 @@ fn render_ops(
                         *draw_calls += 1;
                     }
                     PreparedFilter::Convolution { offset, kernel } => {
-                        let pipeline = gpu.convolution_pipeline(device, TextureFormat::Rgba8Unorm);
+                        let pipeline = prepared.pipelines.get(FilterPipeline::Convolution);
                         let write = child.post_process_write();
                         render_convolution_pass(
                             write.source,
@@ -2224,8 +2242,7 @@ fn render_ops(
                         effect_offset,
                         ramp,
                     } => {
-                        let pipeline =
-                            gpu.gradient_filter_pipeline(device, TextureFormat::Rgba8Unorm);
+                        let pipeline = prepared.pipelines.get(FilterPipeline::Gradient);
                         render_blur_and_two_texture_filter(
                             &mut child,
                             *bounds,

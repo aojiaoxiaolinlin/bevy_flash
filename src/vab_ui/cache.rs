@@ -114,6 +114,7 @@ pub(super) struct UiAssetChanges<'w, 's> {
     gradients: MessageReader<'w, 's, AssetEvent<GradientMaterial>>,
     bitmaps: MessageReader<'w, 's, AssetEvent<BitmapMaterial>>,
     images: MessageReader<'w, 's, AssetEvent<Image>>,
+    shaders: MessageReader<'w, 's, AssetEvent<Shader>>,
 }
 
 impl UiAssetChanges<'_, '_> {
@@ -127,6 +128,7 @@ impl UiAssetChanges<'_, '_> {
             changed(&mut self.meshes),
             changed(&mut self.gradients),
             changed(&mut self.bitmaps),
+            changed(&mut self.shaders),
             self.images.read().fold(false, |dirty, e| {
                 matches!(e, AssetEvent::Modified { .. }) || dirty
             }),

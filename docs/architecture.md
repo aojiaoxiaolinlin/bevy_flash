@@ -71,13 +71,20 @@ vatf 负责源格式解析、时间轴展开与 VAB 序列化。运行时不重�
 
 ## Shader 源码与构建
 
-库内 Shader 源码统一位于 `src/render/shaders/*.wesl`。世界实例的
-`vab_instance.wesl` 通过 Bevy `embedded_asset!` 加载，由 Bevy 处理视图相关的
-编译条件。离屏、合成、滤镜和遮罩直接使用 wgpu 管线；`build.rs` 在构建时
-将对应 WESL 编译到 `OUT_DIR/*.wgsl`，Rust 使用 `include_str!` 嵌入生成结果。
-宿主无需安装 WESL CLI，也无需分发这些生成文件，运行时不做额外的 WESL 转换。
+库内 Shader 源码统一位于 `src/render/shaders/*.wesl`。世界实例、离屏、合成、
+滤镜和遮罩均通过 Bevy `embedded_asset!` 注册，以 `Handle<Shader>` 引用，
+由 `PipelineCache` 编译及管理。库不再使用 `build.rs` 生成 WGSL，也不直接
+创建 ShaderModule 或 RenderPipeline；宿主无需安装 WESL CLI 或分发 Shader 文件。
 
 六种全屏滤镜共享 `fullscreen.wesl` 的顶点与 UV 实现，保持左上角为 `(0, 0)`。
-构建脚本跟踪入口及导入文件的变化；修改共享模块会重新生成依赖它的 Shader。
-已无加载入口的旧 WGSL 文件已移除。修改滤镜数学或颜色空间时，继续通过
-`tests/gpu/filters.rs` 和实例/UI GPU 回归验证输出。
+共享模块也作为 Shader 资产加载并持有，供 Bevy 的 WESL 导入解析器使用。
+Shader 修改会使管线重新编译，并使实例滤镜输出及 UI 栅格缓存失效。
+
+准备阶段先请求整棵离屏子树需要的管线，再检查是否全部就绪。尚在加载或
+编译时延后整个子树，不分配中间纹理、不提交部分滤镜，也不完成 `RasterOnce`。
+世界实例中任一滤镜包未就绪时延后整个实体；屏幕绘制管线也须全部就绪。
+渲染阶段只使用准备好的管线快照，管线创建不再发生在滤镜绘制过程中。
+真正的编译错误记入 `FlashRenderDiagnostics.errors`，等待状态记入 `pending_views`。
+
+修改滤镜数学或颜色空间时，继续通过 `tests/gpu/filters.rs` 和实例/UI GPU 回归
+验证输出；实例 Blur 回归还验证 MSAA 变化后的异步准备及 Shader 修改后的缓存更新。

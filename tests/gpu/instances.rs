@@ -422,7 +422,7 @@ fn vab_instance_blur_is_composited_inside_one_transparent_item() {
     player.pause();
     let entity = app.world_mut().spawn((VabAssetHandle(asset), player)).id();
 
-    let pixels = capture_camera(&mut app, output, size);
+    let pixels = capture_camera(&mut app, output.clone(), size);
     let alpha = |x: usize, y: usize| pixels[(y * size.x as usize + x) * 4 + 3];
     assert!(alpha(32, 32) > 200, "VAB instance blur erased the center");
     assert!(
@@ -492,7 +492,23 @@ fn vab_instance_blur_is_composited_inside_one_transparent_item() {
     // Changing only the filter sample count must invalidate the isolated output,
     // while the camera and its Transparent2d pipeline remain at 4x MSAA.
     app.world_mut().insert_resource(VabFilterMsaa::Off);
-    app.update();
+    let started = Instant::now();
+    loop {
+        app.update();
+        let diagnostics = app
+            .sub_app(RenderApp)
+            .world()
+            .resource::<FlashRenderDiagnostics>();
+        assert!(diagnostics.errors.is_empty(), "{:?}", diagnostics.errors);
+        if diagnostics.vab_filter_cache_misses == 1 {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(45),
+            "filter pipeline warm-up timeout"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
     assert_eq!(app.world().get::<Msaa>(camera), Some(&Msaa::Sample4));
     let diagnostics = app
         .sub_app(RenderApp)
@@ -500,6 +516,32 @@ fn vab_instance_blur_is_composited_inside_one_transparent_item() {
         .resource::<FlashRenderDiagnostics>();
     assert_eq!(diagnostics.vab_filter_cache_hits, 0);
     assert_eq!(diagnostics.vab_filter_cache_misses, 1);
+
+    let shader_path = "embedded://bevy_flash/render/shaders/blur.wesl";
+    let shader: Handle<Shader> = app.world().resource::<AssetServer>().load(shader_path);
+    let source = include_str!("../../src/render/shaders/blur.wesl").replace(
+        "return floor(total / params.full_size * 255.0) / 255.0;",
+        "return vec4(0.0, 1.0, 0.0, 1.0);",
+    );
+    *app.world_mut()
+        .resource_mut::<Assets<Shader>>()
+        .get_mut(&shader)
+        .unwrap() = Shader::from_wesl(source, shader_path);
+    // Wait for both cache invalidation and Bevy's asynchronous recompilation.
+    let started = Instant::now();
+    loop {
+        let pixels = capture_camera(&mut app, output.clone(), size);
+        if pixels
+            .chunks_exact(4)
+            .any(|pixel| pixel[1] > 240 && pixel[0] < 10)
+        {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(45),
+            "modified filter Shader did not replace cached output"
+        );
+    }
 
     app.world_mut()
         .resource_mut::<VabFilterCacheSettings>()
