@@ -23,8 +23,7 @@ Toolchain: edition 2024; use a Rust toolchain satisfying the supported Bevy chec
 
 Dependencies are resolved from crates.io (Bevy and vatf). Sibling
 checkouts are reference sources, not build requirements. Add Bevy features to
-Cargo.toml when needed. The repository toolchain is pinned in rust-toolchain.toml
-and Cargo.toml declares the matching minimum Rust version.
+Cargo.toml when needed. Development and CI use the latest stable Rust toolchain; Cargo.toml declares the minimum supported Rust version.
 
 The vatf UI and shared compiler APIs are merged into its `main` branch. There is no requirement to use the former UI development branch. Keep dependency APIs and generated VAB assets in sync when updating it.
 

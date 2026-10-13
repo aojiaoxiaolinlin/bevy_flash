@@ -210,7 +210,7 @@ Bevy 管理源文件和配置失效；`vab_processed_asset_path` 按编译器修
 
 ## 开发与验证
 
-本工程使用 crates.io 的 Bevy 和 vatf，不要求同级目录有依赖源码。Rust 最低版本为 1.97.1；仓库的 `rust-toolchain.toml` 会选择对应工具链。
+本工程使用 crates.io 的 Bevy 和 vatf，不要求同级目录有依赖源码。Cargo.toml 声明最低 Rust 版本为 1.97.1；开发和 CI 使用最新 stable Rust，不固定工具链版本。
 
 vatf 的接口和 VAB 格式需要配套；更新编译器导致格式或编译行为改变时，应重新生成资源。
 
@@ -230,7 +230,7 @@ cargo fmt --check
 cargo check --no-default-features --lib
 ```
 
-推送到 `main` 或提交以 `main` 为目标的 PR 时，**CI** 工作流使用 `rust-toolchain.toml` 指定的工具链，检查格式、无默认功能的库构建、默认功能测试、资产预处理测试，以及所有目标和功能的 Clippy。格式不通过时在本地运行 `cargo fmt --all` 后提交。
+推送到 `main` 或提交以 `main` 为目标的 PR 时，**CI** 工作流使用最新 stable Rust，检查格式、无默认功能的库构建、默认功能测试、资产预处理测试，以及所有目标和功能的 Clippy。格式不通过时在本地运行 `cargo fmt --all` 后提交。
 
 默认 `ui` feature 启用 Bevy UI；只使用世界动画时可禁用默认 features。GPU 测试需要图形适配器，默认忽略，不会创建系统窗口：
 
@@ -245,7 +245,7 @@ cargo test --test render_gpu instances:: -- --ignored --test-threads=1
 
 ## 发布版本
 
-发布到 crates.io 和创建 GitHub Release 分开进行。先更新 `Cargo.toml` 版本，提交并推送全部修改（包括 `rust-toolchain.toml`），再发布库及推送版本标签。例如当前版本为 `0.3.0`：
+发布到 crates.io 和创建 GitHub Release 分开进行。先更新 `Cargo.toml` 版本，提交并推送全部修改，再发布库及推送版本标签。例如当前版本为 `0.3.0`：
 
 ```sh
 cargo publish --dry-run
