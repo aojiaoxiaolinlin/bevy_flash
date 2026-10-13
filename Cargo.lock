@@ -6110,7 +6110,8 @@ dependencies = [
 [[package]]
 name = "vatf"
 version = "0.1.0"
-source = "git+https://github.com/aojiaoxiaolinlin/vatf.git#e164dba11a766459219583753923b9e7f91589b2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcb7ed8cade7f54c8943c2bc92565af4b86f57b1e3866202aece5ec04c1e5cc7"
 dependencies = [
  "anyhow",
  "bincode",

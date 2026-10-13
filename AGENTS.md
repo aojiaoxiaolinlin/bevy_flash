@@ -21,7 +21,7 @@ cargo run --example spirit
 
 Toolchain: edition 2024; use a Rust toolchain satisfying the supported Bevy checkout's `rust-version`.
 
-Dependencies are resolved from crates.io (Bevy) and Git (vatf). Sibling
+Dependencies are resolved from crates.io (Bevy and vatf). Sibling
 checkouts are reference sources, not build requirements. Add Bevy features to
 Cargo.toml when needed. The repository toolchain is pinned in rust-toolchain.toml
 and Cargo.toml declares the matching minimum Rust version.
@@ -43,12 +43,12 @@ processor; AssetPlugin must use Processed mode. Metadata selects Animation
 Processed `.swf` paths contain VAB bytes and generated VabLoader metadata;
 `.swf#export` labels keep their normal meaning. Use `vab_processed_asset_path`
 for compiler-revision cache isolation. Increment vatf COMPILER_REVISION for
-compiler behavior changes, independently of the unpublished VAB working version.
+compiler behavior changes, independently of the VAB format version.
 Published apps disable processing and distribute processed bytes + metadata.
 
 `[dev-dependencies]` enables bevy's `2d` feature, so `cargo test` compiles a heavier feature set than `cargo check`. Use `cargo test --lib` / `cargo test --test vab_load` to iterate faster.
 
-The VAB format is still unpublished and its working version is 1; design changes may replace that format in place, but every checked-in `.vab` must then be regenerated together. Once a format is published, incompatible changes require a version increment. `VabReader` rejects files whose version or length doesn't match. The root MC is the animation root and clip/child frame lengths are aligned. Every non-`event_` root label defines a clip; `anim_` remains an optional stripped prefix. RootTranslationPolicy::Preserve is the compiler default. Explicit NormalizeClipStart requires at most one controlling root object per frame and removes each clip's initial root placement translation while retaining relative root motion. Unlabelled roots remain general scenes and keep their coordinates. Do not add root discovery or padding.
+The VAB format version is 1, independent of the crate version. Incompatible layout changes require a format version increment and regeneration of every checked-in `.vab`. `VabReader` rejects files whose version or length doesn't match. The root MC is the animation root and clip/child frame lengths are aligned. Every non-`event_` root label defines a clip; `anim_` remains an optional stripped prefix. RootTranslationPolicy::Preserve is the compiler default. Explicit NormalizeClipStart requires at most one controlling root object per frame and removes each clip's initial root placement translation while retaining relative root motion. Unlabelled roots remain general scenes and keep their coordinates. Do not add root discovery or padding.
 
 ```bash
 cd ../vatf

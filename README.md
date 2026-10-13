@@ -4,16 +4,27 @@
 [![Crates.io](https://img.shields.io/crates/v/bevy_flash.svg)](https://crates.io/crates/bevy_flash)
 [![Downloads](https://img.shields.io/crates/d/bevy_flash.svg)](https://crates.io/crates/bevy_flash)
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aojiaoxiaolinlin/bevy_flash)
-[![Bevy Tracking](https://img.shields.io/badge/Bevy%20tracking-main-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 [![Discord](https://img.shields.io/discord/1420207300710236180.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/aDzUKVE4)
 
-Bring Flash animations into the Bevy game engine, fully WASM compatible!
+Play baked Flash animations and vector UI in Bevy.
 
 
 面向 Bevy 的 Flash 矢量动画和 UI 库。SWF 由 [vatf](https://github.com/aojiaoxiaolinlin/vatf) 提前编译为 VAB；运行时加载烘焙帧，不解释 ActionScript，也不计算普通 Sprite 时间轴。
 
-核心功能已实现，仍处于开发阶段，VAB 工作版本为 1，尚未发布稳定格式与 API。
+当前库版本为 0.3.0，配套 Bevy 0.20 和 vatf 0.1。VAB 格式版本为 1，与库版本独立；读取端要求格式版本精确匹配，不兼容的布局变更需要提高格式版本并重新转换资源。API 仍可能随 0.x 版本演进。
 它提供视觉动画资源播放，不执行 ActionScript 或 Flash 游戏逻辑。
+
+## 安装
+
+在宿主项目的 `Cargo.toml` 中添加：
+
+```toml
+[dependencies]
+bevy = { version = "0.20", default-features = false, features = ["2d", "ui_bevy_render"] }
+bevy_flash = "0.3.0"
+```
+
+需要 Rust 1.97.1 或更新版本。默认启用 `ui`；只使用世界动画时可设置 `bevy_flash = { version = "0.3.0", default-features = false }`。SWF 转换需要另外安装 `vatf`，插件本身不提供命令行程序。WASM 构建与浏览器渲染未包含在当前 CI 验证范围内。
 
 ## 渲染展示
 
@@ -22,17 +33,17 @@ Bring Flash animations into the Bevy game engine, fully WASM compatible!
 
 ### 角色动画、位图与滤镜
 
-![spirit2159src 动画帧](docs/images/spirit2159src.png)
+![spirit2159src 动画帧](https://raw.githubusercontent.com/aojiaoxiaolinlin/bevy_flash/HEAD/docs/images/spirit2159src.png)
 
 `spirit2159src` 的单帧输出；Lighten 使用当前的 Max 近似。
 
 ### 静态与动态矢量 UI
 
-![名字框：可编辑文字交给 Bevy UI](docs/images/nameplate.png)
+![名字框：可编辑文字交给 Bevy UI](https://raw.githubusercontent.com/aojiaoxiaolinlin/bevy_flash/HEAD/docs/images/nameplate.png)
 
 名字框由矢量资源绘制，SWF 的可编辑文字被移除，玩家名字由宿主 Bevy UI 提供。
 
-![sparkles 动态背景的一个渲染帧](docs/images/animated-background.png)
+![sparkles 动态背景的一个渲染帧](https://raw.githubusercontent.com/aojiaoxiaolinlin/bevy_flash/HEAD/docs/images/animated-background.png)
 
 `background551284.swf#sparkles` 的一个动画帧，子时间轴已离线展开。
 
@@ -40,9 +51,9 @@ Bring Flash animations into the Bevy game engine, fully WASM compatible!
 
 | 普通 up | 悬停 over | 按下 down |
 |---|---|---|
-| ![up](docs/images/button-up.png) | ![over](docs/images/button-over.png) | ![down](docs/images/button-down.png) |
+| ![up](https://raw.githubusercontent.com/aojiaoxiaolinlin/bevy_flash/HEAD/docs/images/button-up.png) | ![over](https://raw.githubusercontent.com/aojiaoxiaolinlin/bevy_flash/HEAD/docs/images/button-over.png) | ![down](https://raw.githubusercontent.com/aojiaoxiaolinlin/bevy_flash/HEAD/docs/images/button-down.png) |
 
-SWF 的 hit 是命中几何，不是点击或焦点外观。截图来源与重新生成方法见 [图片说明](docs/images/README.md)。
+SWF 的 hit 是命中几何，不是点击或焦点外观。截图来源与重新生成方法见 [图片说明](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/images/README.md)。
 
 ## 已实现功能
 
@@ -92,7 +103,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
 
 默认播放器循环首个动作，等待资产加载后开始推进。实体与相机的 `Transform` 由宿主设置；
 插件不按每帧 bounds 自动居中。Flash 的 Y 向下在世界显示时转换为 Y 向上。
-不同素材的注册点可能不同，预览定位可参考 `show_demo` 和 [坐标文档](docs/coordinates-and-origin.md)。
+不同素材的注册点可能不同，预览定位可参考 `show_demo` 和 [坐标文档](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/coordinates-and-origin.md)。
 
 取得已加载的 `VabAsset` 后可以控制播放和换肤：
 
@@ -109,7 +120,7 @@ skin.set(asset, "hand", "red_armor")?;
 ```
 
 fallback 需要显式指定。通过 `MessageReader<VabFrameEvent>` / `MessageReader<VabCompleteEvent>`
-消费事件；动画链不需要宿主监听完成事件来手动跳转。完整 API 见 [播放文档](docs/playback-api.md)。
+消费事件；动画链不需要宿主监听完成事件来手动跳转。完整 API 见 [播放文档](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/playback-api.md)。
 
 ### 矢量 UI 最小用法
 
@@ -147,7 +158,14 @@ UI 导出名来自 SWF 的 `ExportAssets`。只指定宽度时，高度按资源
 
 ### 可运行示例
 
-以下命令在本库目录执行；效果取决于示例当前选择的素材和动作名。
+先克隆仓库并进入目录：
+
+```sh
+git clone https://github.com/aojiaoxiaolinlin/bevy_flash.git
+cd bevy_flash
+```
+
+以下命令在完整仓库中执行；crates.io 发布包不包含示例、测试和美术素材。效果取决于示例当前选择的素材和动作名。
 
 | 示例命令 | 内容 |
 |---|---|
@@ -162,12 +180,14 @@ UI 导出名来自 SWF 的 `ExportAssets`。只指定宽度时，高度按资源
 
 ## SWF → VAB 导入
 
-在 vatf 目录执行三种转换之一：
+安装转换器后执行三种转换之一：
 
-```powershell
-cargo run --release -- "path/to/character.swf" -o "path/to/character.vab"
-cargo run --release -- "path/to/ui.swf" --ui -o "path/to/ui.vab"
-cargo run --release -- "path/to/background.swf" --ui-animated -o "path/to/background.vab"
+```sh
+cargo install vatf --version 0.1.0 --locked
+
+vatf "path/to/character.swf" -o "path/to/character.vab"
+vatf "path/to/ui.swf" --ui -o "path/to/ui.vab"
+vatf "path/to/background.swf" --ui-animated -o "path/to/background.vab"
 ```
 
 - **动画**：根 MC 已是动画根，根与子帧长提前对齐；除 `event_` 外的根标签定义动作，
@@ -186,15 +206,15 @@ CLI 会报告裁剪前后的网格数和资源载荷大小。
 
 Bevy 管理源文件和配置失效；`vab_processed_asset_path` 按编译器修订号隔离缓存。
 发布时关闭处理器，只分发处理后资源及生成的元数据，保留相同逻辑加载路径。
-完整接入、热重载和发布步骤见 [资产预处理文档](docs/asset-processing.md)。
+完整接入、热重载和发布步骤见 [资产预处理文档](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/asset-processing.md)。
 
 ## 开发与验证
 
-本工程使用 crates.io 的 Bevy 和 Git 版 vatf，不再要求同级目录有 Bevy 源码。Rust 最低版本为 1.97.1；仓库的 `rust-toolchain.toml` 会选择对应工具链。
+本工程使用 crates.io 的 Bevy 和 vatf，不要求同级目录有依赖源码。Rust 最低版本为 1.97.1；仓库的 `rust-toolchain.toml` 会选择对应工具链。
 
-vatf 的接口和 VAB 工作格式需要配套；更新编译器导致格式或编译行为改变时，应重新生成资源。
+vatf 的接口和 VAB 格式需要配套；更新编译器导致格式或编译行为改变时，应重新生成资源。
 
-宿主项目可以通过 Git 引用本库：
+需要使用尚未发布的源码时，宿主项目也可以通过 Git 引用本库：
 
 ```toml
 [dependencies]
@@ -210,6 +230,8 @@ cargo fmt --check
 cargo check --no-default-features --lib
 ```
 
+推送到 `main` 或提交以 `main` 为目标的 PR 时，**CI** 工作流使用 `rust-toolchain.toml` 指定的工具链，检查格式、无默认功能的库构建、默认功能测试、资产预处理测试，以及所有目标和功能的 Clippy。格式不通过时在本地运行 `cargo fmt --all` 后提交。
+
 默认 `ui` feature 启用 Bevy UI；只使用世界动画时可禁用默认 features。GPU 测试需要图形适配器，默认忽略，不会创建系统窗口：
 
 ```powershell
@@ -218,17 +240,32 @@ cargo test --test render_gpu filters:: -- --ignored --test-threads=1
 cargo test --test render_gpu instances:: -- --ignored --test-threads=1
 ```
 
-`benchmarks::` 分组包含资源图像与性能基准；运行前查看测试自身的资源和耗时要求。
-部分开发测试依赖同级 `bevy_flash/assets` 中的源 SWF，这些素材不是宿主使用插件的运行依赖。
+`render_gpu` 中的 `benchmarks::` 是普通 GPU 测试分组，用于截图导出和跨动画批处理诊断，并非 `cargo bench` 基准目标。它们默认忽略，需要 GPU；运行前查看测试自身的素材和耗时要求。
+部分开发测试依赖本仓库 `assets/` 中的源 SWF，这些素材不是宿主使用插件的运行依赖。当前静态文本测试引用的 `assets/123620.swf` 未包含在仓库中，缺失时该测试会跳过，因此 CI 通过不代表已验证该素材的静态文本加载。
+
+## 发布版本
+
+发布到 crates.io 和创建 GitHub Release 分开进行。先更新 `Cargo.toml` 版本，提交并推送全部修改（包括 `rust-toolchain.toml`），再发布库及推送版本标签。例如当前版本为 `0.3.0`：
+
+```sh
+cargo publish --dry-run
+cargo publish
+git tag -a v0.3.0 -m "Release bevy_flash 0.3.0"
+git push origin v0.3.0
+```
+
+若该版本已发布到 crates.io，只需推送标签。**Release** 工作流要求标签与清单版本一致，复用 CI 的格式、测试和 Clippy 检查，再执行 `cargo package --locked` 验证发布包，最后创建 GitHub Release，附带 `.crate` 源码包和 SHA-256 校验文件。`.crate` 是可解压的库源码包，本库没有独立可执行程序。
+
+工作流使用 GitHub 自动提供的令牌，无需额外 Secret。带有 `-` 后缀的版本会标记为预发布。也可以在 Actions 页面手动运行 **Release** 验证并下载打包产物；手动运行不创建 Release。crates.io 仍由上述 `cargo publish` 命令发布。
 
 ## 文档与边界
 
-- [架构与代码入口](docs/architecture.md)
-- [播放 API 与动作链](docs/playback-api.md)
-- [矢量 UI、动态 UI 和按钮](docs/vector-ui.md)
-- [SWF 资产预处理与发布](docs/asset-processing.md)
-- [坐标、原点与待定锚点方案](docs/coordinates-and-origin.md)
-- [实现计划与验证记录](docs/implementation-plan.md)
+- [架构与代码入口](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/architecture.md)
+- [播放 API 与动作链](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/playback-api.md)
+- [矢量 UI、动态 UI 和按钮](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/vector-ui.md)
+- [SWF 资产预处理与发布](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/asset-processing.md)
+- [坐标、原点与待定锚点方案](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/coordinates-and-origin.md)
+- [实现计划与验证记录](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/implementation-plan.md)
 
 支持 vatf 手动转换与可选的 Bevy 资产预处理；预处理后仍使用相同的 VAB 加载器。精确屏幕颜色混合、按钮精确命中和键盘焦点样式尚未实现。UI 暂限矢量资源；按钮状态暂限静态子树。完整限制与配置见对应文档。
 
@@ -238,13 +275,13 @@ cargo test --test render_gpu instances:: -- --ignored --test-threads=1
 |---|---|
 | 0.17 | 0.1 |
 | 0.19 | 0.2 |
-| 0.20 | 0.3（开发中） |
+| 0.20 | 0.3 |
 
 ## 版权与第三方美术资产声明
 
-本仓库中的源代码、文档等内容，除非另有说明，版权归 [本人] 所有，并依据 [MIT/Apache-2.0] 许可证授权。
+本仓库中的源代码、文档等内容，除非另有说明，版权归 aojiaoxiaolinlin 所有，可按 [MIT](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/LICENSE-MIT) 或 [Apache-2.0](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/LICENSE-APACHE) 许可证使用。
 
-本仓库中用于演示的美术资产，包括但不限于 `assets` 目录下的 SWF、PNG、JPG、GIF 等文件，版权归原作者所有。除非另有说明，这些美术资产仅用于本仓库的演示和测试目的，不得用于其他商业或非商业用途。
+本仓库 `assets/` 中的第三方美术素材及 `docs/images/` 中涉及第三方美术内容的效果图，相关美术内容版权归原权利人所有，不属于上述源代码许可证的授权范围。这些素材用于开发测试和效果展示；本项目不授予原作品的使用许可，其他使用需自行确认相应授权。
 
 ### 动作坐标导入
 
@@ -252,9 +289,9 @@ SWF 转换默认保留根放置平移，包括作者用于动作对齐的补偿�
 若素材将各动作独立摆在舞台不同位置，可显式归零：
 
 ```sh
-cargo run --release --manifest-path ../vatf/Cargo.toml -- assets/spirit2159src.swf --normalize-clip-start -o assets/spirit2159src.vab
+vatf assets/spirit2159src.swf --normalize-clip-start -o assets/spirit2159src.vab
 ```
 
 现有动作示例 VAB 已使用归零方式烘焙，重生成时加此参数以维持坐标。
 Bevy 资产处理器共享 `SwfCompileSettings::root_translation`，默认 `Preserve`；
-需要归零时选 `NormalizeClipStart`。详见 [坐标与锚点](docs/coordinates-and-origin.md)。
+需要归零时选 `NormalizeClipStart`。详见 [坐标与锚点](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/coordinates-and-origin.md)。

@@ -3,14 +3,27 @@ name = "bevy_flash"
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.97.1"
+description = "A Bevy plugin for baked Flash animations and vector UI"
+authors = ["aojiaoxiaolinlin"]
+repository = "https://github.com/aojiaoxiaolinlin/bevy_flash"
+keywords = ["bevy", "flash", "swf", "animation"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+categories = ["game-development", "graphics"]
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 
 [features]
 default = ["ui"]
-ui = ["bevy/bevy_ui", "bevy/bevy_ui_render", "bevy/bevy_ui_widgets", "bevy/ui_picking"]
+ui = [
+    "bevy/bevy_ui",
+    "bevy/bevy_ui_render",
+    "bevy/bevy_ui_widgets",
+    "bevy/ui_picking",
+]
 asset_processor = ["bevy/asset_processor"]
 
 [dependencies]
-vatf = { git = "https://github.com/aojiaoxiaolinlin/vatf.git" }
+vatf = { version = "0.1.0" }
 bevy = { version = "0.20", default-features = false, features = [
     "bevy_asset",
     "bevy_render",
