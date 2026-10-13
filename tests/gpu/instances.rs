@@ -125,11 +125,19 @@ fn vab_instance_queues_and_sorts_with_bevy_2d() {
     ));
     let pixels = capture_camera(&mut app, output, size);
     assert!(
-        pixels.chunks_exact(4).any(|p| p[0] > 150 && p[3] > 100),
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[0] > 150 && p[3] > 100),
         "VAB instance render produced no red pixels"
     );
     assert!(
-        pixels.chunks_exact(4).any(|p| p[1] > 240 && p[0] < 10),
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[1] > 240 && p[0] < 10),
         "VAB at z=1 should sort over VAB at z=0"
     );
     {
@@ -237,7 +245,13 @@ fn bitmap_uv_translation_and_gpu_image_replacement() {
         .spawn((VabAssetHandle(handle), VabPlayer::default()));
 
     let green = capture_camera(&mut app, output.clone(), size);
-    assert!(green.chunks_exact(4).any(|p| p[1] > 240 && p[0] < 10));
+    assert!(
+        green
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[1] > 240 && p[0] < 10)
+    );
     let creations = app
         .sub_app(RenderApp)
         .world()
@@ -257,7 +271,12 @@ fn bitmap_uv_translation_and_gpu_image_replacement() {
         ]);
     }
     let blue = capture_camera(&mut app, output, size);
-    assert!(blue.chunks_exact(4).any(|p| p[2] > 240 && p[1] < 10));
+    assert!(
+        blue.as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[2] > 240 && p[1] < 10)
+    );
     assert!(
         app.sub_app(RenderApp)
             .world()
@@ -532,7 +551,9 @@ fn vab_instance_blur_is_composited_inside_one_transparent_item() {
     loop {
         let pixels = capture_camera(&mut app, output.clone(), size);
         if pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[1] > 240 && pixel[0] < 10)
         {
             break;
@@ -1025,8 +1046,8 @@ fn vab_instance_filters_prepare_at_each_camera_pixel_scale() {
 
     let pixels_a = capture_camera(&mut app, output_a, size);
     let pixels_b = capture_camera(&mut app, output_b, size);
-    assert!(pixels_a.chunks_exact(4).any(|pixel| pixel[3] > 0));
-    assert!(pixels_b.chunks_exact(4).any(|pixel| pixel[3] > 0));
+    assert!(pixels_a.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
+    assert!(pixels_b.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
     let diagnostics = app
         .sub_app(RenderApp)
         .world()
@@ -1148,7 +1169,12 @@ fn vab_instance_glow_preserves_source_and_uses_three_work_textures() {
         &pixels[offset..offset + 4]
     };
     let center = pixel(32, 28);
-    let nonzero = pixels.chunks_exact(4).filter(|pixel| pixel[3] > 0).count();
+    let nonzero = pixels
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] > 0)
+        .count();
     // Force one cache miss so the diagnostics below describe the nested working
     // set as well as the one persistent final output.
     app.world_mut()
@@ -1382,7 +1408,12 @@ fn vab_instance_large_layer_crops_and_invalidates_on_camera_motion() {
     app.world_mut()
         .spawn((VabAssetHandle(asset), VabPlayer::default()));
     let left = capture_camera(&mut app, output.clone(), size);
-    assert!(left.chunks_exact(4).all(|p| p[0] > 250 && p[2] < 5));
+    assert!(
+        left.as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| p[0] > 250 && p[2] < 5)
+    );
     app.world_mut()
         .get_mut::<Transform>(camera)
         .unwrap()
@@ -1390,7 +1421,11 @@ fn vab_instance_large_layer_crops_and_invalidates_on_camera_motion() {
         .x = 1000.0;
     let right = capture_camera(&mut app, output, size);
     assert!(
-        right.chunks_exact(4).all(|p| p[2] > 250 && p[0] < 5),
+        right
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| p[2] > 250 && p[0] < 5),
         "camera motion reused a stale cropped texture"
     );
     let diagnostics = app
@@ -1488,7 +1523,7 @@ fn vab_instance_cropped_root_keeps_offscreen_glow_input() {
     let cropped = capture_camera(&mut app, small, UVec2::splat(64));
     let reference = capture_camera(&mut app, large, UVec2::splat(128));
     assert!(
-        cropped.chunks_exact(4).any(|p| p[3] > 5),
+        cropped.as_chunks::<4>().0.iter().any(|p| p[3] > 5),
         "offscreen source glow was culled"
     );
     for y in 0..64 {

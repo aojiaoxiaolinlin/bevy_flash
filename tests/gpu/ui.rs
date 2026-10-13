@@ -187,7 +187,15 @@ fn nameplate_ui_renders_without_editable_text() {
     app.world_mut()
         .spawn((VabAssetHandle(handle), player, output, Msaa::Sample4));
     let pixels = capture(&mut app, image, size);
-    assert!(pixels.chunks_exact(4).filter(|p| p[3] > 0).count() > pixels.len() / 40);
+    assert!(
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] > 0)
+            .count()
+            > pixels.len() / 40
+    );
     let path = std::env::temp_dir().join("vab_nameplate_ui.png");
     image::save_buffer(&path, &pixels, size.x, size.y, image::ColorType::Rgba8).unwrap();
     println!("nameplate GPU capture: {}", path.display());
@@ -812,7 +820,7 @@ fn native_login_button_states_render_different_pixels() {
         app.world_mut().get_mut::<VabAssetHandle>(entity).unwrap().0 = render;
         let bytes = capture(&mut app, image.clone(), size);
         assert!(
-            bytes.chunks_exact(4).any(|pixel| pixel[3] > 200),
+            bytes.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 200),
             "{state} is blank"
         );
         image::RgbaImage::from_raw(size.x, size.y, bytes.clone())
@@ -887,7 +895,7 @@ fn background551284_export_animates_and_renders() {
             .current_frame = frame;
         let pixels = capture(&mut app, image.clone(), size);
         assert!(
-            pixels.chunks_exact(4).any(|p| p[3] > 0),
+            pixels.as_chunks::<4>().0.iter().any(|p| p[3] > 0),
             "empty frame {frame}"
         );
         let path = std::env::temp_dir().join(format!("background551284_{frame}.png"));

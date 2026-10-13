@@ -146,7 +146,13 @@ fn spirit_frames_to_png() {
             .current_frame = frame;
         let pixels = capture_camera(&mut app, output.clone(), size);
         assert!(
-            pixels.chunks_exact(4).filter(|p| p[3] > 0).count() > 100,
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[3] > 0)
+                .count()
+                > 100,
             "empty rendered frame"
         );
         image::save_buffer(
