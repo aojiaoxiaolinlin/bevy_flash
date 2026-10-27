@@ -11,7 +11,7 @@ Play baked Flash animations and vector UI in Bevy.
 
 面向 Bevy 的 Flash 矢量动画和 UI 库。SWF 由 [vatf](https://github.com/aojiaoxiaolinlin/vatf) 提前编译为 VAB；运行时加载烘焙帧，不解释 ActionScript，也不计算普通 Sprite 时间轴。
 
-当前库版本为 0.3.0，配套 Bevy 0.20 和 vatf 0.1。VAB 格式版本为 1，与库版本独立；读取端要求格式版本精确匹配，不兼容的布局变更需要提高格式版本并重新转换资源。API 仍可能随 0.x 版本演进。
+当前库版本为 0.3.0，配套 Bevy 0.20 和 vatf 0.1。默认读取 VAB v1；可选 `protected_assets` 功能还支持压缩和加密资源。API 仍可能随 0.x 版本演进。
 它提供视觉动画资源播放，不执行 ActionScript 或 Flash 游戏逻辑。
 
 ## 安装
@@ -71,6 +71,33 @@ SWF 的 hit 是命中几何，不是点击或焦点外观。截图来源与重�
 ## 使用与示例
 
 宿主加入 `FlashPlayerPlugin`，加载 `.vab`，由 `VabPlayer` 控制根动画。每个可见动画作为一个整体进入 Camera2d 的 `Transparent2d` 排序。相机上的 `Msaa` 控制世界动画抗锯齿；`CompositingSpace::Srgb` 用于 Flash 风格的颜色合成。
+
+### 可选资源保护
+
+开启 `protected_assets` 后，可将已有 VAB 的数据块先压缩，再使用 AES-256-GCM 加密；文件扩展名和加载路径仍为 `.vab`。未加密的 v1 和压缩 v2 资源仍可加载。压缩 v2 使用 chunk 长度的最高位标记 zlib 数据，解压后交给现有 vatf v1 读取器。
+
+```toml
+bevy_flash = { version = "0.3.0", features = ["protected_assets"] }
+```
+
+准备独立的 32 字节随机密钥文件，使用示例工具处理资源：
+
+```text
+cargo run --features protected_assets --example protect_vab -- input.vab output.vab key.bin
+```
+
+宿主必须在添加插件之前注入相同密钥：
+
+```rust,ignore
+use bevy_flash::{FlashPlayerPlugin, protected_vab::VabProtectionKey};
+let key: [u8; 32] = /* 由宿主安全地提供 */;
+App::new()
+    .insert_resource(VabProtectionKey::new(key))
+    .add_plugins((DefaultPlugins, FlashPlayerPlugin))
+    .run();
+```
+
+每个加密文件使用独立随机 nonce，并验证完整性；错误密钥和损坏的数据会加载失败。不要把项目密钥提交到仓库。客户端必须持有密钥才能播放，因此该功能只能提高提取门槛，不能防止本机调试或内存提取。密钥丢失后无法恢复加密资源，请妥善备份。
 
 ### 世界动画最小用法
 

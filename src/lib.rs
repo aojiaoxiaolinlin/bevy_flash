@@ -1,5 +1,7 @@
 pub mod asset_processing;
 pub mod material;
+#[cfg(feature = "protected_assets")]
+pub mod protected_vab;
 pub mod render;
 pub mod sampling;
 pub mod vab_asset;
