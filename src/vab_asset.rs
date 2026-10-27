@@ -314,8 +314,26 @@ pub struct VabAssetHandle(pub Handle<VabAsset>);
 // Asset loader
 // ===========================================================================
 
+#[cfg(not(feature = "protected_assets"))]
 #[derive(Default, TypePath)]
 pub struct VabLoader;
+
+#[cfg(feature = "protected_assets")]
+#[derive(TypePath)]
+pub struct VabLoader {
+    key: Option<crate::protected_vab::VabProtectionKey>,
+}
+
+#[cfg(feature = "protected_assets")]
+impl bevy::prelude::FromWorld for VabLoader {
+    fn from_world(world: &mut bevy::prelude::World) -> Self {
+        Self {
+            key: world
+                .get_resource::<crate::protected_vab::VabProtectionKey>()
+                .cloned(),
+        }
+    }
+}
 
 impl AssetLoader for VabLoader {
     type Asset = VabAsset;
@@ -334,6 +352,8 @@ impl AssetLoader for VabLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut data = Vec::new();
         reader.read_to_end(&mut data).await?;
+        #[cfg(feature = "protected_assets")]
+        let data = crate::protected_vab::decode(&data, self.key.as_ref())?;
         let vab = VabReader::from_bytes(&data)?;
 
         let vertices = vab.vertices().context("VAB is missing the VERT chunk")?;

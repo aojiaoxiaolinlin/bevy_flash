@@ -423,3 +423,38 @@ fn loader_reports_corrupt_vab() {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+
+#[cfg(feature = "protected_assets")]
+#[test]
+fn loader_reads_protected_compressed_vab() {
+    use bevy_flash::protected_vab::{VabProtectionKey, protect};
+    let directory = asset_directory().join("protected_vab");
+    std::fs::create_dir_all(&directory).unwrap();
+    let source =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/animated_ui.vab"))
+            .unwrap();
+    let key = VabProtectionKey::new([19; 32]);
+    std::fs::write(
+        directory.join("protected.vab"),
+        protect(&source, &key).unwrap(),
+    )
+    .unwrap();
+    let mut app = App::new();
+    app.insert_resource(key)
+        .add_plugins(MinimalPlugins)
+        .add_plugins(AssetPlugin {
+            file_path: directory.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .add_plugins(bevy_flash::FlashPlayerPlugin)
+        .init_asset::<Image>()
+        .init_asset::<Mesh>();
+    let handle = app
+        .world()
+        .resource::<AssetServer>()
+        .load::<VabAsset>("protected.vab");
+    wait_for_load(&mut app, &handle);
+    let assets = app.world().resource::<Assets<VabAsset>>();
+    let result = assets.get(&handle).unwrap();
+    assert!(!result.render_meshes.is_empty());
+}

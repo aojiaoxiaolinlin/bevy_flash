@@ -27,6 +27,7 @@ ui = [
     "bevy/ui_picking",
 ]
 asset_processor = ["bevy/asset_processor"]
+protected_assets = ["dep:aes-gcm", "dep:flate2", "dep:getrandom"]
 
 [dependencies]
 vatf = { version = "0.1.0" }
@@ -41,6 +42,9 @@ bevy = { version = "0.20", default-features = false, features = [
     "bevy_log",
 ] }
 anyhow = "1"
+aes-gcm = { version = "0.10", optional = true }
+flate2 = { version = "1", optional = true }
+getrandom = { version = "0.3", optional = true }
 bytemuck = { version = "1.21.0", features = ["derive"] }
 image = "0.25.10"
 
@@ -72,3 +76,7 @@ required-features = ["ui"]
 [[example]]
 name = "processed_ui"
 required-features = ["ui", "asset_processor"]
+
+[[example]]
+name = "protect_vab"
+required-features = ["protected_assets"]
