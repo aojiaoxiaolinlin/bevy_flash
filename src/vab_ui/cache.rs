@@ -35,13 +35,119 @@ impl RasterKey {
             && self.fit == other.fit
     }
 }
+pub(super) struct RasterDependencies {
+    pub(super) asset: AssetId<VabAsset>,
+    pub(super) meshes: Vec<AssetId<Mesh>>,
+    pub(super) gradients: Vec<AssetId<GradientMaterial>>,
+    pub(super) bitmaps: Vec<AssetId<BitmapMaterial>>,
+    pub(super) images: Vec<AssetId<Image>>,
+}
+
+impl RasterDependencies {
+    pub(super) fn collect(
+        asset_id: AssetId<VabAsset>,
+        asset: &VabAsset,
+        gradients: &Assets<GradientMaterial>,
+        bitmaps: &Assets<BitmapMaterial>,
+    ) -> Self {
+        let mut mesh_ids = Vec::new();
+        let mut gradient_ids = Vec::new();
+        let mut bitmap_ids = Vec::new();
+        let mut image_ids = Vec::new();
+        for group in &asset.render_meshes {
+            let mesh_id = group.mesh.id();
+            if !mesh_ids.contains(&mesh_id) {
+                mesh_ids.push(mesh_id);
+            }
+            match &group.material {
+                crate::vab_asset::MeshMaterial::Color => {}
+                crate::vab_asset::MeshMaterial::Gradient(handle) => {
+                    let id = handle.id();
+                    if !gradient_ids.contains(&id) {
+                        gradient_ids.push(id);
+                    }
+                    if let Some(mat) = gradients.get(id) {
+                        let img = mat.texture.id();
+                        if !image_ids.contains(&img) {
+                            image_ids.push(img);
+                        }
+                    }
+                }
+                crate::vab_asset::MeshMaterial::Bitmap(handle) => {
+                    let id = handle.id();
+                    if !bitmap_ids.contains(&id) {
+                        bitmap_ids.push(id);
+                    }
+                    if let Some(mat) = bitmaps.get(id) {
+                        let img = mat.texture.id();
+                        if !image_ids.contains(&img) {
+                            image_ids.push(img);
+                        }
+                    }
+                }
+            }
+        }
+        Self {
+            asset: asset_id,
+            meshes: mesh_ids,
+            gradients: gradient_ids,
+            bitmaps: bitmap_ids,
+            images: image_ids,
+        }
+    }
+}
+
 pub(super) struct RasterEntry {
     pub(super) image: Handle<Image>,
     pub(super) job: Option<Entity>,
     pub(super) done: RasterOnce,
     pub(super) last_used: u64,
     pub(super) bytes: u64,
+    pub(super) deps: RasterDependencies,
 }
+
+#[derive(Default)]
+pub(super) struct UiAssetInvalidation {
+    pub(super) all: bool,
+    pub(super) graphics: HashSet<AssetId<VabGraphic>>,
+    pub(super) assets: HashSet<AssetId<VabAsset>>,
+    pub(super) meshes: HashSet<AssetId<Mesh>>,
+    pub(super) gradients: HashSet<AssetId<GradientMaterial>>,
+    pub(super) bitmaps: HashSet<AssetId<BitmapMaterial>>,
+    pub(super) images: HashSet<AssetId<Image>>,
+}
+
+impl UiAssetInvalidation {
+    fn is_empty(&self) -> bool {
+        !self.all
+            && self.graphics.is_empty()
+            && self.assets.is_empty()
+            && self.meshes.is_empty()
+            && self.gradients.is_empty()
+            && self.bitmaps.is_empty()
+            && self.images.is_empty()
+    }
+
+    fn matches(&self, key: &RasterKey, entry: &RasterEntry) -> bool {
+        self.all
+            || self.graphics.contains(&key.graphic)
+            || self.assets.contains(&entry.deps.asset)
+            || self.images.contains(&entry.image.id())
+            || entry.deps.meshes.iter().any(|id| self.meshes.contains(id))
+            || entry
+                .deps
+                .gradients
+                .iter()
+                .any(|id| self.gradients.contains(id))
+            || entry
+                .deps
+                .bitmaps
+                .iter()
+                .any(|id| self.bitmaps.contains(id))
+            || entry.deps.images.iter().any(|id| self.images.contains(id))
+    }
+}
+
 #[derive(Resource, Default)]
 pub(super) struct RasterCache {
     pub(super) entries: HashMap<RasterKey, RasterEntry>,
@@ -51,12 +157,28 @@ pub(super) struct RasterCache {
 }
 
 impl RasterCache {
-    pub(super) fn begin_frame(&mut self, commands: &mut Commands, invalidated: bool) {
+    pub(super) fn begin_frame(
+        &mut self,
+        commands: &mut Commands,
+        invalidation: &UiAssetInvalidation,
+    ) {
         self.frame += 1;
         self.used.clear();
-        if invalidated {
+        if invalidation.all {
             for (_, entry) in self.entries.drain() {
                 entry.cancel_job(commands);
+            }
+        } else if !invalidation.is_empty() {
+            let stale: Vec<RasterKey> = self
+                .entries
+                .iter()
+                .filter(|(key, entry)| invalidation.matches(key, entry))
+                .map(|(key, _)| *key)
+                .collect();
+            for key in stale {
+                if let Some(entry) = self.entries.remove(&key) {
+                    entry.cancel_job(commands);
+                }
             }
         }
     }
@@ -118,32 +240,37 @@ pub(super) struct UiAssetChanges<'w, 's> {
 }
 
 impl UiAssetChanges<'_, '_> {
-    #[allow(clippy::unnecessary_fold)]
-    pub(super) fn invalidated(&mut self) -> bool {
-        // Build the array before any(): short-circuiting the readers would leave
-        // stale events to trigger unnecessary invalidations in subsequent frames.
-        [
-            changed(&mut self.graphics),
-            changed(&mut self.assets),
-            changed(&mut self.meshes),
-            changed(&mut self.gradients),
-            changed(&mut self.bitmaps),
-            changed(&mut self.shaders),
-            self.images.read().fold(false, |dirty, e| {
-                matches!(e, AssetEvent::Modified { .. }) || dirty
-            }),
-        ]
-        .into_iter()
-        .any(|dirty| dirty)
+    pub(super) fn collect(&mut self) -> UiAssetInvalidation {
+        let mut inv = UiAssetInvalidation::default();
+        collect_changed(&mut self.graphics, &mut inv.graphics);
+        collect_changed(&mut self.assets, &mut inv.assets);
+        collect_changed(&mut self.meshes, &mut inv.meshes);
+        collect_changed(&mut self.gradients, &mut inv.gradients);
+        collect_changed(&mut self.bitmaps, &mut inv.bitmaps);
+        for event in self.shaders.read() {
+            if matches!(
+                event,
+                AssetEvent::Modified { .. } | AssetEvent::Removed { .. }
+            ) {
+                inv.all = true;
+            }
+        }
+        for event in self.images.read() {
+            if let AssetEvent::Modified { id } = event {
+                inv.images.insert(*id);
+            }
+        }
+        inv
     }
 }
 
-#[allow(clippy::unnecessary_fold)]
-fn changed<A: Asset>(events: &mut MessageReader<AssetEvent<A>>) -> bool {
-    events.read().fold(false, |dirty, event| {
-        matches!(
-            event,
-            AssetEvent::Modified { .. } | AssetEvent::Removed { .. }
-        ) || dirty
-    })
+fn collect_changed<A: Asset>(
+    events: &mut MessageReader<AssetEvent<A>>,
+    out: &mut HashSet<AssetId<A>>,
+) {
+    for event in events.read() {
+        if let AssetEvent::Modified { id } | AssetEvent::Removed { id } = event {
+            out.insert(*id);
+        }
+    }
 }

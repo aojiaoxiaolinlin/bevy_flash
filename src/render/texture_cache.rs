@@ -7,14 +7,16 @@ use bevy::{
     render::{
         extract_resource::ExtractResource,
         render_resource::{
-            LoadOp, Operations, RenderPassColorAttachment, StoreOp, TextureDescriptor,
-            TextureDimension, TextureUsages, TextureViewDescriptor,
+            BindGroup, BindGroupEntry, BindGroupLayout, BindingResource, Extent3d, LoadOp,
+            Operations, RenderPassColorAttachment, Sampler, StoreOp, Texture, TextureDescriptor,
+            TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
         },
         renderer::RenderDevice,
         texture::CachedTexture,
         view::{Msaa, PostProcessWrite},
     },
 };
+use std::sync::OnceLock;
 
 const LARGE_TEXTURE_LOG_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -26,6 +28,8 @@ pub(super) enum TexturePurpose {
     MaskContent,
     PingPong,
     FilterScratch,
+    BlurDownsample,
+    BlendDestination,
 }
 
 #[derive(Clone, Copy)]
@@ -66,30 +70,127 @@ impl Default for TransientTexturePoolSettings {
     }
 }
 
+/// Pooled GPU texture with lazily cached bind groups for filter and scene sampling.
+pub struct PooledTexture {
+    pub cached: CachedTexture,
+    pub bytes: u64,
+    filter_bind_group: OnceLock<BindGroup>,
+    scene_bind_group: OnceLock<BindGroup>,
+}
+
+impl PooledTexture {
+    pub(super) fn default_view(&self) -> &TextureView {
+        &self.cached.default_view
+    }
+
+    pub(super) fn filter_bind_group(
+        &self,
+        device: &RenderDevice,
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+    ) -> &BindGroup {
+        self.filter_bind_group.get_or_init(|| {
+            device.create_bind_group(
+                "flash_pooled_filter_texture",
+                layout,
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::TextureView(&self.cached.default_view),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::Sampler(sampler),
+                    },
+                ],
+            )
+        })
+    }
+
+    pub(super) fn scene_bind_group(
+        &self,
+        device: &RenderDevice,
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+    ) -> &BindGroup {
+        self.scene_bind_group.get_or_init(|| {
+            device.create_bind_group(
+                "vab_pooled_layer_texture",
+                layout,
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::TextureView(&self.cached.default_view),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::Sampler(sampler),
+                    },
+                ],
+            )
+        })
+    }
+}
+
 /// A local render operation owns its ping-pong state; it is never shared with another target.
 pub struct TextureTarget {
-    texture_a: Lease<CachedTexture>,
-    texture_b: Option<Lease<CachedTexture>>,
-    pub resolve_target: Option<Lease<CachedTexture>>,
+    texture_a: Lease<PooledTexture>,
+    texture_b: Option<Lease<PooledTexture>>,
+    pub resolve_target: Option<Lease<PooledTexture>>,
     main_is_b: bool,
 }
 
 /// A pool texture kept across render frames by a bounded higher-level cache.
 /// Dropping it immediately returns the texture to its descriptor bucket.
 pub(super) struct PersistentTexture {
-    _lease: Lease<CachedTexture>,
+    _lease: Lease<PooledTexture>,
 }
 
 impl TextureTarget {
     /// Borrow the second single-sample surface only when post-processing
     /// starts, after nested geometry has finished using its own targets.
-    pub(super) fn enable_ping_pong(&mut self, second: Lease<CachedTexture>) {
+    pub(super) fn enable_ping_pong(&mut self, second: Lease<PooledTexture>) {
         assert!(self.texture_b.is_none() && !self.main_is_b);
         self.texture_b = Some(second);
     }
 
-    pub fn main_view(&self) -> &bevy::render::render_resource::TextureView {
-        &self.main().default_view
+    pub(super) fn main_bytes(&self) -> u64 {
+        self.main().bytes
+    }
+
+    pub(super) fn main_texture(&self) -> &Texture {
+        &self.main().cached.texture
+    }
+
+    pub(super) fn main_size(&self) -> Extent3d {
+        self.main().cached.texture.size()
+    }
+
+    pub(super) fn main_filter_bind_group(
+        &self,
+        device: &RenderDevice,
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+    ) -> &BindGroup {
+        self.main().filter_bind_group(device, layout, sampler)
+    }
+
+    pub(super) fn other_filter_bind_group(
+        &self,
+        device: &RenderDevice,
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+    ) -> &BindGroup {
+        self.other().filter_bind_group(device, layout, sampler)
+    }
+
+    pub(super) fn main_scene_bind_group(
+        &self,
+        device: &RenderDevice,
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+    ) -> &BindGroup {
+        self.main().scene_bind_group(device, layout, sampler)
     }
 
     /// Rendering into this target has finished. The resolved single-sample
@@ -99,23 +200,15 @@ impl TextureTarget {
         self.resolve_target.take();
     }
 
-    pub(super) fn other_view(&self) -> &bevy::render::render_resource::TextureView {
-        if self.main_is_b {
-            &self.texture_a.default_view
-        } else {
-            &self
-                .texture_b
-                .as_ref()
-                .expect("filtered target")
-                .default_view
-        }
+    pub(super) fn other_view(&self) -> &TextureView {
+        self.other().default_view()
     }
 
     pub(super) fn flip_main(&mut self) {
         self.main_is_b = !self.main_is_b;
     }
 
-    pub(super) fn replace_main_with(&mut self, scratch: &mut Lease<CachedTexture>) {
+    pub(super) fn replace_main_with(&mut self, scratch: &mut Lease<PooledTexture>) {
         if self.main_is_b {
             std::mem::swap(self.texture_b.as_mut().expect("filtered target"), scratch);
         } else {
@@ -123,16 +216,34 @@ impl TextureTarget {
         }
     }
 
+    /// Replace this target with a single texture (e.g. after a downsampled pure Blur),
+    /// releasing any larger full-resolution surfaces immediately back to the pool.
+    pub(super) fn replace_with_single(&mut self, single: Lease<PooledTexture>) {
+        self.resolve_target = None;
+        self.texture_b = None;
+        self.texture_a = single;
+        self.main_is_b = false;
+    }
+
     pub fn load_color_attachment(&self) -> RenderPassColorAttachment<'_> {
         let mut attachment = self.get_color_attachment(Srgba::NONE);
         attachment.ops.load = LoadOp::Load;
         attachment
     }
-    fn main(&self) -> &CachedTexture {
+
+    fn main(&self) -> &PooledTexture {
         if self.main_is_b {
             self.texture_b.as_ref().expect("filtered target")
         } else {
             &self.texture_a
+        }
+    }
+
+    fn other(&self) -> &PooledTexture {
+        if self.main_is_b {
+            &self.texture_a
+        } else {
+            self.texture_b.as_ref().expect("filtered target")
         }
     }
 
@@ -142,9 +253,9 @@ impl TextureTarget {
             view: self
                 .resolve_target
                 .as_ref()
-                .map_or(&main.default_view, |t| &t.default_view),
+                .map_or(main.default_view(), |t| t.default_view()),
             depth_slice: None,
-            resolve_target: self.resolve_target.as_ref().map(|_| &*main.default_view),
+            resolve_target: self.resolve_target.as_ref().map(|_| &**main.default_view()),
             ops: Operations {
                 // Private Flash targets are Rgba8Unorm legacy working
                 // surfaces, so clear values stay in encoded sRGB just like
@@ -163,17 +274,35 @@ impl TextureTarget {
         }
     }
 
+    pub(super) fn post_process_write_textures(&mut self) -> (&PooledTexture, &TextureView) {
+        self.main_is_b = !self.main_is_b;
+        if self.main_is_b {
+            (
+                &self.texture_a,
+                self.texture_b
+                    .as_ref()
+                    .expect("filtered target")
+                    .default_view(),
+            )
+        } else {
+            (
+                self.texture_b.as_ref().expect("filtered target"),
+                self.texture_a.default_view(),
+            )
+        }
+    }
+
     #[allow(dead_code)]
     pub fn post_process_write(&mut self) -> PostProcessWrite<'_> {
         let (source, destination) = if self.main_is_b {
             (
-                self.texture_b.as_ref().expect("filtered target"),
-                &self.texture_a,
+                &self.texture_b.as_ref().expect("filtered target").cached,
+                &self.texture_a.cached,
             )
         } else {
             (
-                &self.texture_a,
-                self.texture_b.as_ref().expect("filtered target"),
+                &self.texture_a.cached,
+                &self.texture_b.as_ref().expect("filtered target").cached,
             )
         };
         self.main_is_b = !self.main_is_b;
@@ -203,7 +332,8 @@ impl TextureTarget {
 }
 
 struct Bucket {
-    pool: Pool<CachedTexture>,
+    pool: Pool<PooledTexture>,
+    bytes_per_texture: u64,
     last_used: u64,
     total: usize,
 }
@@ -213,6 +343,7 @@ pub struct FrameInternalTextureCache {
     textures: HashMap<TextureDescriptor<'static>, Bucket>,
     allocation_owner: Option<TextureAllocationOwner>,
     trace_large_allocations: bool,
+    diagnostics_enabled: bool,
     frame: u64,
     pub allocations: u64,
     pub reuses: u64,
@@ -243,9 +374,14 @@ impl FrameInternalTextureCache {
         self.allocation_owner = owner;
     }
 
-    pub fn begin_frame(&mut self, settings: &TransientTexturePoolSettings) {
+    pub fn begin_frame(
+        &mut self,
+        settings: &TransientTexturePoolSettings,
+        diagnostics_enabled: bool,
+    ) {
         self.frame = self.frame.wrapping_add(1);
         self.trace_large_allocations = settings.trace_large_allocations;
+        self.diagnostics_enabled = diagnostics_enabled;
         self.allocation_owner = None;
         self.textures.retain(|_, bucket| {
             let live = bucket.total.saturating_sub(bucket.pool.available_len());
@@ -257,25 +393,27 @@ impl FrameInternalTextureCache {
         self.first_in_bucket_allocations = 0;
         self.exhausted_bucket_allocations = 0;
         self.allocated_bytes = 0;
-        self.update_live_metrics();
-        self.peak_live_textures = self.live_textures;
-        self.peak_live_bytes = self.live_bytes;
+        if diagnostics_enabled {
+            self.update_live_metrics();
+            self.peak_live_textures = self.live_textures;
+            self.peak_live_bytes = self.live_bytes;
+        }
     }
 
     /// Release idle targets after render commands have released their leases.
     /// Live filter outputs remain protected even when they exceed the budget.
     pub fn end_frame(&mut self, settings: &TransientTexturePoolSettings) {
         self.enforce_resident_budget(settings.max_resident_bytes);
-        self.update_live_metrics();
+        if self.diagnostics_enabled {
+            self.update_live_metrics();
+        }
     }
 
     fn enforce_resident_budget(&mut self, max_bytes: u64) {
         let mut resident_bytes = self
             .textures
-            .iter()
-            .map(|(descriptor, bucket)| {
-                texture_bytes(descriptor).saturating_mul(bucket.total as u64)
-            })
+            .values()
+            .map(|bucket| bucket.bytes_per_texture.saturating_mul(bucket.total as u64))
             .fold(0u64, u64::saturating_add);
         if resident_bytes <= max_bytes {
             return;
@@ -293,7 +431,7 @@ impl FrameInternalTextureCache {
             let removed = bucket.pool.clear_available();
             bucket.total = bucket.total.saturating_sub(removed);
             resident_bytes = resident_bytes
-                .saturating_sub(texture_bytes(&descriptor).saturating_mul(removed as u64));
+                .saturating_sub(bucket.bytes_per_texture.saturating_mul(removed as u64));
             if bucket.total == 0 {
                 self.textures.remove(&descriptor);
             }
@@ -308,13 +446,15 @@ impl FrameInternalTextureCache {
         device: &RenderDevice,
         mut descriptor: TextureDescriptor<'static>,
         site: TextureAllocationSite,
-    ) -> Lease<CachedTexture> {
+    ) -> Lease<PooledTexture> {
         descriptor.label = None;
+        let bytes = texture_bytes(&descriptor);
         let bucket = self
             .textures
             .entry(descriptor.clone())
             .or_insert_with(|| Bucket {
                 pool: Pool::default(),
+                bytes_per_texture: bytes,
                 last_used: self.frame,
                 total: 0,
             });
@@ -322,9 +462,14 @@ impl FrameInternalTextureCache {
         let (lease, reused) = bucket.pool.take(|| {
             let texture = device.create_texture(&descriptor);
             let default_view = texture.create_view(&TextureViewDescriptor::default());
-            CachedTexture {
-                texture,
-                default_view,
+            PooledTexture {
+                cached: CachedTexture {
+                    texture,
+                    default_view,
+                },
+                bytes,
+                filter_bind_group: OnceLock::new(),
+                scene_bind_group: OnceLock::new(),
             }
         });
         if reused {
@@ -337,7 +482,6 @@ impl FrameInternalTextureCache {
             } else {
                 self.exhausted_bucket_allocations += 1;
             }
-            let bytes = texture_bytes(&descriptor);
             self.allocated_bytes = self.allocated_bytes.saturating_add(bytes);
             if self.trace_large_allocations
                 && bytes >= LARGE_TEXTURE_LOG_BYTES
@@ -365,7 +509,9 @@ impl FrameInternalTextureCache {
             }
             bucket.total += 1;
         }
-        self.update_live_metrics();
+        if self.diagnostics_enabled {
+            self.update_live_metrics();
+        }
         lease
     }
 
@@ -378,10 +524,10 @@ impl FrameInternalTextureCache {
         let mut idle_bytes = 0u64;
         let mut largest_bucket_textures = 0usize;
         let mut largest_bucket_bytes = 0u64;
-        for (descriptor, bucket) in &self.textures {
+        for bucket in self.textures.values() {
             let idle = bucket.pool.available_len();
             let live = bucket.total.saturating_sub(idle);
-            let bytes_per_texture = texture_bytes(descriptor);
+            let bytes_per_texture = bucket.bytes_per_texture;
             let bucket_bytes = bytes_per_texture.saturating_mul(bucket.total as u64);
             live_textures += live;
             live_bytes = live_bytes.saturating_add(bytes_per_texture.saturating_mul(live as u64));

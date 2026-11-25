@@ -7,7 +7,7 @@ use std::{hash::Hash, ops::Range};
 
 use bevy::{
     asset::{AssetEvent, AssetEventSystems, AssetId, embedded_asset, load_embedded_asset},
-    camera::CompositingSpace,
+    camera::{CompositingSpace, primitives::Aabb, visibility::VisibilitySystems},
     core_pipeline::core_2d::{CORE_2D_DEPTH_FORMAT, Transparent2d},
     diagnostic::FrameCount,
     ecs::system::{SystemParamItem, lifetimeless::SRes},
@@ -49,8 +49,8 @@ use crate::{
         texture_cache::TextureAllocationOwner,
     },
     sampling::VabSkin,
-    vab_asset::{VabAsset, VabAssetHandle},
-    vab_player::VabPlayer,
+    vab_asset::{ATTRIBUTE_VAB_COLOR_SRGB, ATTRIBUTE_VAB_POSITION, VabAsset, VabAssetHandle},
+    vab_player::{VabPlayer, advance_vab_animations},
 };
 
 const VIEW_MATRIX: Mat4 = Mat4::from_cols_array(&[
@@ -160,6 +160,7 @@ impl Plugin for VabInstanceRenderPlugin {
         app.init_resource::<VabAssetRevisions>()
             .init_resource::<VabMaterialRevision>()
             .init_resource::<VabGpuSourceRevision>()
+            .init_resource::<VabBoundsCache>()
             .init_resource::<VabFilterCacheSettings>()
             .init_resource::<VabFilterMsaa>()
             .add_systems(
@@ -170,6 +171,13 @@ impl Plugin for VabInstanceRenderPlugin {
                     track_vab_gpu_source_revision,
                 )
                     .after(AssetEventSystems),
+            )
+            .add_systems(
+                PostUpdate,
+                sync_vab_aabbs
+                    .after(track_vab_asset_revisions)
+                    .after(advance_vab_animations)
+                    .before(VisibilitySystems::CheckVisibility),
             )
             .add_plugins((
                 bevy::render::extract_component::ExtractComponentPlugin::<VabAssetHandle>::default(
@@ -355,6 +363,113 @@ struct FilterCacheSlot {
     packet: usize,
 }
 
+/// Content-addressed key for reusable canonicalized filter symbol stamps.
+/// Shared across packets within the same frame, across animation frames,
+/// across entities, and across views with matching pixel scale/MSAA/quality.
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+struct FilterStampKey {
+    hash_a: u64,
+    hash_b: u64,
+    gpu_source_revision: u64,
+    samples: u32,
+    filter_quality: [u32; 4],
+    size: [u32; 2],
+    origin: [i32; 2],
+    child_count: u16,
+    filter_count: u16,
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+enum FilterCacheKey {
+    Slot(FilterCacheSlot),
+    Stamp(FilterStampKey),
+}
+
+struct FilterStampPlan {
+    key: FilterStampKey,
+    canonical_op: Op,
+    stamp_pixel_bounds: [f32; 4],
+    placement: vatf::animation::AnimMatrix,
+}
+
+#[derive(Resource, Default)]
+struct VabBoundsCache {
+    revisions: HashMap<AssetId<VabAsset>, u64>,
+    clips: HashMap<(AssetId<VabAsset>, usize), Option<Aabb>>,
+}
+
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+struct SyncedVabAabb {
+    asset: AssetId<VabAsset>,
+    revision: u64,
+    clip: usize,
+}
+
+#[allow(clippy::type_complexity)]
+fn sync_vab_aabbs(
+    mut commands: Commands,
+    assets: Res<Assets<VabAsset>>,
+    revisions: Res<VabAssetRevisions>,
+    mut cache: ResMut<VabBoundsCache>,
+    query: Query<
+        (
+            Entity,
+            &VabAssetHandle,
+            &VabPlayer,
+            Option<&SyncedVabAabb>,
+            Option<&Aabb>,
+        ),
+        Without<super::RenderOffscreenTexture>,
+    >,
+) {
+    cache.revisions.retain(|id, _| assets.contains(*id));
+    cache.clips.retain(|(id, _), _| assets.contains(*id));
+    for (entity, handle, player, synced, existing_aabb) in &query {
+        let asset_id = handle.0.id();
+        let revision = revisions.0.get(&asset_id).copied().unwrap_or(0);
+        let clip = player.clip();
+        let key = SyncedVabAabb {
+            asset: asset_id,
+            revision,
+            clip,
+        };
+        if synced == Some(&key) {
+            continue;
+        }
+        let Some(asset) = assets.get(&handle.0) else {
+            continue;
+        };
+        if cache.revisions.get(&asset_id) != Some(&revision) {
+            cache.clips.retain(|(id, _), _| *id != asset_id);
+            cache.revisions.insert(asset_id, revision);
+        }
+        let aabb = *cache.clips.entry((asset_id, clip)).or_insert_with(|| {
+            asset
+                .clip_bounds(clip)
+                .or_else(|| asset.content_bounds())
+                .map(|[x, y, w, h]| {
+                    // Flash Y-down maps to Bevy Y-up via VIEW_MATRIX.
+                    // Keep a small guard margin for filter rounding and flat 2D planes.
+                    Aabb::from_min_max(
+                        Vec3::new(x - 2.0, -(y + h) - 2.0, -1.0),
+                        Vec3::new(x + w + 2.0, -y + 2.0, 1.0),
+                    )
+                })
+        });
+        let mut entity_commands = commands.entity(entity);
+        entity_commands.insert(key);
+        match aabb {
+            Some(aabb) if existing_aabb != Some(&aabb) => {
+                entity_commands.insert(aabb);
+            }
+            None if existing_aabb.is_some() => {
+                entity_commands.remove::<Aabb>();
+            }
+            _ => {}
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct FilterCacheContent {
     sample_generation: u64,
@@ -363,10 +478,11 @@ struct FilterCacheContent {
     samples: u32,
     size: [u32; 2],
     origin: [u32; 2],
+    filter_quality: [u32; 4],
 }
 
 struct CachedFilterOutput {
-    content: FilterCacheContent,
+    content: Option<FilterCacheContent>,
     _texture: super::texture_cache::PersistentTexture,
     bind_group: BindGroup,
     bytes: u64,
@@ -375,7 +491,7 @@ struct CachedFilterOutput {
 
 #[derive(Resource, Default)]
 pub(super) struct VabFilterOutputCache {
-    entries: HashMap<FilterCacheSlot, CachedFilterOutput>,
+    entries: HashMap<FilterCacheKey, CachedFilterOutput>,
     frame: u64,
     resident_bytes: u64,
 }
@@ -384,36 +500,55 @@ impl VabFilterOutputCache {
     fn begin_frame(&mut self, settings: &VabFilterCacheSettings) {
         self.frame = self.frame.wrapping_add(1);
         let frame = self.frame;
-        self.retain(|entry| {
-            frame.wrapping_sub(entry.last_used_frame) <= settings.max_unused_frames
+        let slot_ttl = settings.max_unused_frames;
+        let stamp_ttl = settings.max_unused_frames.saturating_mul(8);
+        self.retain(|key, entry| {
+            let ttl = match key {
+                FilterCacheKey::Slot(_) => slot_ttl,
+                FilterCacheKey::Stamp(_) => stamp_ttl,
+            };
+            frame.wrapping_sub(entry.last_used_frame) <= ttl
         });
         self.trim_to(settings.max_bytes, 0);
     }
 
-    fn get(&mut self, slot: FilterCacheSlot, content: FilterCacheContent) -> Option<BindGroup> {
+    fn get_slot(
+        &mut self,
+        slot: FilterCacheSlot,
+        content: FilterCacheContent,
+    ) -> Option<BindGroup> {
+        let key = FilterCacheKey::Slot(slot);
         if self
             .entries
-            .get(&slot)
-            .is_some_and(|entry| entry.content != content)
+            .get(&key)
+            .is_some_and(|entry| entry.content != Some(content))
         {
-            self.remove(slot);
+            self.remove(key);
         }
-        let entry = self.entries.get_mut(&slot)?;
+        let entry = self.entries.get_mut(&key)?;
+        entry.last_used_frame = self.frame;
+        Some(entry.bind_group.clone())
+    }
+
+    fn get_stamp(&mut self, stamp: FilterStampKey) -> Option<BindGroup> {
+        let key = FilterCacheKey::Stamp(stamp);
+        let entry = self.entries.get_mut(&key)?;
         entry.last_used_frame = self.frame;
         Some(entry.bind_group.clone())
     }
 
     fn insert(
         &mut self,
-        slot: FilterCacheSlot,
-        content: FilterCacheContent,
+        key: FilterCacheKey,
+        content: Option<FilterCacheContent>,
         texture: super::texture_cache::PersistentTexture,
         bind_group: BindGroup,
         bytes: u64,
     ) {
+        self.remove(key);
         self.resident_bytes = self.resident_bytes.saturating_add(bytes);
         self.entries.insert(
-            slot,
+            key,
             CachedFilterOutput {
                 content,
                 _texture: texture,
@@ -424,18 +559,18 @@ impl VabFilterOutputCache {
         );
     }
 
-    fn reserve(&mut self, slot: FilterCacheSlot, bytes: u64, max_bytes: u64) -> bool {
+    fn reserve(&mut self, key: FilterCacheKey, bytes: u64, max_bytes: u64) -> bool {
         if bytes > max_bytes {
             return false;
         }
-        self.remove(slot);
+        self.remove(key);
         self.trim_to(max_bytes, bytes);
         self.resident_bytes.saturating_add(bytes) <= max_bytes
     }
 
     fn trim_to(&mut self, max_bytes: u64, incoming: u64) {
         while self.resident_bytes.saturating_add(incoming) > max_bytes {
-            let Some((&slot, _)) = self
+            let Some((&key, _)) = self
                 .entries
                 .iter()
                 .filter(|(_, entry)| entry.last_used_frame != self.frame)
@@ -443,19 +578,19 @@ impl VabFilterOutputCache {
             else {
                 break;
             };
-            self.remove(slot);
+            self.remove(key);
         }
     }
 
-    fn remove(&mut self, slot: FilterCacheSlot) {
-        if let Some(entry) = self.entries.remove(&slot) {
+    fn remove(&mut self, key: FilterCacheKey) {
+        if let Some(entry) = self.entries.remove(&key) {
             self.resident_bytes = self.resident_bytes.saturating_sub(entry.bytes);
         }
     }
 
-    fn retain(&mut self, mut keep: impl FnMut(&CachedFilterOutput) -> bool) {
-        self.entries.retain(|_, entry| {
-            let retain = keep(entry);
+    fn retain(&mut self, mut keep: impl FnMut(&FilterCacheKey, &CachedFilterOutput) -> bool) {
+        self.entries.retain(|key, entry| {
+            let retain = keep(key, entry);
             if !retain {
                 self.resident_bytes = self.resident_bytes.saturating_sub(entry.bytes);
             }
@@ -479,6 +614,7 @@ struct ExtractedVabInstances(HashMap<Entity, ExtractedVabInstance>);
 struct VabInstanceResource {
     ops: Arc<[Op]>,
     scaled_ops: Vec<Op>,
+    packet_stamps: Vec<Option<FilterStampPlan>>,
     visible_bounds: Option<[f32; 4]>,
     global: Affine3A,
     scale: Vec2,
@@ -517,8 +653,11 @@ impl Default for VabInstanceBuffers {
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct VabInstanceUniform {
-    world_from_local: [[f32; 4]; 4],
-    uv: [[f32; 4]; 4],
+    world_row0: [f32; 4],
+    world_row1: [f32; 4],
+    world_row2: [f32; 4],
+    uv0: [f32; 4],
+    uv1: [f32; 4],
     multiply: [f32; 4],
     add: [f32; 4],
     material: [f32; 4],
@@ -528,6 +667,7 @@ struct PreparedDrawPacket {
     mesh: AssetId<Mesh>,
     texture_id: Option<AssetId<Image>>,
     texture: BindGroup,
+    blend: crate::vab_asset::VabBlendMode,
     instances: Range<u32>,
     pipeline: Option<CachedRenderPipelineId>,
 }
@@ -536,11 +676,24 @@ struct PreparedLayerPacket {
     layer: Option<gpu::PreparedLayer>,
     target: Option<super::texture_cache::TextureTarget>,
     texture: Option<BindGroup>,
+    stamp_id: Option<FilterStampKey>,
+    pending_stamp: Option<usize>,
     cache_slot: FilterCacheSlot,
     cache_content: FilterCacheContent,
     pixel_bounds: [f32; 4],
     instances: Range<u32>,
     pipeline: Option<CachedRenderPipelineId>,
+}
+
+struct PreparedFilterStamp {
+    key: FilterStampKey,
+    layer: gpu::PreparedLayer,
+    filter_msaa: Msaa,
+    owner_entity: Entity,
+    owner_packet: usize,
+    pixel_bounds: [f32; 4],
+    target: Option<super::texture_cache::TextureTarget>,
+    texture: Option<BindGroup>,
 }
 
 enum PreparedVabPacket {
@@ -556,6 +709,7 @@ struct PreparedVabInstance {
 #[derive(Resource, Default)]
 pub(super) struct PreparedVabInstances {
     instances: HashMap<(RetainedViewEntity, Entity), PreparedVabInstance>,
+    stamps: Vec<PreparedFilterStamp>,
     draw_bind_group: Option<BindGroup>,
 }
 
@@ -569,7 +723,10 @@ struct CachedTextureBindGroup {
 struct VabTextureBindGroups(HashMap<AssetId<Image>, CachedTextureBindGroup>);
 
 #[derive(Resource, Default)]
-struct VabFilterUniformBuffers(HashMap<FilterCacheSlot, gpu::ReusableUniformBuffer>);
+struct VabFilterUniformBuffers {
+    slots: HashMap<FilterCacheSlot, gpu::ReusableUniformBuffer>,
+    stamps: Vec<gpu::ReusableUniformBuffer>,
+}
 
 #[derive(Resource, Default)]
 struct VabQuadPipelines(
@@ -669,7 +826,10 @@ fn init_vab_instance_pipeline(
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub(super) struct VabInstancePipelineKey(Mesh2dPipelineKey);
+pub(super) struct VabInstancePipelineKey {
+    mesh: Mesh2dPipelineKey,
+    blend: crate::vab_asset::VabBlendMode,
+}
 
 impl SpecializedMeshPipeline for VabInstancePipeline {
     type Key = VabInstancePipelineKey;
@@ -679,15 +839,27 @@ impl SpecializedMeshPipeline for VabInstancePipeline {
         key: Self::Key,
         layout: &MeshVertexBufferLayoutRef,
     ) -> Result<RenderPipelineDescriptor, SpecializedMeshPipelineError> {
-        let vertex_layout = layout.0.get_layout(&[
-            Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
-            Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
-        ])?;
-        let shader_defs = if key.0.contains(Mesh2dPipelineKey::SRGB_COMPOSITING) {
-            vec!["SRGB_OUTPUT".into()]
+        let compact = layout.0.contains(ATTRIBUTE_VAB_POSITION);
+        let vertex_layout = if compact {
+            layout.0.get_layout(&[
+                ATTRIBUTE_VAB_POSITION.at_shader_location(0),
+                ATTRIBUTE_VAB_COLOR_SRGB.at_shader_location(1),
+            ])?
         } else {
-            Vec::new()
+            layout.0.get_layout(&[
+                Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+                Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
+            ])?
         };
+        let mut vertex_defs = Vec::new();
+        let mut fragment_defs = Vec::new();
+        if compact {
+            vertex_defs.push("COMPACT_VERTEX".into());
+            fragment_defs.push("COMPACT_VERTEX".into());
+        }
+        if key.mesh.contains(Mesh2dPipelineKey::SRGB_COMPOSITING) {
+            fragment_defs.push("SRGB_OUTPUT".into());
+        }
         Ok(RenderPipelineDescriptor {
             label: Some("vab instance pipeline".into()),
             layout: vec![
@@ -697,22 +869,23 @@ impl SpecializedMeshPipeline for VabInstancePipeline {
             ],
             vertex: VertexState {
                 shader: self.shader.clone(),
+                shader_defs: vertex_defs,
                 entry_point: Some("vertex".into()),
                 buffers: vec![vertex_layout],
                 ..default()
             },
             fragment: Some(FragmentState {
                 shader: self.shader.clone(),
-                shader_defs,
+                shader_defs: fragment_defs,
                 targets: vec![Some(ColorTargetState {
-                    format: key.0.target_format(),
-                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    format: key.mesh.target_format(),
+                    blend: Some(gpu::fixed_blend_state(key.blend)),
                     write_mask: ColorWrites::ALL,
                 })],
                 ..default()
             }),
             primitive: PrimitiveState {
-                topology: key.0.as_base_mesh_pipeline_key().primitive_topology(),
+                topology: key.mesh.as_base_mesh_pipeline_key().primitive_topology(),
                 cull_mode: None,
                 ..default()
             },
@@ -724,7 +897,7 @@ impl SpecializedMeshPipeline for VabInstancePipeline {
                 bias: DepthBiasState::default(),
             }),
             multisample: MultisampleState {
-                count: key.0.msaa_samples(),
+                count: key.mesh.msaa_samples(),
                 ..default()
             },
             ..default()
@@ -857,6 +1030,7 @@ fn extract_vab_instances(
                 sample_cache.entries.remove(&render_entity);
                 continue;
             };
+            let ops = super::extract::flatten_direct_fixed_blends(ops, true);
             diagnostics.vab_sample_cache_misses += 1;
             let ops: Arc<[Op]> = ops.into();
             sample_cache.next_generation = sample_cache.next_generation.wrapping_add(1).max(1);
@@ -915,11 +1089,16 @@ fn count_masks(ops: &[Op]) -> usize {
 }
 
 fn count_unsupported_layers(ops: &[Op]) -> usize {
+    count_unsupported_layers_inner(ops, false)
+}
+
+fn count_unsupported_layers_inner(ops: &[Op], nested: bool) -> usize {
     ops.iter()
         .map(|op| match op {
             Op::Draw(_) => 0,
             Op::Mask { mask, content, .. } => {
-                count_unsupported_layers(mask) + count_unsupported_layers(content)
+                count_unsupported_layers_inner(mask, true)
+                    + count_unsupported_layers_inner(content, true)
             }
             Op::Layer {
                 ops,
@@ -927,7 +1106,7 @@ fn count_unsupported_layers(ops: &[Op]) -> usize {
                 blend,
                 ..
             } => {
-                usize::from(filters.iter().any(|filter| {
+                let unsupported_filter = filters.iter().any(|filter| {
                     !matches!(
                         filter,
                         vatf::animation::AnimFilter::BlurFilter(_)
@@ -939,15 +1118,23 @@ fn count_unsupported_layers(ops: &[Op]) -> usize {
                             | vatf::animation::AnimFilter::GradientGlowFilter(_)
                             | vatf::animation::AnimFilter::GradientBevelFilter(_)
                     )
-                })) + usize::from(!matches!(
-                    blend,
-                    crate::vab_asset::VabBlendMode::Normal
-                        | crate::vab_asset::VabBlendMode::Layer
-                        | crate::vab_asset::VabBlendMode::Add
-                        | crate::vab_asset::VabBlendMode::Subtract
-                        | crate::vab_asset::VabBlendMode::Screen
-                        | crate::vab_asset::VabBlendMode::Lighten
-                )) + count_unsupported_layers(ops)
+                });
+                // Nested layers inside an isolated TextureTarget support all 14
+                // Flash blend modes (including complex destination-sampling modes).
+                // Top-level Camera2d layers only have fixed-function hardware blending.
+                let unsupported_blend = !nested
+                    && !matches!(
+                        blend,
+                        crate::vab_asset::VabBlendMode::Normal
+                            | crate::vab_asset::VabBlendMode::Layer
+                            | crate::vab_asset::VabBlendMode::Add
+                            | crate::vab_asset::VabBlendMode::Subtract
+                            | crate::vab_asset::VabBlendMode::Screen
+                            | crate::vab_asset::VabBlendMode::Lighten
+                    );
+                usize::from(unsupported_filter)
+                    + usize::from(unsupported_blend)
+                    + count_unsupported_layers_inner(ops, true)
             }
         })
         .sum()
@@ -1079,6 +1266,430 @@ fn scale_ops(ops: &[Op], scale: Vec2) -> Vec<Op> {
         .collect()
 }
 
+const MAX_STAMP_DIMENSION: f32 = 1024.0;
+
+struct StampHasher {
+    a: u64,
+    b: u64,
+}
+
+impl StampHasher {
+    fn new() -> Self {
+        Self {
+            a: 0xcbf2_9ce4_8422_2325,
+            b: 0x9e37_79b9_7f4a_7c15,
+        }
+    }
+
+    fn mix(&mut self, value: u64) {
+        self.a ^= value;
+        self.a = self.a.wrapping_mul(0x100_0000_01b3);
+        let mut z = self
+            .b
+            .wrapping_add(value.wrapping_add(0x9e37_79b9_7f4a_7c15));
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        self.b = z ^ (z >> 31);
+    }
+
+    fn write_u8(&mut self, v: u8) {
+        self.mix(u64::from(v));
+    }
+
+    fn write_i16(&mut self, v: i16) {
+        self.mix(v as u16 as u64);
+    }
+
+    fn write_u32(&mut self, v: u32) {
+        self.mix(u64::from(v));
+    }
+
+    fn write_i32(&mut self, v: i32) {
+        self.mix(v as u32 as u64);
+    }
+
+    fn write_q(&mut self, v: f32, scale: f32) {
+        self.write_i32((v * scale).round() as i32);
+    }
+}
+
+impl std::hash::Hasher for StampHasher {
+    fn finish(&self) -> u64 {
+        self.a ^ self.b
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let (chunks, rem) = bytes.as_chunks::<8>();
+        for chunk in chunks {
+            self.mix(u64::from_le_bytes(*chunk));
+        }
+        if !rem.is_empty() {
+            let mut tail = [0u8; 8];
+            tail[..rem.len()].copy_from_slice(rem);
+            self.mix(u64::from_le_bytes(tail));
+        }
+    }
+}
+
+fn is_isotropic_filter_chain(filters: &[vatf::animation::AnimFilter]) -> bool {
+    use vatf::animation::AnimFilter;
+    filters.iter().all(|filter| match filter {
+        AnimFilter::BlurFilter(f) => (f.blur_x - f.blur_y).abs() <= 1,
+        AnimFilter::GlowFilter(f) => (f.blur_x - f.blur_y).abs() <= 1,
+        AnimFilter::ColorMatrixFilter(_) => true,
+        AnimFilter::DropShadowFilter(_)
+        | AnimFilter::BevelFilter(_)
+        | AnimFilter::ConvolutionFilter(_)
+        | AnimFilter::GradientGlowFilter(_)
+        | AnimFilter::GradientBevelFilter(_) => false,
+    })
+}
+
+fn anim_mat_mul(
+    l: vatf::animation::AnimMatrix,
+    r: vatf::animation::AnimMatrix,
+) -> vatf::animation::AnimMatrix {
+    vatf::animation::AnimMatrix {
+        a: l.a * r.a + l.c * r.b,
+        b: l.b * r.a + l.d * r.b,
+        c: l.a * r.c + l.c * r.d,
+        d: l.b * r.c + l.d * r.d,
+        tx: l.a * r.tx + l.c * r.ty + l.tx,
+        ty: l.b * r.tx + l.d * r.ty + l.ty,
+    }
+}
+
+fn anim_mat_inv(m: vatf::animation::AnimMatrix) -> Option<vatf::animation::AnimMatrix> {
+    let det = m.a * m.d - m.b * m.c;
+    if !det.is_finite() || det.abs() < 1e-6 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let a = m.d * inv;
+    let b = -m.b * inv;
+    let c = -m.c * inv;
+    let d = m.a * inv;
+    let tx = -(a * m.tx + c * m.ty);
+    let ty = -(b * m.tx + d * m.ty);
+    Some(vatf::animation::AnimMatrix { a, b, c, d, tx, ty })
+}
+
+fn snap_canonical_matrix(
+    m: vatf::animation::AnimMatrix,
+    is_first: bool,
+    isotropic: bool,
+) -> vatf::animation::AnimMatrix {
+    let snap = |v: f32, grid: f32| {
+        let s = (v * grid).round() / grid;
+        if s == 0.0 { 0.0 } else { s }
+    };
+    vatf::animation::AnimMatrix {
+        a: snap(m.a, 1024.0),
+        b: if is_first && isotropic {
+            0.0
+        } else {
+            snap(m.b, 1024.0)
+        },
+        c: snap(m.c, 1024.0),
+        d: snap(m.d, 1024.0),
+        tx: if is_first { 0.0 } else { snap(m.tx, 64.0) },
+        ty: if is_first { 0.0 } else { snap(m.ty, 64.0) },
+    }
+}
+
+fn hash_anim_filter(h: &mut StampHasher, filter: &vatf::animation::AnimFilter) {
+    use vatf::animation::AnimFilter;
+    let q_blur = |fixed16: i32| (fixed16 + 128) >> 8;
+    match filter {
+        AnimFilter::BlurFilter(f) => {
+            h.write_u8(1);
+            h.write_i32(q_blur(f.blur_x));
+            h.write_i32(q_blur(f.blur_y));
+            h.write_u8(f.num_passes);
+        }
+        AnimFilter::GlowFilter(f) => {
+            h.write_u8(2);
+            h.write_u8(f.flags);
+            h.write_u8(f.color_r);
+            h.write_u8(f.color_g);
+            h.write_u8(f.color_b);
+            h.write_u8(f.color_a);
+            h.write_i32(q_blur(f.blur_x));
+            h.write_i32(q_blur(f.blur_y));
+            h.write_i16(f.strength);
+            h.write_u8(f.num_passes);
+        }
+        AnimFilter::DropShadowFilter(f) => {
+            h.write_u8(3);
+            h.write_u8(f.flags);
+            h.write_u8(f.color_r);
+            h.write_u8(f.color_g);
+            h.write_u8(f.color_b);
+            h.write_u8(f.color_a);
+            h.write_i32(q_blur(f.blur_x));
+            h.write_i32(q_blur(f.blur_y));
+            h.write_i32(f.angle);
+            h.write_i32(q_blur(f.distance));
+            h.write_i16(f.strength);
+            h.write_u8(f.num_passes);
+        }
+        AnimFilter::BevelFilter(f) => {
+            h.write_u8(4);
+            h.write_u8(f.flags);
+            h.write_u8(f.shadow_color_r);
+            h.write_u8(f.shadow_color_g);
+            h.write_u8(f.shadow_color_b);
+            h.write_u8(f.shadow_color_a);
+            h.write_u8(f.highlight_color_r);
+            h.write_u8(f.highlight_color_g);
+            h.write_u8(f.highlight_color_b);
+            h.write_u8(f.highlight_color_a);
+            h.write_i32(q_blur(f.blur_x));
+            h.write_i32(q_blur(f.blur_y));
+            h.write_i32(f.angle);
+            h.write_i32(q_blur(f.distance));
+            h.write_i16(f.strength);
+            h.write_u8(f.num_passes);
+        }
+        AnimFilter::ColorMatrixFilter(f) => {
+            h.write_u8(5);
+            for &v in &f.matrix {
+                h.write_q(v, 1024.0);
+            }
+        }
+        AnimFilter::ConvolutionFilter(f) => {
+            h.write_u8(6);
+            h.write_u8(f.num_matrix_rows);
+            h.write_u8(f.num_matrix_cols);
+            for &v in &f.matrix {
+                h.write_q(v, 1024.0);
+            }
+            h.write_q(f.divisor, 1024.0);
+            h.write_q(f.bias, 1024.0);
+            h.write_u8(f.default_color_r);
+            h.write_u8(f.default_color_g);
+            h.write_u8(f.default_color_b);
+            h.write_u8(f.default_color_a);
+            h.write_u8(f.flags);
+        }
+        AnimFilter::GradientGlowFilter(f) | AnimFilter::GradientBevelFilter(f) => {
+            h.write_u8(if matches!(filter, AnimFilter::GradientGlowFilter(_)) {
+                7
+            } else {
+                8
+            });
+            h.write_u8(f.flags);
+            h.write_u32(f.colors.len() as u32);
+            for c in &f.colors {
+                h.write_u8(c.ratio);
+                h.write_u8(c.color_r);
+                h.write_u8(c.color_g);
+                h.write_u8(c.color_b);
+                h.write_u8(c.color_a);
+            }
+            h.write_i32(q_blur(f.blur_x));
+            h.write_i32(q_blur(f.blur_y));
+            h.write_i32(f.angle);
+            h.write_i32(q_blur(f.distance));
+            h.write_i16(f.strength);
+            h.write_u8(f.num_passes);
+        }
+    }
+}
+
+/// Canonicalize a top-level flat filtered symbol (1 or more `Op::Draw` children)
+/// into a reusable stamp plan, factoring out translation, isotropic rotation,
+/// and (when enabled via `VabFilterQuality::reuse_scaled_stamps`) octave-quantized
+/// uniform particle scaling.
+fn build_filter_stamp_plan(
+    scaled_op: &Op,
+    visible_bounds: Option<[f32; 4]>,
+    gpu_source_revision: u64,
+    filter_samples: u32,
+    quality: gpu::VabFilterQuality,
+) -> Option<FilterStampPlan> {
+    use std::hash::Hash;
+
+    let Op::Layer {
+        ops,
+        bounds,
+        filters,
+        ..
+    } = scaled_op
+    else {
+        return None;
+    };
+    if filters.is_empty() || ops.is_empty() {
+        return None;
+    }
+    if !ops.iter().all(|child| matches!(child, Op::Draw(_))) {
+        return None;
+    }
+
+    // Never stamp layers that are clipped by the camera viewport edge or exceed
+    // the stamp size cap — large/cropped layers keep the exact cropped per-slot path.
+    let visible_px = packet_pixel_bounds(*bounds, visible_bounds)?;
+    let full_px = packet_pixel_bounds(*bounds, None)?;
+    if full_px != visible_px || full_px[2] > MAX_STAMP_DIMENSION || full_px[3] > MAX_STAMP_DIMENSION
+    {
+        return None;
+    }
+
+    let Op::Draw(first_draw) = &ops[0] else {
+        unreachable!();
+    };
+    let m0 = first_draw.transform.matrix;
+    if ![m0.a, m0.b, m0.c, m0.d, m0.tx, m0.ty]
+        .iter()
+        .all(|v| v.is_finite())
+    {
+        return None;
+    }
+
+    let isotropic = is_isotropic_filter_chain(filters);
+    let sx = m0.a.hypot(m0.b);
+    let sy = m0.c.hypot(m0.d);
+
+    let placement = if !isotropic || sx < 1e-4 {
+        // Tier 1: exact translation factorization (valid for all 8 Flash filters).
+        vatf::animation::AnimMatrix {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            tx: m0.tx,
+            ty: m0.ty,
+        }
+    } else {
+        let cos = m0.a / sx;
+        let sin = m0.b / sx;
+        let dot = m0.a * m0.c + m0.b * m0.d;
+        let uniform_similarity = quality.reuse_scaled_stamps
+            && sx > 0.05
+            && sy > 0.05
+            && (sx - sy).abs() <= 0.02 * sx.max(sy)
+            && dot.abs() <= 0.02 * sx * sy;
+        if uniform_similarity {
+            // Tier 3 (opt-in): octave-quantized uniform scale + rotation + translation.
+            // Renders at the next power-of-two scale (always downscaling on screen) so
+            // expanding/shrinking particle clouds share a tiny set of crisp stamps.
+            let s_canon = 2.0f32.powi(sx.log2().ceil() as i32).clamp(0.5, 4.0);
+            let s_ratio = sx / s_canon;
+            vatf::animation::AnimMatrix {
+                a: cos * s_ratio,
+                b: sin * s_ratio,
+                c: -sin * s_ratio,
+                d: cos * s_ratio,
+                tx: m0.tx,
+                ty: m0.ty,
+            }
+        } else {
+            // Tier 2 (default): exact rigid rotation + translation for isotropic filters.
+            vatf::animation::AnimMatrix {
+                a: cos,
+                b: sin,
+                c: -sin,
+                d: cos,
+                tx: m0.tx,
+                ty: m0.ty,
+            }
+        }
+    };
+
+    let inv_placement = anim_mat_inv(placement)?;
+
+    let mut canonical_ops = Vec::with_capacity(ops.len());
+    for (index, child) in ops.iter().enumerate() {
+        let Op::Draw(draw) = child else {
+            unreachable!();
+        };
+        let mut draw = draw.clone();
+        let relative = anim_mat_mul(inv_placement, draw.transform.matrix);
+        draw.transform.matrix = snap_canonical_matrix(relative, index == 0, isotropic);
+        canonical_ops.push(Op::Draw(draw));
+    }
+
+    let [cx, cy, cw, ch] = op_bounds(&canonical_ops);
+    let (fx, fy, fw, fh) = vatf::animation::filter_dest_rect(cx, cy, cw, ch, filters);
+    let stamp_pixel_bounds = gpu::pixel_bounds([fx, fy, fw, fh]).ok()?;
+    if stamp_pixel_bounds[2] <= 0.0
+        || stamp_pixel_bounds[3] <= 0.0
+        || stamp_pixel_bounds[2] > MAX_STAMP_DIMENSION
+        || stamp_pixel_bounds[3] > MAX_STAMP_DIMENSION
+    {
+        return None;
+    }
+
+    let mut hasher = StampHasher::new();
+    for child in &canonical_ops {
+        let Op::Draw(draw) = child else {
+            unreachable!();
+        };
+        draw.mesh.hash(&mut hasher);
+        draw.texture.hash(&mut hasher);
+        hasher.write_u32(draw.kind);
+        hasher.write_u8(draw.blend as u8);
+        for g in draw.gradient {
+            hasher.write_q(g, 256.0);
+        }
+        hasher.write_u32(draw.ramp_v.to_bits());
+        for col in [draw.uv.x_axis, draw.uv.y_axis, draw.uv.z_axis] {
+            hasher.write_q(col.x, 1024.0);
+            hasher.write_q(col.y, 1024.0);
+        }
+        let m = draw.transform.matrix;
+        hasher.write_q(m.a, 256.0);
+        hasher.write_q(m.b, 256.0);
+        hasher.write_q(m.c, 256.0);
+        hasher.write_q(m.d, 256.0);
+        hasher.write_q(m.tx, 16.0);
+        hasher.write_q(m.ty, 16.0);
+        let c = draw.transform.color_transform;
+        for v in [
+            c.r_multiply,
+            c.g_multiply,
+            c.b_multiply,
+            c.a_multiply,
+            c.r_add,
+            c.g_add,
+            c.b_add,
+            c.a_add,
+        ] {
+            hasher.write_q(v, 255.0);
+        }
+    }
+    for filter in filters {
+        hash_anim_filter(&mut hasher, filter);
+    }
+
+    let key = FilterStampKey {
+        hash_a: hasher.a,
+        hash_b: hasher.b,
+        gpu_source_revision,
+        samples: filter_samples,
+        filter_quality: quality.cache_key(),
+        size: [stamp_pixel_bounds[2] as u32, stamp_pixel_bounds[3] as u32],
+        origin: [stamp_pixel_bounds[0] as i32, stamp_pixel_bounds[1] as i32],
+        child_count: u16::try_from(canonical_ops.len()).unwrap_or(u16::MAX),
+        filter_count: u16::try_from(filters.len()).unwrap_or(u16::MAX),
+    };
+
+    let canonical_op = Op::Layer {
+        ops: canonical_ops,
+        bounds: [fx, fy, fw, fh],
+        filters: filters.clone(),
+        blend: crate::vab_asset::VabBlendMode::Normal,
+    };
+
+    Some(FilterStampPlan {
+        key,
+        canonical_op,
+        stamp_pixel_bounds,
+        placement,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn queue_vab_instance_data(
     extracted: Res<ExtractedVabInstances>,
     mut resources: ResMut<VabInstanceResources>,
@@ -1094,6 +1705,7 @@ fn queue_vab_instance_data(
     mut filter_cache: ResMut<VabFilterOutputCache>,
     filter_cache_settings: Res<VabFilterCacheSettings>,
     filter_msaa: Res<VabFilterMsaa>,
+    filter_quality: Res<gpu::VabFilterQuality>,
     mut diagnostics: ResMut<FlashRenderDiagnostics>,
 ) {
     let started = diagnostics.enabled.then(Instant::now);
@@ -1107,28 +1719,53 @@ fn queue_vab_instance_data(
         let Some(visible) = visible.get::<VabAssetHandle>() else {
             continue;
         };
+        let resolved_filter_msaa = filter_msaa.resolve(*msaa);
+        let filter_samples = resolved_filter_msaa.samples();
         for (entity, _) in visible.iter_visible() {
             let Some(instance) = extracted.0.get(entity) else {
                 continue;
             };
-            let scale = view_pixel_scale(view, instance.global);
-            let clip_from_world = view.clip_from_world.unwrap_or_else(|| {
-                view.clip_from_view * view.world_from_view.to_matrix().inverse()
-            });
-            let visible_bounds = visible_pixel_bounds(
-                clip_from_world * Mat4::from(instance.global) * VIEW_MATRIX,
-                scale,
-            );
+            let has_isolated = instance
+                .ops
+                .iter()
+                .any(|op| matches!(op, Op::Layer { .. } | Op::Mask { .. }));
+            let (scale, visible_bounds, scaled_ops, packet_stamps) = if has_isolated {
+                let scale = view_pixel_scale(view, instance.global);
+                let clip_from_world = view.clip_from_world.unwrap_or_else(|| {
+                    view.clip_from_view * view.world_from_view.to_matrix().inverse()
+                });
+                let visible_bounds = visible_pixel_bounds(
+                    clip_from_world * Mat4::from(instance.global) * VIEW_MATRIX,
+                    scale,
+                );
+                let scaled_ops = scale_ops(&instance.ops, scale);
+                let packet_stamps = scaled_ops
+                    .iter()
+                    .map(|scaled_op| {
+                        build_filter_stamp_plan(
+                            scaled_op,
+                            visible_bounds,
+                            instance.gpu_source_revision,
+                            filter_samples,
+                            *filter_quality,
+                        )
+                    })
+                    .collect();
+                (scale, visible_bounds, scaled_ops, packet_stamps)
+            } else {
+                (Vec2::ONE, None, Vec::new(), Vec::new())
+            };
             resources.instances.insert(
                 (view.retained_view_entity, *entity),
                 VabInstanceResource {
                     ops: instance.ops.clone(),
-                    scaled_ops: scale_ops(&instance.ops, scale),
+                    scaled_ops,
+                    packet_stamps,
                     visible_bounds,
                     global: instance.global,
                     scale,
                     view_msaa: *msaa,
-                    filter_msaa: filter_msaa.resolve(*msaa),
+                    filter_msaa: resolved_filter_msaa,
                     target_format: view.target_format,
                     srgb_compositing: camera.0 == Some(CompositingSpace::Srgb),
                     sample_generation: instance.sample_generation,
@@ -1138,6 +1775,17 @@ fn queue_vab_instance_data(
         }
     }
     diagnostics.vab_queue_cpu_ns = elapsed_ns(started);
+}
+
+fn pack_world_rows(world_from_local: Mat4) -> ([f32; 4], [f32; 4], [f32; 4]) {
+    let x = world_from_local.x_axis;
+    let y = world_from_local.y_axis;
+    let w = world_from_local.w_axis;
+    (
+        [x.x, y.x, w.x, 0.0],
+        [x.y, y.y, w.y, 0.0],
+        [x.z, y.z, w.z, 0.0],
+    )
 }
 
 fn prepare_vab_instance_buffers(
@@ -1151,21 +1799,24 @@ fn prepare_vab_instance_buffers(
     buffers.indices.clear();
     buffers.values.clear();
     for ((view, entity), instance) in &resources.instances {
-        for (packet_index, (op, scaled_op)) in
-            instance.ops.iter().zip(&instance.scaled_ops).enumerate()
-        {
-            let uniform = match (op, scaled_op) {
-                (Op::Draw(draw), _) => {
+        let base_world = Mat4::from(instance.global) * VIEW_MATRIX;
+        for (packet_index, op) in instance.ops.iter().enumerate() {
+            let uniform = match op {
+                Op::Draw(draw) => {
                     let local = draw.transform.matrix;
                     let local = Mat4::from_cols_array(&[
                         local.a, local.b, 0.0, 0.0, local.c, local.d, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
                         local.tx, local.ty, 0.0, 1.0,
                     ]);
+                    let (world_row0, world_row1, world_row2) = pack_world_rows(base_world * local);
+                    let uv = draw.uv;
                     let color = draw.transform.color_transform;
                     VabInstanceUniform {
-                        world_from_local: (Mat4::from(instance.global) * VIEW_MATRIX * local)
-                            .to_cols_array_2d(),
-                        uv: draw.uv.to_cols_array_2d(),
+                        world_row0,
+                        world_row1,
+                        world_row2,
+                        uv0: [uv.x_axis.x, uv.y_axis.x, uv.z_axis.x, draw.ramp_v],
+                        uv1: [uv.x_axis.y, uv.y_axis.y, uv.z_axis.y, 0.0],
                         multiply: [
                             color.r_multiply,
                             color.g_multiply,
@@ -1181,35 +1832,66 @@ fn prepare_vab_instance_buffers(
                         ],
                     }
                 }
-                (
-                    Op::Layer { .. } | Op::Mask { .. },
-                    Op::Layer { bounds, .. } | Op::Mask { bounds, .. },
-                ) => {
-                    let Some(pixel_bounds) = packet_pixel_bounds(*bounds, instance.visible_bounds)
-                    else {
-                        continue;
-                    };
-                    let logical_bounds = [
-                        pixel_bounds[0] / instance.scale.x,
-                        pixel_bounds[1] / instance.scale.y,
-                        pixel_bounds[2] / instance.scale.x,
-                        pixel_bounds[3] / instance.scale.y,
-                    ];
-                    let rect = Mat4::from_scale_rotation_translation(
-                        Vec3::new(logical_bounds[2], logical_bounds[3], 1.0),
-                        Quat::IDENTITY,
-                        Vec3::new(logical_bounds[0], logical_bounds[1], 0.0),
-                    );
+                Op::Layer { .. } | Op::Mask { .. } => {
+                    let (world_row0, world_row1, world_row2) =
+                        if let Some(Some(plan)) = instance.packet_stamps.get(packet_index) {
+                            let [ox, oy, w, h] = plan.stamp_pixel_bounds;
+                            let p = plan.placement;
+                            let inv_sx = 1.0 / instance.scale.x;
+                            let inv_sy = 1.0 / instance.scale.y;
+                            let quad = Mat4::from_cols_array(&[
+                                p.a * w * inv_sx,
+                                p.b * w * inv_sy,
+                                0.0,
+                                0.0,
+                                p.c * h * inv_sx,
+                                p.d * h * inv_sy,
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0,
+                                0.0,
+                                (p.a * ox + p.c * oy + p.tx) * inv_sx,
+                                (p.b * ox + p.d * oy + p.ty) * inv_sy,
+                                0.0,
+                                1.0,
+                            ]);
+                            pack_world_rows(base_world * quad)
+                        } else {
+                            let bounds = match instance.scaled_ops.get(packet_index) {
+                                Some(Op::Layer { bounds, .. } | Op::Mask { bounds, .. }) => *bounds,
+                                _ => unreachable!("scaled instance operation changed kind"),
+                            };
+                            let Some(pixel_bounds) =
+                                packet_pixel_bounds(bounds, instance.visible_bounds)
+                            else {
+                                continue;
+                            };
+                            let logical_bounds = [
+                                pixel_bounds[0] / instance.scale.x,
+                                pixel_bounds[1] / instance.scale.y,
+                                pixel_bounds[2] / instance.scale.x,
+                                pixel_bounds[3] / instance.scale.y,
+                            ];
+                            let rect = Mat4::from_scale_rotation_translation(
+                                Vec3::new(logical_bounds[2], logical_bounds[3], 1.0),
+                                Quat::IDENTITY,
+                                Vec3::new(logical_bounds[0], logical_bounds[1], 0.0),
+                            );
+                            pack_world_rows(base_world * rect)
+                        };
                     VabInstanceUniform {
-                        world_from_local: (Mat4::from(instance.global) * VIEW_MATRIX * rect)
-                            .to_cols_array_2d(),
-                        uv: Mat4::IDENTITY.to_cols_array_2d(),
+                        world_row0,
+                        world_row1,
+                        world_row2,
+                        uv0: [1.0, 0.0, 0.0, 0.0],
+                        uv1: [0.0, 1.0, 0.0, 0.0],
                         multiply: Vec4::ONE.to_array(),
                         add: Vec4::ZERO.to_array(),
                         material: [0.0, 0.0, 0.0, 3.0],
                     }
                 }
-                _ => unreachable!("scaled instance operation changed kind"),
             };
             let index = u32::try_from(buffers.values.len()).expect("too many VAB draw instances");
             buffers
@@ -1245,7 +1927,7 @@ fn prepare_vab_instance_bind_groups(
     render_queue: Res<RenderQueue>,
     meshes: Res<RenderAssets<RenderMesh>>,
     images: Res<RenderAssets<GpuImage>>,
-    mut flash_gpu: ResMut<gpu::FlashGpu>,
+    (mut flash_gpu, filter_quality): (ResMut<gpu::FlashGpu>, Res<gpu::VabFilterQuality>),
     mut texture_groups: ResMut<VabTextureBindGroups>,
     mut filter_uniform_buffers: ResMut<VabFilterUniformBuffers>,
     mut filter_cache: ResMut<VabFilterOutputCache>,
@@ -1255,6 +1937,7 @@ fn prepare_vab_instance_bind_groups(
 ) {
     let started = diagnostics.enabled.then(Instant::now);
     prepared.instances.clear();
+    prepared.stamps.clear();
     if !buffers.values.is_empty() && buffers.bind_group.is_none() {
         buffers.bind_group = buffers.values.buffer().map(|buffer| {
             render_device.create_bind_group(
@@ -1278,17 +1961,18 @@ fn prepare_vab_instance_bind_groups(
     diagnostics.vab_draw_packets = 0;
     let mut prepared_entities = HashSet::<Entity>::new();
     let mut live_uniform_slots = HashSet::new();
+    let mut pending_stamps = HashMap::<FilterStampKey, usize>::new();
     texture_groups.0.retain(|id, _| images.get(*id).is_some());
+    flash_gpu.retain_image_bind_groups(&images);
+    let filter_quality_key = filter_quality.cache_key();
     'instances: for ((view, entity), instance) in &resources.instances {
         let view_samples = instance.view_msaa.samples();
         let filter_samples = instance.filter_msaa.samples();
         let scale = instance.scale;
         let mut packets = Vec::new();
-        for (packet_index, (op, scaled_op)) in
-            instance.ops.iter().zip(&instance.scaled_ops).enumerate()
-        {
-            match (op, scaled_op) {
-                (Op::Draw(draw), _) => {
+        for (packet_index, op) in instance.ops.iter().enumerate() {
+            match op {
+                Op::Draw(draw) => {
                     let Some(&draw_instance) = buffers.indices.get(&(*view, *entity, packet_index))
                     else {
                         continue;
@@ -1328,6 +2012,7 @@ fn prepare_vab_instance_bind_groups(
                     if let Some(PreparedVabPacket::Draw(packet)) = packets.last_mut()
                         && packet.mesh == draw.mesh
                         && packet.texture_id == draw.texture
+                        && packet.blend == draw.blend
                         && packet.instances.end == draw_instance
                     {
                         packet.instances.end += 1;
@@ -1345,7 +2030,10 @@ fn prepare_vab_instance_bind_groups(
                                 .specialize(
                                     &pipeline_cache,
                                     &pipeline,
-                                    VabInstancePipelineKey(mesh_key),
+                                    VabInstancePipelineKey {
+                                        mesh: mesh_key,
+                                        blend: draw.blend,
+                                    },
                                     &mesh.layout,
                                 )
                                 .ok()
@@ -1354,15 +2042,13 @@ fn prepare_vab_instance_bind_groups(
                             mesh: draw.mesh,
                             texture_id: draw.texture,
                             texture,
+                            blend: draw.blend,
                             instances: draw_instance..draw_instance + 1,
                             pipeline: packet_pipeline,
                         }));
                     }
                 }
-                (
-                    Op::Layer { .. } | Op::Mask { .. },
-                    Op::Layer { bounds, .. } | Op::Mask { bounds, .. },
-                ) => {
+                Op::Layer { .. } | Op::Mask { .. } => {
                     let Some(&draw_instance) = buffers.indices.get(&(*view, *entity, packet_index))
                     else {
                         continue;
@@ -1371,6 +2057,136 @@ fn prepare_vab_instance_bind_groups(
                         Op::Layer { blend, .. } => *blend,
                         Op::Mask { .. } => crate::vab_asset::VabBlendMode::Normal,
                         Op::Draw(_) => unreachable!(),
+                    };
+                    let packet_pipeline = Some(
+                        *quad_pipelines
+                            .0
+                            .entry((
+                                instance.target_format,
+                                view_samples,
+                                blend,
+                                instance.srgb_compositing,
+                            ))
+                            .or_insert_with(|| {
+                                pipeline_cache.queue_render_pipeline(pipeline.quad_descriptor(
+                                    instance.target_format,
+                                    view_samples,
+                                    blend,
+                                    instance.srgb_compositing,
+                                ))
+                            }),
+                    );
+                    let cache_slot = FilterCacheSlot {
+                        view: *view,
+                        entity: *entity,
+                        packet: packet_index,
+                    };
+                    if let Some(Some(plan)) = instance.packet_stamps.get(packet_index) {
+                        let (texture, pending_stamp) =
+                            if let Some(texture) = filter_cache.get_stamp(plan.key) {
+                                diagnostics.vab_filter_cache_hits += 1;
+                                (Some(texture), None)
+                            } else if let Some(&stamp_idx) = pending_stamps.get(&plan.key) {
+                                // Deduplicate repeated identical symbols within the same frame.
+                                diagnostics.vab_filter_cache_hits += 1;
+                                (None, Some(stamp_idx))
+                            } else {
+                                let stamp_idx = prepared.stamps.len();
+                                if stamp_idx >= filter_uniform_buffers.stamps.len() {
+                                    filter_uniform_buffers
+                                        .stamps
+                                        .resize_with(stamp_idx + 1, Default::default);
+                                }
+                                let uniform_buffer = &mut filter_uniform_buffers.stamps[stamp_idx];
+                                let result = gpu::prepare_layer(
+                                    std::slice::from_ref(&plan.canonical_op),
+                                    plan.stamp_pixel_bounds,
+                                    filter_samples,
+                                    *filter_quality,
+                                    &mut flash_gpu,
+                                    &pipeline_cache,
+                                    &render_device,
+                                    &render_queue,
+                                    &meshes,
+                                    &images,
+                                    uniform_buffer,
+                                );
+                                let (layer, allocated) = match result {
+                                    Ok(prepared_layer) => prepared_layer,
+                                    Err(error) => {
+                                        let message = error.to_string();
+                                        if message.starts_with("pending") {
+                                            diagnostics.pending_views += 1;
+                                        } else {
+                                            diagnostics.errors.push(message);
+                                        }
+                                        continue 'instances;
+                                    }
+                                };
+                                if allocated {
+                                    diagnostics.filter_uniform_buffer_allocations += 1;
+                                } else {
+                                    diagnostics.filter_uniform_buffer_reuses += 1;
+                                }
+                                diagnostics.vab_filter_cache_misses += 1;
+                                prepared.stamps.push(PreparedFilterStamp {
+                                    key: plan.key,
+                                    layer,
+                                    filter_msaa: instance.filter_msaa,
+                                    owner_entity: *entity,
+                                    owner_packet: packet_index,
+                                    pixel_bounds: plan.stamp_pixel_bounds,
+                                    target: None,
+                                    texture: None,
+                                });
+                                pending_stamps.insert(plan.key, stamp_idx);
+                                (None, Some(stamp_idx))
+                            };
+                        // Merge adjacent instances that share the same cached/pending
+                        // filter stamp and blend pipeline into one instanced quad draw.
+                        if let Some(PreparedVabPacket::Layer(prev)) = packets.last_mut()
+                            && prev.stamp_id == Some(plan.key)
+                            && prev.pipeline == packet_pipeline
+                            && prev.instances.end == draw_instance
+                        {
+                            prev.instances.end += 1;
+                        } else {
+                            packets.push(PreparedVabPacket::Layer(Box::new(PreparedLayerPacket {
+                                layer: None,
+                                target: None,
+                                texture,
+                                stamp_id: Some(plan.key),
+                                pending_stamp,
+                                cache_slot,
+                                cache_content: FilterCacheContent {
+                                    sample_generation: instance.sample_generation,
+                                    gpu_source_revision: instance.gpu_source_revision,
+                                    scale: [scale.x.to_bits(), scale.y.to_bits()],
+                                    samples: filter_samples,
+                                    size: [
+                                        plan.stamp_pixel_bounds[2] as u32,
+                                        plan.stamp_pixel_bounds[3] as u32,
+                                    ],
+                                    origin: [
+                                        plan.stamp_pixel_bounds[0].to_bits(),
+                                        plan.stamp_pixel_bounds[1].to_bits(),
+                                    ],
+                                    filter_quality: filter_quality_key,
+                                },
+                                pixel_bounds: plan.stamp_pixel_bounds,
+                                instances: draw_instance..draw_instance + 1,
+                                pipeline: packet_pipeline,
+                            })));
+                        }
+                        continue;
+                    }
+                    let scaled_op = instance
+                        .scaled_ops
+                        .get(packet_index)
+                        .expect("scaled instance operation present for isolated layer");
+                    let bounds = match scaled_op {
+                        Op::Layer { bounds, .. } | Op::Mask { bounds, .. } => *bounds,
+                        Op::Draw(_) => unreachable!("scaled instance operation changed kind"),
                     };
                     let mut isolated = scaled_op.clone();
                     if let Op::Layer { blend, .. } = &mut isolated {
@@ -1386,14 +2202,9 @@ fn prepare_vab_instance_bind_groups(
                     };
                     // Only crop the final root surface. Nested filters/masks
                     // retain their full inputs and halos before compositing.
-                    let Some(pixel_bounds) = packet_pixel_bounds(*bounds, instance.visible_bounds)
+                    let Some(pixel_bounds) = packet_pixel_bounds(bounds, instance.visible_bounds)
                     else {
                         continue;
-                    };
-                    let cache_slot = FilterCacheSlot {
-                        view: *view,
-                        entity: *entity,
-                        packet: packet_index,
                     };
                     let cache_content = FilterCacheContent {
                         sample_generation: instance.sample_generation,
@@ -1402,19 +2213,21 @@ fn prepare_vab_instance_bind_groups(
                         samples: filter_samples,
                         size: [pixel_bounds[2] as u32, pixel_bounds[3] as u32],
                         origin: [pixel_bounds[0].to_bits(), pixel_bounds[1].to_bits()],
+                        filter_quality: filter_quality_key,
                     };
                     live_uniform_slots.insert(cache_slot);
                     let (layer, texture) =
-                        if let Some(texture) = filter_cache.get(cache_slot, cache_content) {
+                        if let Some(texture) = filter_cache.get_slot(cache_slot, cache_content) {
                             diagnostics.vab_filter_cache_hits += 1;
                             (None, Some(texture))
                         } else {
                             let uniform_buffer =
-                                filter_uniform_buffers.0.entry(cache_slot).or_default();
+                                filter_uniform_buffers.slots.entry(cache_slot).or_default();
                             let result = gpu::prepare_layer(
                                 isolated_ops,
                                 pixel_bounds,
                                 filter_samples,
+                                *filter_quality,
                                 &mut flash_gpu,
                                 &pipeline_cache,
                                 &render_device,
@@ -1447,31 +2260,15 @@ fn prepare_vab_instance_bind_groups(
                         layer,
                         target: None,
                         texture,
+                        stamp_id: None,
+                        pending_stamp: None,
                         cache_slot,
                         cache_content,
                         pixel_bounds,
                         instances: draw_instance..draw_instance + 1,
-                        pipeline: Some(
-                            *quad_pipelines
-                                .0
-                                .entry((
-                                    instance.target_format,
-                                    view_samples,
-                                    blend,
-                                    instance.srgb_compositing,
-                                ))
-                                .or_insert_with(|| {
-                                    pipeline_cache.queue_render_pipeline(pipeline.quad_descriptor(
-                                        instance.target_format,
-                                        view_samples,
-                                        blend,
-                                        instance.srgb_compositing,
-                                    ))
-                                }),
-                        ),
+                        pipeline: packet_pipeline,
                     })));
                 }
-                _ => unreachable!("scaled instance operation changed kind"),
             }
         }
         // Preserve entity-level ordering while any screen pipeline compiles.
@@ -1503,8 +2300,14 @@ fn prepare_vab_instance_bind_groups(
     diagnostics.vab_instances_prepared = prepared_entities.len();
     diagnostics.vab_draw_instances_prepared = buffers.indices.len();
     filter_uniform_buffers
-        .0
+        .slots
         .retain(|slot, _| live_uniform_slots.contains(slot));
+    let used_stamps = prepared.stamps.len();
+    if filter_uniform_buffers.stamps.len() > 256
+        && filter_uniform_buffers.stamps.len() > used_stamps.saturating_mul(4)
+    {
+        filter_uniform_buffers.stamps.truncate(used_stamps.max(64));
+    }
     diagnostics.vab_prepare_bind_groups_cpu_ns = elapsed_ns(started);
 }
 
@@ -1593,16 +2396,70 @@ pub(super) fn render_vab_instance_filters(
             ),
         )
     });
-    for instance in prepared.instances.values_mut() {
+    let PreparedVabInstances {
+        instances, stamps, ..
+    } = &mut *prepared;
+    let scene_texture_layout = pipeline_cache.get_bind_group_layout(&pipeline.texture_layout);
+    for stamp in stamps.iter_mut() {
+        let (passes, pixels) = if diagnostics.enabled {
+            gpu::filter_workload(&stamp.layer)
+        } else {
+            (0, 0)
+        };
+        pool.set_allocation_owner(Some(TextureAllocationOwner {
+            render_frame: frame,
+            app_frame: app_frame.0,
+            entity: stamp.owner_entity,
+            packet: stamp.owner_packet,
+            packet_bounds: stamp.pixel_bounds,
+        }));
+        let target = gpu::render_prepared_layer(
+            &stamp.layer,
+            Srgba::NONE,
+            &mut flash_gpu,
+            &render_device,
+            &mut pool,
+            &stamp.filter_msaa,
+            &meshes,
+            &allocator,
+            &mut context,
+            &mut diagnostics.draw_calls,
+        );
+        pool.set_allocation_owner(None);
+        diagnostics.vab_filter_passes = diagnostics.vab_filter_passes.saturating_add(passes);
+        diagnostics.vab_filter_processed_pixels = diagnostics
+            .vab_filter_processed_pixels
+            .saturating_add(pixels);
+        let texture = target
+            .main_scene_bind_group(&render_device, &scene_texture_layout, &pipeline.sampler)
+            .clone();
+        stamp.texture = Some(texture.clone());
+        let bytes = target.main_bytes();
+        let cache_key = FilterCacheKey::Stamp(stamp.key);
+        if filter_cache.reserve(cache_key, bytes, filter_cache_settings.max_bytes) {
+            let persistent = target.into_persistent_main();
+            filter_cache.insert(cache_key, None, persistent, texture, bytes);
+        } else {
+            stamp.target = Some(target);
+        }
+    }
+    for instance in instances.values_mut() {
         for packet in &mut instance.packets {
             let PreparedVabPacket::Layer(packet) = packet else {
                 continue;
             };
-            diagnostics.vab_filter_layers += 1;
+            let count = packet.instances.len();
+            diagnostics.vab_filter_layers += count;
             diagnostics.vab_filter_output_pixels =
                 diagnostics.vab_filter_output_pixels.saturating_add(
-                    (packet.pixel_bounds[2] as u64).saturating_mul(packet.pixel_bounds[3] as u64),
+                    (packet.pixel_bounds[2] as u64)
+                        .saturating_mul(packet.pixel_bounds[3] as u64)
+                        .saturating_mul(count as u64),
                 );
+            if let Some(stamp_idx) = packet.pending_stamp {
+                packet.texture = stamps[stamp_idx].texture.clone();
+                continue;
+            }
             let Some(layer) = packet.layer.as_ref() else {
                 continue;
             };
@@ -1635,29 +2492,17 @@ pub(super) fn render_vab_instance_filters(
             diagnostics.vab_filter_processed_pixels = diagnostics
                 .vab_filter_processed_pixels
                 .saturating_add(pixels);
-            let texture = render_device.create_bind_group(
-                "vab filtered layer texture",
-                &pipeline_cache.get_bind_group_layout(&pipeline.texture_layout),
-                &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::TextureView(target.main_view()),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: BindingResource::Sampler(&pipeline.sampler),
-                    },
-                ],
-            );
+            let texture = target
+                .main_scene_bind_group(&render_device, &scene_texture_layout, &pipeline.sampler)
+                .clone();
             packet.texture = Some(texture.clone());
-            let bytes = u64::from(packet.cache_content.size[0])
-                .saturating_mul(u64::from(packet.cache_content.size[1]))
-                .saturating_mul(4);
-            if filter_cache.reserve(packet.cache_slot, bytes, filter_cache_settings.max_bytes) {
+            let bytes = target.main_bytes();
+            let cache_key = FilterCacheKey::Slot(packet.cache_slot);
+            if filter_cache.reserve(cache_key, bytes, filter_cache_settings.max_bytes) {
                 let persistent = target.into_persistent_main();
                 filter_cache.insert(
-                    packet.cache_slot,
-                    packet.cache_content,
+                    cache_key,
+                    Some(packet.cache_content),
                     persistent,
                     texture,
                     bytes,
@@ -1770,7 +2615,10 @@ fn queue_vab_instances(
                         .specialize(
                             &pipeline_cache,
                             &pipeline,
-                            VabInstancePipelineKey(mesh_key),
+                            VabInstancePipelineKey {
+                                mesh: mesh_key,
+                                blend: draw.blend,
+                            },
                             &mesh.layout,
                         )
                         .ok()
@@ -1930,6 +2778,7 @@ impl RenderCommand<Transparent2d> for DrawVabInstanceCommands {
 
 fn clear_prepared_vab_instances(mut prepared: ResMut<PreparedVabInstances>) {
     prepared.instances.clear();
+    prepared.stamps.clear();
     prepared.draw_bind_group = None;
 }
 
@@ -1997,5 +2846,194 @@ mod clipping_tests {
         let cropped = packet_pixel_bounds([-3104.0, -3104.0, 6208.0, 6208.0], visible).unwrap();
         assert_eq!(cropped, [-34.0, -34.0, 80.0, 80.0]);
         assert!(packet_pixel_bounds([100.0, 100.0, 20.0, 20.0], visible).is_none());
+    }
+
+    fn symbol_layer(
+        placement: vatf::animation::AnimMatrix,
+        filters: Vec<vatf::animation::AnimFilter>,
+    ) -> Op {
+        use super::super::extract::Draw;
+        use vatf::animation::{AnimColorTransform, AnimMatrix, AnimTransform};
+
+        let m_base = placement;
+        let m_accent = anim_mat_mul(
+            placement,
+            AnimMatrix {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                tx: 6.0,
+                ty: -4.0,
+            },
+        );
+        let draw = |mesh_index: u32, matrix: AnimMatrix| {
+            Op::Draw(Draw {
+                mesh: AssetId::Uuid {
+                    uuid: bevy::asset::uuid::Uuid::from_u128(u128::from(mesh_index) + 1),
+                },
+                local_bounds: [-8.0, -8.0, 8.0, 8.0],
+                texture: None,
+                transform: AnimTransform {
+                    matrix,
+                    color_transform: AnimColorTransform::IDENTITY,
+                },
+                uv: Mat4::IDENTITY,
+                kind: 0,
+                gradient: [0.0; 3],
+                ramp_v: 0.0,
+                blend: crate::vab_asset::VabBlendMode::Normal,
+            })
+        };
+        let ops = vec![draw(0, m_base), draw(1, m_accent)];
+        let [x, y, w, h] = op_bounds(&ops);
+        let (fx, fy, fw, fh) = vatf::animation::filter_dest_rect(x, y, w, h, &filters);
+        Op::Layer {
+            ops,
+            bounds: [fx, fy, fw, fh],
+            filters,
+            blend: crate::vab_asset::VabBlendMode::Normal,
+        }
+    }
+
+    #[test]
+    fn stamp_canonicalizes_multi_shape_translation_and_isotropic_rotation() {
+        use vatf::animation::{AnimFilter, AnimGlowFilter, AnimMatrix};
+
+        let glow = vec![AnimFilter::GlowFilter(AnimGlowFilter {
+            flags: 0x21,
+            color_r: 0,
+            color_g: 128,
+            color_b: 255,
+            color_a: 255,
+            blur_x: 9 * 65536,
+            blur_y: 9 * 65536,
+            strength: 256,
+            num_passes: 1,
+        })];
+        let a = symbol_layer(
+            AnimMatrix {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                tx: 10.25,
+                ty: 20.5,
+            },
+            glow.clone(),
+        );
+        let angle = 47.0f32.to_radians();
+        let (sin, cos) = angle.sin_cos();
+        let b = symbol_layer(
+            AnimMatrix {
+                a: cos,
+                b: sin,
+                c: -sin,
+                d: cos,
+                tx: 150.75,
+                ty: -80.25,
+            },
+            glow,
+        );
+        let plan_a = build_filter_stamp_plan(&a, None, 1, 4, gpu::VabFilterQuality::full())
+            .expect("stamp A");
+        let plan_b = build_filter_stamp_plan(&b, None, 1, 4, gpu::VabFilterQuality::full())
+            .expect("stamp B");
+        assert_eq!(plan_a.key, plan_b.key);
+        assert_eq!(plan_a.stamp_pixel_bounds, plan_b.stamp_pixel_bounds);
+    }
+
+    #[test]
+    fn stamp_keeps_directional_drop_shadow_translation_only() {
+        use vatf::animation::{AnimDropShadowFilter, AnimFilter, AnimMatrix};
+
+        let shadow = vec![AnimFilter::DropShadowFilter(AnimDropShadowFilter {
+            flags: 0x21,
+            color_r: 0,
+            color_g: 0,
+            color_b: 0,
+            color_a: 255,
+            blur_x: 5 * 65536,
+            blur_y: 5 * 65536,
+            angle: 0,
+            distance: 6 * 65536,
+            strength: 256,
+            num_passes: 1,
+        })];
+        let a = symbol_layer(
+            AnimMatrix {
+                tx: 10.0,
+                ty: 20.0,
+                ..AnimMatrix::IDENTITY
+            },
+            shadow.clone(),
+        );
+        let b_trans = symbol_layer(
+            AnimMatrix {
+                tx: 90.0,
+                ty: -30.0,
+                ..AnimMatrix::IDENTITY
+            },
+            shadow.clone(),
+        );
+        let b_rot = symbol_layer(
+            AnimMatrix {
+                a: 0.0,
+                b: 1.0,
+                c: -1.0,
+                d: 0.0,
+                tx: 90.0,
+                ty: -30.0,
+            },
+            shadow,
+        );
+        let pa = build_filter_stamp_plan(&a, None, 1, 1, gpu::VabFilterQuality::full()).unwrap();
+        let pt =
+            build_filter_stamp_plan(&b_trans, None, 1, 1, gpu::VabFilterQuality::full()).unwrap();
+        let pr =
+            build_filter_stamp_plan(&b_rot, None, 1, 1, gpu::VabFilterQuality::full()).unwrap();
+        assert_eq!(pa.key, pt.key, "pure translation must reuse shadow stamp");
+        assert_ne!(
+            pa.key, pr.key,
+            "directional shadow must not rotate stamp key"
+        );
+    }
+
+    #[test]
+    fn stamp_octave_scale_reuse_only_when_enabled() {
+        use vatf::animation::{AnimBlurFilter, AnimFilter, AnimMatrix};
+
+        let blur = vec![AnimFilter::BlurFilter(AnimBlurFilter {
+            blur_x: 9 * 65536,
+            blur_y: 9 * 65536,
+            num_passes: 1,
+        })];
+        let full_scale = symbol_layer(AnimMatrix::IDENTITY, blur.clone());
+        let scaled = symbol_layer(
+            AnimMatrix {
+                a: 0.75,
+                b: 0.0,
+                c: 0.0,
+                d: 0.75,
+                tx: 40.0,
+                ty: 10.0,
+            },
+            blur,
+        );
+        let exact_q = gpu::VabFilterQuality::full();
+        let p0 = build_filter_stamp_plan(&full_scale, None, 1, 1, exact_q).unwrap();
+        let p1 = build_filter_stamp_plan(&scaled, None, 1, 1, exact_q).unwrap();
+        assert_ne!(
+            p0.key, p1.key,
+            "default exact quality must keep distinct scale stamps"
+        );
+
+        let particle_q = gpu::VabFilterQuality::full().with_scaled_stamps(true);
+        let q0 = build_filter_stamp_plan(&full_scale, None, 1, 1, particle_q).unwrap();
+        let q1 = build_filter_stamp_plan(&scaled, None, 1, 1, particle_q).unwrap();
+        assert_eq!(
+            q0.key, q1.key,
+            "reuse_scaled_stamps should unify 0.75x and 1.0x into the 1.0x octave stamp"
+        );
     }
 }

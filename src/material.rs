@@ -16,6 +16,8 @@ pub struct GradientMaterial {
     pub gradient: GradientUniformsVab,
     #[uniform(3)]
     pub texture_transform: Mat4,
+    /// Normalized V coordinate inside a packed gradient atlas (`0.0` defaults to `0.5`).
+    pub ramp_v: f32,
 }
 
 #[repr(C)]

@@ -1,8 +1,11 @@
 import bevy_sprite_render::mesh2d::view_bindings::view;
 
 struct Draw {
-    world_from_local: mat4x4<f32>,
-    uv: mat4x4<f32>,
+    world_row0: vec4<f32>,
+    world_row1: vec4<f32>,
+    world_row2: vec4<f32>,
+    uv0: vec4<f32>,
+    uv1: vec4<f32>,
     multiply: vec4<f32>,
     add: vec4<f32>,
     material: vec4<f32>,
@@ -42,6 +45,34 @@ fn encoded_premultiplied_to_output(encoded: vec4<f32>) -> vec4<f32> {
     }
 }
 
+fn transform_local(draw: Draw, pos: vec2<f32>) -> vec4<f32> {
+    let p = vec3(pos, 1.0);
+    return vec4(
+        dot(draw.world_row0.xyz, p),
+        dot(draw.world_row1.xyz, p),
+        dot(draw.world_row2.xyz, p),
+        1.0,
+    );
+}
+
+@if(COMPACT_VERTEX)
+@vertex
+fn vertex(
+    @builtin(instance_index) instance_index: u32,
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec4<f32>
+) -> VertexOutput {
+    var out: VertexOutput;
+    let draw = draws[instance_index];
+    let world = transform_local(draw, position);
+    out.position = view.clip_from_world * world;
+    out.local_position = position;
+    out.color = color;
+    out.instance_index = instance_index;
+    return out;
+}
+
+@if(!COMPACT_VERTEX)
 @vertex
 fn vertex(
     @builtin(instance_index) instance_index: u32,
@@ -50,7 +81,7 @@ fn vertex(
 ) -> VertexOutput {
     var out: VertexOutput;
     let draw = draws[instance_index];
-    let world = draw.world_from_local * vec4(position, 1.0);
+    let world = transform_local(draw, position.xy);
     out.position = view.clip_from_world * world;
     out.local_position = position.xy;
     out.color = color;
@@ -70,7 +101,7 @@ fn vertex_quad(
     let local = positions[vertex_index];
     let draw = draws[instance_index];
     var out: VertexOutput;
-    out.position = view.clip_from_world * draw.world_from_local * vec4(local, 0.0, 1.0);
+    out.position = view.clip_from_world * transform_local(draw, local);
     out.local_position = local;
     out.color = vec4(1.0);
     out.instance_index = instance_index;
@@ -81,15 +112,17 @@ fn vertex_quad(
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Single-mip inputs use explicit LOD because material selection varies by instance.
     let draw = draws[in.instance_index];
-    // The VATF material transform is a 2D affine mat3 embedded in the first
-    // three columns of Mat4. Its translation therefore lives in column 2,
-    // matching the original bevy_flash shaders.
-    let uv_matrix = mat3x3<f32>(draw.uv[0].xyz, draw.uv[1].xyz, draw.uv[2].xyz);
-    let uv = (uv_matrix * vec3(in.local_position, 1.0)).xy;
+    let p = vec3(in.local_position, 1.0);
+    let uv = vec2(dot(draw.uv0.xyz, p), dot(draw.uv1.xyz, p));
     if draw.material.w == 3.0 {
         return encoded_premultiplied_to_output(textureSampleLevel(tex, samp, uv, 0.0));
     }
-    var color = vec4(to_srgb(in.color.rgb), in.color.a);
+    var color: vec4<f32>;
+    @if(COMPACT_VERTEX) {
+        color = in.color;
+    } @else {
+        color = vec4(to_srgb(in.color.rgb), in.color.a);
+    }
     if draw.material.w == 1.0 {
         color = textureSampleLevel(tex, samp, uv, 0.0);
         if color.a > 0.0 {
@@ -113,7 +146,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         } else {
             t = fract(t);
         }
-        color = textureSampleLevel(tex, samp, vec2((t * 255.0 + 0.5) / 256.0, 0.5), 0.0);
+        let ramp_v = select(draw.uv0.w, 0.5, draw.uv0.w == 0.0);
+        color = textureSampleLevel(tex, samp, vec2((t * 255.0 + 0.5) / 256.0, ramp_v), 0.0);
     }
     color = clamp(color * draw.multiply + draw.add, vec4(0.0), vec4(1.0));
     return encoded_premultiplied_to_output(vec4(color.rgb * color.a, color.a));

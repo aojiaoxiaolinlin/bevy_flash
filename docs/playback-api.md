@@ -1,6 +1,6 @@
-# VAB v1 播放接口
+# VAB 播放接口
 
-输入 SWF 的根 MC 必须是动画根。根时间轴中除 `event_` 外的标签都定义动作；编译默认保留根放置平移，显式 NormalizeClipStart 可移除各动作的初始根放置平移。插件已完成加载、离线帧采样、事件、换肤，以及通过 Camera2d/Transparent2d 的实体渲染、遮罩、Blur、Glow 和固定功能混合。
+输入 SWF 的根 MC 必须是动画根。根时间轴中除 `event_` 外的标签都定义动作；编译默认保留根放置平移，显式 NormalizeClipStart 可移除各动作的初始根放置平移。插件已完成加载、离线帧采样、事件、换肤，以及通过 Camera2d/Transparent2d 的实体渲染、遮罩、全部 SWF 滤镜、固定功能混合（含无滤镜非重叠组直绘快路径）和隔离层/离屏目标的 9 种复杂混合。
 
 ## 加载与实例
 
@@ -68,8 +68,8 @@ sample 的 scale 为正的输出像素缩放；几何与滤镜范围使用同一
 - skin 变体静态采样，变体内部普通子 sprite 固定第 0 帧。
 - 同槽名的所有实例共享该实体的同一选择，但不同实体之间不共享选择。
 - set 校验该槽所有符号的变体数量；set_many 失败时保持原选择。
-- VAB 当前仍处于发布前设计阶段，格式版本为 1。运行时文件只保存 BAKD；构建 BAKD 所需的源时间轴是编译器内部数据，不再写入 ANIM 块。
-- 纹理载荷按内容去重；加载时相同载荷范围和采样设置共享 Image。不同采样设置目前仍创建独立 Image。
+- 当前 VAB 格式版本为 **2**（与 crate 版本独立；不再兼容 v1 产物）。运行时文件只保存 `BAKD`（紧凑无损编码）；构建 `BAKD` 所需的源时间轴是编译器内部数据，不再写入 `ANIM` 块。
+- 纹理载荷通过 `TEXD` 索引并按内容去重；每条纹理记录只解码一次（即使采样模式不同，也共享底层解码结果）；256×1 渐变色带合并为 256×N 共享图集。
 - POD chunk 在小端主机直接读取，大端主机明确拒绝；没有声称已实现跨端字节转换。
 - 编译器拒绝交叉遮罩深度区间；常规嵌套遮罩通过池化 alpha 目标执行。
 - 无动作标签使用 default；根时间轴中除 event_ 外的标签都定义动作。anim_ 前缀可选且会从运行时动作名中去掉；第一个动作标签必须在根帧 0。
@@ -86,6 +86,6 @@ commands.spawn((Camera2d, CompositingSpace::Srgb));
 
 这个组件属于相机；`Camera2d` 不会自动插入它。VAB 的网格与隔离层 pipeline 会读取视图的 `ResolvedCompositingSpace` 并使用 Bevy 的 `SRGB_OUTPUT` shader 标记，在 `Rgba8Unorm` 主目标上按编码 sRGB 数值混合，最后由 Bevy 转换到显示表面。没有该组件或显式使用 `CompositingSpace::Linear` 时，VAB 会按 Bevy 默认的线性空间参与场景合成。
 
-Lighten 当前使用 WGPU `BlendOperation::Max` 作为过渡实现，与旧版 `bevy_flash` 一致。它比较预乘 Alpha 的附件颜色，纯不透明区域符合逐通道 Lighten，半透明及抗锯齿边缘与 Flash/Ruffle 的双纹理公式存在已知偏差；隔离边界已保留，后续取得相机颜色输入后可替换为精确实现。
+顶层 `Camera2d` 上的 `Lighten` 当前使用 WGPU `BlendOperation::Max` 作为固定功能近似，与旧版 `bevy_flash` 一致。它比较预乘 Alpha 的附件颜色，纯不透明区域符合逐通道 Lighten，半透明及抗锯齿边缘与 Flash/Ruffle 的双纹理公式存在已知偏差；而在嵌套隔离层及离屏/UI 目标内，已通过 `complex_blend.wesl` 实现精确的 Flash `Lighten` 与其余 8 种复杂混合模式。无滤镜且子网格互不重叠的 `Add`/`Subtract`/`Screen`（及顶层 `Lighten`）组会自动走直绘快路径以省去中间纹理。
 
 Flash/Ruffle 的私有工作画布同样使用 `Rgba8Unorm`，在编码 sRGB 数值上执行位图颜色变换、滤镜和混合。本插件的滤镜与隔离层遵循该行为。`CompositingSpace::Srgb` 已覆盖普通透明、Add、Subtract、Screen 以及当前 Lighten Max 近似的相机级 gamma-space 合成；它不会提供可采样的目标颜色，因此精确 Lighten 及 Multiply、Overlay 等复杂双纹理公式仍需 Bevy 提供屏幕纹理或由插件接管相机中间目标。

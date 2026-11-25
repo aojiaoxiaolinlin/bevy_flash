@@ -5,21 +5,21 @@ use anyhow::{Context, Result, bail};
 use bevy::camera::visibility::{VisibilityClass, add_visibility_class};
 use bevy::{
     asset::{Asset, AssetLoader, Handle, LoadContext, RenderAssetUsages, io::Reader},
-    color::Color,
     ecs::component::Component,
     image::{Image, ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     math::{Mat3, Mat4, Vec3},
-    mesh::{Indices, Mesh, PrimitiveTopology},
+    mesh::{Indices, Mesh, MeshVertexAttribute, PrimitiveTopology, VertexAttributeValues},
     platform::collections::HashMap,
     prelude::{Transform, Visibility},
     reflect::TypePath,
     render::{
         extract_component::ExtractComponent,
-        render_resource::{Extent3d, TextureDimension, TextureFormat},
+        render_resource::{Extent3d, TextureDimension, TextureFormat, VertexFormat},
     },
 };
 use vatf::{
-    animation::{AnimFilter, AnimTransform},
+    animation::{AnimFilter, AnimMatrix, AnimTransform, filter_dest_rect},
+    baked::BakedNode,
     reader::VabReader,
 };
 
@@ -30,6 +30,14 @@ pub const ROOT_SPRITE_ID: u16 = 0;
 
 /// Frame rate assumed when a VAB carries no usable frame rate.
 pub const DEFAULT_FRAME_RATE: f32 = 30.0;
+
+/// Compact 2D local position attribute (`Float32x2`) emitted by [`VabLoader`].
+pub const ATTRIBUTE_VAB_POSITION: MeshVertexAttribute =
+    MeshVertexAttribute::new("Vab_Position", 988_540_917, VertexFormat::Float32x2);
+
+/// Compact encoded-sRGB vertex color attribute (`Unorm8x4`) emitted by [`VabLoader`].
+pub const ATTRIBUTE_VAB_COLOR_SRGB: MeshVertexAttribute =
+    MeshVertexAttribute::new("Vab_ColorSrgb", 988_540_918, VertexFormat::Unorm8x4);
 
 // ===========================================================================
 // Render command types — mirroring swf_player's CommandList architecture
@@ -224,6 +232,167 @@ impl VabAsset {
         }
         CommandList::default()
     }
+
+    /// Conservative union bounds `[x, y, width, height]` in Flash local pixels
+    /// across all frames (and all skin variants) of `clip`, including filter expansion.
+    pub fn clip_bounds(&self, clip: usize) -> Option<[f32; 4]> {
+        let clip = self.baked.clips.get(clip)?;
+        let mut bounds = [
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        ];
+        for frame in &clip.frames {
+            accumulate_baked_bounds(self, frame, AnimMatrix::IDENTITY, &mut bounds, 0);
+        }
+        bounds_to_rect(bounds)
+    }
+
+    /// Conservative union bounds `[x, y, width, height]` in Flash local pixels
+    /// across all clips and skin variants in this asset, including filter expansion.
+    pub fn content_bounds(&self) -> Option<[f32; 4]> {
+        let mut bounds = [
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        ];
+        for clip in &self.baked.clips {
+            for frame in &clip.frames {
+                accumulate_baked_bounds(self, frame, AnimMatrix::IDENTITY, &mut bounds, 0);
+            }
+        }
+        bounds_to_rect(bounds)
+    }
+}
+
+fn bounds_to_rect(bounds: [f32; 4]) -> Option<[f32; 4]> {
+    if !bounds.iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    Some([
+        bounds[0],
+        bounds[1],
+        (bounds[2] - bounds[0]).max(0.0),
+        (bounds[3] - bounds[1]).max(0.0),
+    ])
+}
+
+fn union_rect(bounds: &mut [f32; 4], rect: [f32; 4]) {
+    if rect.iter().all(|v| v.is_finite()) {
+        bounds[0] = bounds[0].min(rect[0]);
+        bounds[1] = bounds[1].min(rect[1]);
+        bounds[2] = bounds[2].max(rect[0] + rect[2]);
+        bounds[3] = bounds[3].max(rect[1] + rect[3]);
+    }
+}
+
+fn accumulate_baked_bounds(
+    asset: &VabAsset,
+    nodes: &[BakedNode],
+    parent: AnimMatrix,
+    bounds: &mut [f32; 4],
+    depth: usize,
+) {
+    if depth >= 128 {
+        return;
+    }
+    for node in nodes {
+        match node {
+            BakedNode::Shape {
+                id,
+                ratio,
+                transform,
+            } => {
+                let Some(handles) = asset
+                    .shape_map
+                    .get(id)
+                    .or_else(|| asset.morph_map.get(&(*id, *ratio)))
+                else {
+                    continue;
+                };
+                let matrix = parent * transform.matrix;
+                for &handle in handles {
+                    let Some(render_mesh) = asset.render_meshes.get(handle) else {
+                        continue;
+                    };
+                    let local_bounds = &render_mesh.local_bounds;
+                    for [local_x, local_y] in [
+                        [local_bounds[0], local_bounds[1]],
+                        [local_bounds[0], local_bounds[3]],
+                        [local_bounds[2], local_bounds[1]],
+                        [local_bounds[2], local_bounds[3]],
+                    ] {
+                        let world_x = matrix.a * local_x + matrix.c * local_y + matrix.tx;
+                        let world_y = matrix.b * local_x + matrix.d * local_y + matrix.ty;
+                        bounds[0] = bounds[0].min(world_x);
+                        bounds[1] = bounds[1].min(world_y);
+                        bounds[2] = bounds[2].max(world_x);
+                        bounds[3] = bounds[3].max(world_y);
+                    }
+                }
+            }
+            BakedNode::Skin {
+                symbol, transform, ..
+            } => {
+                let Some(skin) = asset.baked.skins.iter().find(|s| s.symbol == *symbol) else {
+                    continue;
+                };
+                let matrix = parent * transform.matrix;
+                for variant in &skin.variants {
+                    accumulate_baked_bounds(asset, &variant.nodes, matrix, bounds, depth + 1);
+                }
+            }
+            BakedNode::Group {
+                children, filters, ..
+            } => {
+                let active: Vec<_> = filters.iter().filter(|f| !f.impotent()).cloned().collect();
+                if active.is_empty() {
+                    accumulate_baked_bounds(asset, children, parent, bounds, depth + 1);
+                } else {
+                    let mut child_bounds = [
+                        f32::INFINITY,
+                        f32::INFINITY,
+                        f32::NEG_INFINITY,
+                        f32::NEG_INFINITY,
+                    ];
+                    accumulate_baked_bounds(asset, children, parent, &mut child_bounds, depth + 1);
+                    if let Some([x, y, w, h]) = bounds_to_rect(child_bounds) {
+                        let (fx, fy, fw, fh) = filter_dest_rect(x, y, w.ceil(), h.ceil(), &active);
+                        union_rect(bounds, [fx, fy, fw, fh]);
+                    }
+                }
+            }
+            BakedNode::Mask { mask, children } => {
+                let mut mask_bounds = [
+                    f32::INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NEG_INFINITY,
+                ];
+                let mut child_bounds = [
+                    f32::INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NEG_INFINITY,
+                ];
+                accumulate_baked_bounds(asset, mask, parent, &mut mask_bounds, depth + 1);
+                accumulate_baked_bounds(asset, children, parent, &mut child_bounds, depth + 1);
+                if let (Some(a), Some(b)) =
+                    (bounds_to_rect(mask_bounds), bounds_to_rect(child_bounds))
+                {
+                    let x = a[0].max(b[0]);
+                    let y = a[1].max(b[1]);
+                    let right = (a[0] + a[2]).min(b[0] + b[2]);
+                    let bottom = (a[1] + a[3]).min(b[1] + b[3]);
+                    if right > x && bottom > y {
+                        union_rect(bounds, [x, y, right - x, bottom - y]);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Compute the transformed AABB of all meshes reachable from `commands`,
@@ -337,7 +506,8 @@ impl AssetLoader for VabLoader {
         let vab = VabReader::from_bytes(&data)?;
 
         let vertices = vab.vertices().context("VAB is missing the VERT chunk")?;
-        let indices = vab.indices().context("VAB is missing the INDX chunk")?;
+        let indices_u32 = vab.indices().context("VAB is missing the INDX chunk")?;
+        let indices_u16 = vab.indices_u16().context("VAB is missing the IND2 chunk")?;
         let shape_meshes = vab
             .shape_meshes()
             .context("VAB is missing the SHME chunk")?;
@@ -347,6 +517,9 @@ impl AssetLoader for VabLoader {
         let bitmap_uniforms = vab
             .bitmap_uniforms()
             .context("VAB is missing the BMAP chunk")?;
+        let texture_records = vab
+            .texture_records()
+            .context("VAB is missing the TEXD chunk")?;
         let texture_bytes = vab
             .texture_data()
             .context("VAB is missing the TEXT chunk")?;
@@ -357,95 +530,121 @@ impl AssetLoader for VabLoader {
             .morph_entries()
             .context("VAB is missing the MORP chunk")?;
 
+        // Cache decoded RGBA payloads per TEXD index so each embedded image is
+        // WebP-decoded at most once even if referenced with multiple sampler modes.
+        let mut decoded_textures: HashMap<u32, (u32, u32, Vec<u8>)> = HashMap::new();
+
+        // Pack all 256×1 gradient ramps into shared 256×N atlas pages to avoid
+        // creating hundreds of separate 256×1 GPU textures and bind groups.
+        let gradient_atlas = build_gradient_atlas(
+            load_context,
+            shape_meshes,
+            texture_records,
+            texture_bytes,
+            &mut decoded_textures,
+        )?;
+
         // One `RenderMeshGroup` per VAB ShapeMesh, in file order — `ShapeHandle`
         // is a positional index into `render_meshes`, so a mesh may never be
         // skipped silently.
         let mut render_meshes = Vec::with_capacity(shape_meshes.len());
         let mut textures = HashMap::new();
         for (mesh_index, shape_mesh) in shape_meshes.iter().enumerate() {
-            let mesh = build_mesh(vertices, indices, shape_mesh, mesh_index)?;
+            let mesh = build_mesh(vertices, indices_u32, indices_u16, shape_mesh, mesh_index)?;
 
-            let material =
-                match shape_mesh.material_type {
-                    vatf::material::COLOR => MeshMaterial::Color,
-                    vatf::material::GRADIENT => {
-                        let gradient_uniforms = gradient_uniforms
-                            .get(shape_mesh.material_offset as usize)
-                            .with_context(|| {
-                                format!(
-                                    "mesh {mesh_index}: GRAD index {} out of range ({} entries)",
-                                    shape_mesh.material_offset,
-                                    gradient_uniforms.len(),
-                                )
-                            })?;
-                        let texture_handle = load_shared_texture(
-                            load_context,
-                            &mut textures,
-                            texture_bytes,
-                            shape_mesh,
-                            mesh_index,
-                            1,
-                        )?;
-
-                        let gradient_material = GradientMaterial {
-                            texture: texture_handle,
-                            gradient: GradientUniformsVab::from_vab(gradient_uniforms),
-                            texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&[
-                                [
-                                    gradient_uniforms.texture_transform[0],
-                                    gradient_uniforms.texture_transform[1],
-                                    0.0,
-                                ],
-                                [
-                                    gradient_uniforms.texture_transform[2],
-                                    gradient_uniforms.texture_transform[3],
-                                    0.0,
-                                ],
-                                [
-                                    gradient_uniforms.texture_transform[4],
-                                    gradient_uniforms.texture_transform[5],
-                                    1.0,
-                                ],
-                            ])),
+            let material = match shape_mesh.material_type {
+                vatf::material::COLOR => MeshMaterial::Color,
+                vatf::material::GRADIENT => {
+                    let gradient_uniforms = gradient_uniforms
+                        .get(shape_mesh.material_offset as usize)
+                        .with_context(|| {
+                            format!(
+                                "mesh {mesh_index}: GRAD index {} out of range ({} entries)",
+                                shape_mesh.material_offset,
+                                gradient_uniforms.len(),
+                            )
+                        })?;
+                    let (texture_handle, ramp_v) =
+                        if let Some((handle, v)) = gradient_atlas.get(&shape_mesh.texture_index) {
+                            (handle.clone(), *v)
+                        } else {
+                            let handle = load_shared_texture(
+                                load_context,
+                                &mut textures,
+                                &mut decoded_textures,
+                                texture_records,
+                                texture_bytes,
+                                shape_mesh,
+                                mesh_index,
+                                1,
+                            )?;
+                            (handle, 0.5)
                         };
-                        MeshMaterial::Gradient(load_context.add_labeled_asset(
+
+                    let gradient_material = GradientMaterial {
+                        texture: texture_handle,
+                        gradient: GradientUniformsVab::from_vab(gradient_uniforms),
+                        texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&[
+                            [
+                                gradient_uniforms.texture_transform[0],
+                                gradient_uniforms.texture_transform[1],
+                                0.0,
+                            ],
+                            [
+                                gradient_uniforms.texture_transform[2],
+                                gradient_uniforms.texture_transform[3],
+                                0.0,
+                            ],
+                            [
+                                gradient_uniforms.texture_transform[4],
+                                gradient_uniforms.texture_transform[5],
+                                1.0,
+                            ],
+                        ])),
+                        ramp_v,
+                    };
+                    MeshMaterial::Gradient(
+                        load_context.add_labeled_asset(
                             format!("__vab/gmat_{mesh_index}"),
                             gradient_material,
-                        ))
-                    }
-                    vatf::material::BITMAP => {
-                        let bitmap_uniforms = bitmap_uniforms
-                            .get(shape_mesh.material_offset as usize)
-                            .with_context(|| {
-                                format!(
-                                    "mesh {mesh_index}: BMAP index {} out of range ({} entries)",
-                                    shape_mesh.material_offset,
-                                    bitmap_uniforms.len(),
-                                )
-                            })?;
-                        let texture_handle = load_shared_texture(
-                            load_context,
-                            &mut textures,
-                            texture_bytes,
-                            shape_mesh,
-                            mesh_index,
-                            shape_mesh.sampler_flags,
-                        )?;
+                        ),
+                    )
+                }
+                vatf::material::BITMAP => {
+                    let bitmap_uniforms = bitmap_uniforms
+                        .get(shape_mesh.material_offset as usize)
+                        .with_context(|| {
+                            format!(
+                                "mesh {mesh_index}: BMAP index {} out of range ({} entries)",
+                                shape_mesh.material_offset,
+                                bitmap_uniforms.len(),
+                            )
+                        })?;
+                    let texture_handle = load_shared_texture(
+                        load_context,
+                        &mut textures,
+                        &mut decoded_textures,
+                        texture_records,
+                        texture_bytes,
+                        shape_mesh,
+                        mesh_index,
+                        shape_mesh.sampler_flags,
+                    )?;
 
-                        MeshMaterial::Bitmap(load_context.add_labeled_asset(
-                            format!("__vab/bmat_{mesh_index}"),
-                            BitmapMaterial {
-                                texture: texture_handle,
-                                texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&[
-                                    [bitmap_uniforms[0], bitmap_uniforms[1], 0.0],
-                                    [bitmap_uniforms[2], bitmap_uniforms[3], 0.0],
-                                    [bitmap_uniforms[4], bitmap_uniforms[5], 1.0],
-                                ])),
-                            },
-                        ))
-                    }
-                    other => bail!("mesh {mesh_index}: unknown material type {other}"),
-                };
+                    MeshMaterial::Bitmap(load_context.add_labeled_asset(
+                        format!("__vab/bmat_{mesh_index}"),
+                        BitmapMaterial {
+                            texture: texture_handle,
+                            texture_transform: Mat4::from_mat3(Mat3::from_cols_array_2d(&[
+                                [bitmap_uniforms[0], bitmap_uniforms[1], 0.0],
+                                [bitmap_uniforms[2], bitmap_uniforms[3], 0.0],
+                                [bitmap_uniforms[4], bitmap_uniforms[5], 1.0],
+                            ])),
+                        },
+                    ))
+                }
+                other => bail!("mesh {mesh_index}: unknown material type {other}"),
+            };
 
             render_meshes.push(RenderMeshGroup {
                 mesh: load_context.add_labeled_asset(format!("__vab/mesh_{mesh_index}"), mesh),
@@ -550,14 +749,19 @@ fn build_mesh_lookup(
 /// Dequantises one VAB ShapeMesh into a Bevy `Mesh`.
 fn build_mesh(
     vertices: &[vatf::Vertex],
-    indices: &[u32],
+    indices_u32: &[u32],
+    indices_u16: &[u16],
     shape_mesh: &vatf::ShapeMesh,
     mesh_index: usize,
 ) -> Result<Mesh> {
     let vertex_start = shape_mesh.vertex_offset as usize;
-    let vertex_end = vertex_start + shape_mesh.vertex_count as usize;
+    let vertex_end = vertex_start
+        .checked_add(shape_mesh.vertex_count as usize)
+        .with_context(|| format!("mesh {mesh_index}: vertex range overflow"))?;
     let index_start = shape_mesh.index_offset as usize;
-    let index_end = index_start + shape_mesh.index_count as usize;
+    let index_end = index_start
+        .checked_add(shape_mesh.index_count as usize)
+        .with_context(|| format!("mesh {mesh_index}: index range overflow"))?;
 
     let vertex_slice = vertices.get(vertex_start..vertex_end).with_context(|| {
         format!(
@@ -565,41 +769,62 @@ fn build_mesh(
             vertices.len(),
         )
     })?;
-    let index_slice = indices.get(index_start..index_end).with_context(|| {
-        format!(
-            "mesh {mesh_index}: index range {index_start}..{index_end} out of bounds ({} indices)",
-            indices.len(),
-        )
-    })?;
-    if index_slice.len() % 3 != 0
-        || index_slice
-            .iter()
-            .any(|i| *i as usize >= vertex_slice.len())
-    {
-        bail!("mesh {mesh_index}: invalid triangle indices");
-    }
 
-    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(vertex_slice.len());
-    let mut colors: Vec<[f32; 4]> = Vec::with_capacity(vertex_slice.len());
+    let mesh_indices = match shape_mesh.index_format {
+        vatf::index_format::U16 => {
+            let index_slice = indices_u16.get(index_start..index_end).with_context(|| {
+                format!(
+                    "mesh {mesh_index}: u16 index range {index_start}..{index_end} out of bounds ({} indices)",
+                    indices_u16.len(),
+                )
+            })?;
+            if index_slice.len() % 3 != 0
+                || index_slice
+                    .iter()
+                    .any(|i| *i as usize >= vertex_slice.len())
+            {
+                bail!("mesh {mesh_index}: invalid triangle indices");
+            }
+            Indices::U16(index_slice.to_vec())
+        }
+        vatf::index_format::U32 => {
+            let index_slice = indices_u32.get(index_start..index_end).with_context(|| {
+                format!(
+                    "mesh {mesh_index}: u32 index range {index_start}..{index_end} out of bounds ({} indices)",
+                    indices_u32.len(),
+                )
+            })?;
+            if index_slice.len() % 3 != 0
+                || index_slice
+                    .iter()
+                    .any(|i| *i as usize >= vertex_slice.len())
+            {
+                bail!("mesh {mesh_index}: invalid triangle indices");
+            }
+            if vertex_slice.len() <= u16::MAX as usize {
+                Indices::U16(index_slice.iter().map(|&i| i as u16).collect())
+            } else {
+                Indices::U32(index_slice.to_vec())
+            }
+        }
+        other => bail!("mesh {mesh_index}: unknown index format {other}"),
+    };
+
+    let mut positions: Vec<[f32; 2]> = Vec::with_capacity(vertex_slice.len());
+    let mut colors: Vec<[u8; 4]> = Vec::with_capacity(vertex_slice.len());
     for vertex in vertex_slice {
         let local_x =
             vertex.x as f32 / 32767.0 * shape_mesh.bounds_half_x + shape_mesh.bounds_center_x;
         let local_y =
             vertex.y as f32 / 32767.0 * shape_mesh.bounds_half_y + shape_mesh.bounds_center_y;
-        positions.push([local_x, local_y, 0.0]);
-        // Vertex colours are stored as sRGB bytes; Bevy expects linear.
-        let linear_color = Color::srgba_u8(
+        positions.push([local_x, local_y]);
+        // Keep encoded sRGB bytes directly in Unorm8x4; VAB shaders work in encoded
+        // sRGB space and avoid per-fragment linear→sRGB conversion.
+        colors.push([
             vertex.color.r,
             vertex.color.g,
             vertex.color.b,
             vertex.color.a,
-        )
-        .to_linear();
-        colors.push([
-            linear_color.red,
-            linear_color.green,
-            linear_color.blue,
-            linear_color.alpha,
         ]);
     }
 
@@ -607,9 +832,12 @@ fn build_mesh(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::RENDER_WORLD,
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
-    .with_inserted_indices(Indices::U32(index_slice.to_vec())))
+    .with_inserted_attribute(ATTRIBUTE_VAB_POSITION, positions)
+    .with_inserted_attribute(
+        ATTRIBUTE_VAB_COLOR_SRGB,
+        VertexAttributeValues::Unorm8x4(colors),
+    )
+    .with_inserted_indices(mesh_indices))
 }
 
 /// Computes a mesh's local-space AABB `[x_min, y_min, x_max, y_max]`.
@@ -650,15 +878,25 @@ fn local_bounds(
     Ok(bounds)
 }
 
-/// Decodes the WebP texture slice referenced by a ShapeMesh.
-fn decode_texture(
+/// Decodes a texture record from `TEXD`/`TEXT` into raw RGBA8 bytes.
+fn decode_texture_record(
+    texture_records: &[vatf::TextureRecord],
     texture_bytes: &[u8],
-    texture_offset: u32,
-    texture_length: u32,
+    texture_index: u32,
     mesh_index: usize,
-) -> Result<Image> {
-    let start = texture_offset as usize;
-    let end = start + texture_length as usize;
+) -> Result<(u32, u32, Vec<u8>)> {
+    let record = texture_records
+        .get(texture_index as usize)
+        .with_context(|| {
+            format!(
+                "mesh {mesh_index}: texture index {texture_index} out of bounds ({} records)",
+                texture_records.len(),
+            )
+        })?;
+    let start = record.offset as usize;
+    let end = start
+        .checked_add(record.length as usize)
+        .with_context(|| format!("mesh {mesh_index}: texture range overflow"))?;
     let data = texture_bytes.get(start..end).with_context(|| {
         format!(
             "mesh {mesh_index}: texture range {start}..{end} out of bounds ({} bytes)",
@@ -666,31 +904,105 @@ fn decode_texture(
         )
     })?;
 
-    let decoded = image::load_from_memory(data)
-        .with_context(|| format!("mesh {mesh_index}: failed to decode texture"))?;
-    let rgba = decoded.to_rgba8();
-    let (width, height) = rgba.dimensions();
-
-    Ok(Image::new(
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        rgba.into_raw(),
-        // VATF bitmap payloads are premultiplied in encoded sRGB. The custom
-        // shader unpremultiplies and applies Flash color transforms before linearizing.
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    ))
+    match record.encoding {
+        vatf::texture_encoding::WEBP => {
+            let decoded = image::load_from_memory(data)
+                .with_context(|| format!("mesh {mesh_index}: failed to decode texture"))?;
+            let rgba = decoded.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            Ok((width, height, rgba.into_raw()))
+        }
+        vatf::texture_encoding::RAW_RGBA8 => {
+            let width = u32::from(record.width);
+            let height = u32::from(record.height);
+            let expected = (width as usize)
+                .checked_mul(height as usize)
+                .and_then(|n| n.checked_mul(4))
+                .with_context(|| format!("mesh {mesh_index}: raw texture size overflow"))?;
+            if data.len() != expected {
+                bail!(
+                    "mesh {mesh_index}: raw RGBA8 texture length {} != expected {expected}",
+                    data.len()
+                );
+            }
+            Ok((width, height, data.to_vec()))
+        }
+        other => bail!("mesh {mesh_index}: unknown texture encoding {other}"),
+    }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────
+const GRADIENT_RAMP_WIDTH: u32 = 256;
+const MAX_GRADIENT_ATLAS_ROWS: usize = 2048;
 
+/// Decodes unique 256×1 gradient ramps and packs them into shared 256×N textures.
+fn build_gradient_atlas(
+    context: &mut LoadContext,
+    shape_meshes: &[vatf::ShapeMesh],
+    texture_records: &[vatf::TextureRecord],
+    texture_bytes: &[u8],
+    decoded_textures: &mut HashMap<u32, (u32, u32, Vec<u8>)>,
+) -> Result<HashMap<u32, (Handle<Image>, f32)>> {
+    let mut seen = HashMap::<u32, usize>::new();
+    let mut rows: Vec<(u32, Vec<u8>)> = Vec::new();
+    for (mesh_index, shape_mesh) in shape_meshes.iter().enumerate() {
+        if shape_mesh.material_type != vatf::material::GRADIENT {
+            continue;
+        }
+        let tex_idx = shape_mesh.texture_index;
+        if seen.contains_key(&tex_idx) {
+            continue;
+        }
+        let (width, height, rgba) =
+            decode_texture_record(texture_records, texture_bytes, tex_idx, mesh_index)?;
+        if (width, height) == (GRADIENT_RAMP_WIDTH, 1) {
+            seen.insert(tex_idx, rows.len());
+            rows.push((tex_idx, rgba));
+        } else {
+            decoded_textures
+                .entry(tex_idx)
+                .or_insert((width, height, rgba));
+        }
+    }
+    let mut result = HashMap::with_capacity(rows.len());
+    for (page_index, chunk) in rows.chunks(MAX_GRADIENT_ATLAS_ROWS).enumerate() {
+        let height = chunk.len() as u32;
+        let mut pixels = Vec::with_capacity(GRADIENT_RAMP_WIDTH as usize * chunk.len() * 4);
+        for (_, row_bytes) in chunk {
+            pixels.extend_from_slice(row_bytes);
+        }
+        let mut image = Image::new(
+            Extent3d {
+                width: GRADIENT_RAMP_WIDTH,
+                height,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            pixels,
+            TextureFormat::Rgba8Unorm,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: ImageAddressMode::ClampToEdge,
+            address_mode_v: ImageAddressMode::ClampToEdge,
+            mag_filter: ImageFilterMode::Linear,
+            min_filter: ImageFilterMode::Linear,
+            ..Default::default()
+        });
+        let handle = context.add_labeled_asset(format!("__vab/gradient_atlas_{page_index}"), image);
+        for (row_index, (tex_idx, _)) in chunk.iter().enumerate() {
+            let v = (row_index as f32 + 0.5) / height as f32;
+            result.insert(*tex_idx, (handle.clone(), v));
+        }
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn load_shared_texture(
     context: &mut LoadContext,
-    cache: &mut HashMap<(u32, u32, u16), Handle<Image>>,
+    cache: &mut HashMap<(u32, u16), Handle<Image>>,
+    decoded_textures: &mut HashMap<u32, (u32, u32, Vec<u8>)>,
+    texture_records: &[vatf::TextureRecord],
     bytes: &[u8],
     mesh: &vatf::ShapeMesh,
     index: usize,
@@ -699,11 +1011,30 @@ fn load_shared_texture(
     if flags > 3 {
         bail!("mesh {index}: unknown sampler flags {flags}");
     }
-    let key = (mesh.texture_offset, mesh.texture_length, flags);
+    let key = (mesh.texture_index, flags);
     if let Some(handle) = cache.get(&key) {
         return Ok(handle.clone());
     }
-    let mut image = decode_texture(bytes, key.0, key.1, index)?;
+    let (width, height, rgba) = if let Some(cached) = decoded_textures.get(&mesh.texture_index) {
+        cached
+    } else {
+        let decoded = decode_texture_record(texture_records, bytes, mesh.texture_index, index)?;
+        decoded_textures.insert(mesh.texture_index, decoded);
+        &decoded_textures[&mesh.texture_index]
+    };
+    let mut image = Image::new(
+        Extent3d {
+            width: *width,
+            height: *height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        rgba.clone(),
+        // VATF bitmap payloads are premultiplied in encoded sRGB. The custom
+        // shader unpremultiplies and applies Flash color transforms before linearizing.
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
     let address = if flags & 2 != 0 {
         ImageAddressMode::Repeat
     } else {
@@ -721,10 +1052,7 @@ fn load_shared_texture(
         min_filter: filter,
         ..Default::default()
     });
-    let handle = context.add_labeled_asset(
-        format!("__vab/texture_{}_{}_{}", key.0, key.1, key.2),
-        image,
-    );
+    let handle = context.add_labeled_asset(format!("__vab/texture_{}_{}", key.0, key.1), image);
     cache.insert(key, handle.clone());
     Ok(handle)
 }
@@ -773,34 +1101,120 @@ mod tests {
     #[test]
     fn vertex_positions_dequantize_against_bounds() {
         let (vertices, indices) = triangle();
-        let mesh = build_mesh(&vertices, &indices, &triangle_shape_mesh(), 0).unwrap();
+        let mesh = build_mesh(&vertices, &indices, &[], &triangle_shape_mesh(), 0).unwrap();
 
-        let Some(VertexAttributeValues::Float32x3(positions)) =
-            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        let Some(VertexAttributeValues::Float32x2(positions)) =
+            mesh.attribute(ATTRIBUTE_VAB_POSITION)
         else {
-            panic!("expected Float32x3 positions");
+            panic!("expected Float32x2 compact positions");
         };
-        assert_eq!(positions[0], [0.0, 0.0, 0.0]);
-        assert_eq!(positions[1], [50.0, 0.0, 0.0]);
-        assert_eq!(positions[2], [0.0, 50.0, 0.0]);
+        assert_eq!(positions[0], [0.0, 0.0]);
+        assert_eq!(positions[1], [50.0, 0.0]);
+        assert_eq!(positions[2], [0.0, 50.0]);
+        assert!(
+            matches!(mesh.indices(), Some(Indices::U16(idx)) if idx == &[0, 1, 2]),
+            "meshes under 65536 vertices must use U16 indices"
+        );
     }
 
     #[test]
-    fn vertex_colors_are_linearized() {
-        let (vertices, indices) = triangle();
-        let mesh = build_mesh(&vertices, &indices, &triangle_shape_mesh(), 0).unwrap();
+    fn vertex_colors_stay_encoded_srgb_unorm8() {
+        let (vertices, _) = triangle();
+        let mut shape_mesh = triangle_shape_mesh();
+        shape_mesh.index_format = vatf::index_format::U16;
+        let mesh = build_mesh(&vertices, &[], &[0u16, 1, 2], &shape_mesh, 0).unwrap();
 
-        let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        let Some(VertexAttributeValues::Unorm8x4(colors)) =
+            mesh.attribute(ATTRIBUTE_VAB_COLOR_SRGB)
         else {
-            panic!("expected Float32x4 colors");
+            panic!("expected Unorm8x4 encoded sRGB colors");
         };
-        assert_eq!(colors[0], [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(colors[0], [255, 255, 255, 255]);
+        assert_eq!(colors[1], [128, 128, 128, 255]);
+        assert_eq!(colors[2], [0, 0, 0, 0]);
+        assert!(matches!(mesh.indices(), Some(Indices::U16(idx)) if idx == &[0, 1, 2]));
+    }
+
+    #[test]
+    fn clip_and_content_bounds_include_skins_and_filters() {
+        use vatf::animation::AnimBlurFilter;
+        use vatf::baked::{BakedClip, BakedMovie, BakedSkin, BakedSkinVariant};
+
+        let asset = VabAsset {
+            baked: BakedMovie {
+                frame_rate: 30.0,
+                clips: vec![BakedClip {
+                    name: "idle".into(),
+                    start_frame: 0,
+                    events: vec![],
+                    frames: vec![vec![
+                        BakedNode::Group {
+                            children: vec![BakedNode::Shape {
+                                id: 1,
+                                ratio: 0,
+                                transform: AnimTransform::default(),
+                            }],
+                            filters: vec![AnimFilter::BlurFilter(AnimBlurFilter {
+                                blur_x: 9 * 65536,
+                                blur_y: 9 * 65536,
+                                num_passes: 1,
+                            })],
+                            blend_mode: 0,
+                        },
+                        BakedNode::Skin {
+                            slot: "weapon".into(),
+                            symbol: 10,
+                            transform: AnimTransform::default(),
+                        },
+                    ]],
+                }],
+                skins: vec![BakedSkin {
+                    symbol: 10,
+                    variants: vec![
+                        BakedSkinVariant {
+                            name: "short".into(),
+                            nodes: vec![BakedNode::Shape {
+                                id: 1,
+                                ratio: 0,
+                                transform: AnimTransform::default(),
+                            }],
+                        },
+                        BakedSkinVariant {
+                            name: "long".into(),
+                            nodes: vec![BakedNode::Shape {
+                                id: 2,
+                                ratio: 0,
+                                transform: AnimTransform::default(),
+                            }],
+                        },
+                    ],
+                }],
+            },
+            shape_map: [(1, vec![0]), (2, vec![1])].into(),
+            morph_map: HashMap::default(),
+            render_meshes: vec![
+                RenderMeshGroup {
+                    mesh: Handle::default(),
+                    material: MeshMaterial::Color,
+                    local_bounds: [0.0, 0.0, 10.0, 10.0],
+                },
+                RenderMeshGroup {
+                    mesh: Handle::default(),
+                    material: MeshMaterial::Color,
+                    local_bounds: [0.0, 0.0, 100.0, 20.0],
+                },
+            ],
+        };
+        let bounds = asset.clip_bounds(0).expect("clip bounds");
         assert!(
-            (colors[1][0] - 0.215_860_8).abs() < 1e-5,
-            "mid grey must be linearized, got {}",
-            colors[1][0],
+            bounds[0] < 0.0,
+            "blur filter should expand min_x: {bounds:?}"
         );
-        assert_eq!(colors[2], [0.0, 0.0, 0.0, 0.0]);
+        assert!(
+            bounds[0] + bounds[2] >= 100.0,
+            "skin variant 'long' should be included: {bounds:?}"
+        );
+        assert_eq!(asset.content_bounds(), Some(bounds));
     }
 
     #[test]
@@ -810,7 +1224,7 @@ mod tests {
         shape_mesh.vertex_count = 9;
         shape_mesh.vertex_offset = 2;
 
-        let error = build_mesh(&vertices, &indices, &shape_mesh, 7).unwrap_err();
+        let error = build_mesh(&vertices, &indices, &[], &shape_mesh, 7).unwrap_err();
         let message = error.to_string();
         assert!(
             message.contains("mesh 7"),
@@ -824,7 +1238,15 @@ mod tests {
 
     #[test]
     fn decode_texture_rejects_out_of_range_slice() {
-        let error = decode_texture(&[0u8; 4], 2, 100, 3).unwrap_err();
+        let records = [vatf::TextureRecord {
+            offset: 2,
+            length: 100,
+            width: 1,
+            height: 1,
+            encoding: vatf::texture_encoding::WEBP,
+            _pad: [0; 3],
+        }];
+        let error = decode_texture_record(&records, &[0u8; 4], 0, 3).unwrap_err();
         assert!(
             error.to_string().contains("mesh 3"),
             "error must name the mesh: {error}",

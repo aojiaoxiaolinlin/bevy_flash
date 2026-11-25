@@ -908,3 +908,59 @@ fn background551284_export_animates_and_renders() {
         "child animations did not change the rendered image"
     );
 }
+
+#[test]
+#[cfg(feature = "ui")]
+#[ignore = "requires GPU"]
+fn unrelated_image_modification_keeps_cached_ui_raster() {
+    use bevy_flash::vab_ui::VabImageNode;
+
+    let mut app = app(PathBuf::from("assets"));
+    let screen = target(&mut app, UVec2::new(320, 120));
+    app.world_mut().spawn((
+        Camera2d,
+        IsDefaultUiCamera,
+        RenderTarget::Image(screen.into()),
+    ));
+    let graphic = app
+        .world()
+        .resource::<AssetServer>()
+        .load("ui_demo.vab#button_background");
+    let node = app
+        .world_mut()
+        .spawn((
+            VabImageNode::new(graphic),
+            Node {
+                width: px(160),
+                ..default()
+            },
+        ))
+        .id();
+    let unrelated = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(OffscreenViewTarget::create_image(UVec2::splat(4)));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let published = loop {
+        app.update();
+        let current = app.world().get::<ImageNode>(node).unwrap().image.clone();
+        if current != bevy::image::TRANSPARENT_IMAGE_HANDLE {
+            break current;
+        }
+        assert!(Instant::now() < deadline, "UI raster never completed");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    // Modify an unrelated Image asset and verify the cached UI raster is retained.
+    let _ = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .get_mut(&unrelated);
+    for _ in 0..5 {
+        app.update();
+    }
+    assert_eq!(
+        app.world().get::<ImageNode>(node).unwrap().image,
+        published,
+        "unrelated Image modification must not evict cached UI raster"
+    );
+}

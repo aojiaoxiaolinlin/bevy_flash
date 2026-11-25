@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flash"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "A Bevy plugin for baked Flash animations and vector UI"
 authors = ["aojiaoxiaolinlin"]
@@ -29,7 +29,7 @@ ui = [
 asset_processor = ["bevy/asset_processor"]
 
 [dependencies]
-vatf = { version = "0.1.0" }
+vatf = { version = "0.2.0" }
 bevy = { version = "0.20", default-features = false, features = [
     "bevy_asset",
     "bevy_render",

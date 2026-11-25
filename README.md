@@ -11,7 +11,7 @@ Play baked Flash animations and vector UI in Bevy.
 
 面向 Bevy 的 Flash 矢量动画和 UI 库。SWF 由 [vatf](https://github.com/aojiaoxiaolinlin/vatf) 提前编译为 VAB；运行时加载烘焙帧，不解释 ActionScript，也不计算普通 Sprite 时间轴。
 
-当前库版本为 0.3.0，配套 Bevy 0.20 和 vatf 0.1。VAB 格式版本为 1，与库版本独立；读取端要求格式版本精确匹配，不兼容的布局变更需要提高格式版本并重新转换资源。API 仍可能随 0.x 版本演进。
+当前库版本为 0.4.0，配套 Bevy 0.20 和 vatf 0.2。VAB 格式版本为 2，与库版本独立；读取端要求格式版本精确匹配，不兼容的布局变更需要提高格式版本并重新转换资源（0.4.0 不再兼容 v1 产物，需使用 vatf 0.2 重新转换）。API 仍可能随 0.x 版本演进。
 它提供视觉动画资源播放，不执行 ActionScript 或 Flash 游戏逻辑。
 
 ## 安装
@@ -21,10 +21,10 @@ Play baked Flash animations and vector UI in Bevy.
 ```toml
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["2d", "ui_bevy_render"] }
-bevy_flash = "0.3.0"
+bevy_flash = "0.4.0"
 ```
 
-需要 Rust 1.97.1 或更新版本。默认启用 `ui`；只使用世界动画时可设置 `bevy_flash = { version = "0.3.0", default-features = false }`。SWF 转换需要另外安装 `vatf`，插件本身不提供命令行程序。WASM 构建与浏览器渲染未包含在当前 CI 验证范围内。
+需要支持 edition 2024 及 Bevy 0.20 要求的 stable Rust 工具链。默认启用 `ui`；只使用世界动画时可设置 `bevy_flash = { version = "0.4.0", default-features = false }`。SWF 转换需要另外安装 `vatf`，插件本身不提供命令行程序。WASM 构建与浏览器渲染未包含在当前 CI 验证范围内。
 
 ## 渲染展示
 
@@ -35,7 +35,7 @@ bevy_flash = "0.3.0"
 
 ![spirit2159src 动画帧](https://raw.githubusercontent.com/aojiaoxiaolinlin/bevy_flash/HEAD/docs/images/spirit2159src.png)
 
-`spirit2159src` 的单帧输出；Lighten 使用当前的 Max 近似。
+`spirit2159src` 的单帧输出；无滤镜且不重叠的固定功能混合走直绘快路径，顶层 Camera2d 的 Lighten 使用 Max 近似（嵌套与离屏目标内使用精确混合）。
 
 ### 静态与动态矢量 UI
 
@@ -59,14 +59,14 @@ SWF 的 hit 是命中几何，不是点击或焦点外观。截图来源与重�
 
 | 功能 | 当前实现 |
 |---|---|
-| 图形 | 实色、渐变、位图、烘焙 Morph 网格、嵌套 alpha 遮罩 |
-| 滤镜 | Blur、Glow、ColorMatrix、DropShadow、Bevel、Convolution、GradientGlow、GradientBevel |
-| 混合 | Normal、Layer、Add、Subtract、Screen；Lighten 为 Max 近似 |
+| 图形 | 实色、渐变（256×N 共享图集）、位图、烘焙 Morph 网格、嵌套 alpha 遮罩；紧凑顶点与自动 `u16` 索引 |
+| 滤镜 | Blur、Glow、ColorMatrix、DropShadow、Bevel、Convolution、GradientGlow、GradientBevel；支持 `VabFilterQuality` 可选模糊降采样 |
+| 混合 | Normal、Layer、Add、Subtract、Screen；顶层 Camera2d 的 Lighten 为 Max 近似；离屏/UI 及嵌套隔离层支持全部 9 种复杂目标采样混合（Multiply、精确 Lighten、Darken、Difference、Invert、Alpha、Erase、Overlay、HardLight）；无滤镜且无自重叠的固定功能混合组自动走直绘快路径 |
 | 动画控制 | 根标签动作、帧事件、循环/单次、动作队列、fallback、终止播放锁定、暂停/速度/定位 |
 | 换肤与文本 | 具名皮肤；普通动画的静态 DefineText/DefineText2 烘焙为字形图形 |
-| 矢量 UI | ExportAssets 子资产、静态/动态 UI、原生按钮、比例布局与栅格缓存 |
-| 导入 | vatf CLI、可选 Bevy SWF→VAB 预处理、引用裁剪与热重载 |
-| 资源复用 | 帧内中间纹理复用、尺寸分级、驻留预算、容量增长式 GPU 缓冲与可选诊断 |
+| 矢量 UI | ExportAssets 子资产、静态/动态 UI、原生按钮、比例布局与按依赖细粒度失效的栅格缓存 |
+| 导入 | vatf CLI（VAB v2 按块无损压缩）、可选 Bevy SWF→VAB 预处理、前置可达性与引用裁剪、热重载 |
+| 资源复用 | 帧内中间纹理复用、尺寸分级、驻留预算、滤镜元件印章缓存与相邻合批、自动 `Aabb` 视锥裁剪、容量增长式 GPU 缓冲与可选诊断 |
 
 ## 使用与示例
 
@@ -183,7 +183,7 @@ cd bevy_flash
 安装转换器后执行三种转换之一：
 
 ```sh
-cargo install vatf --version 0.1.0 --locked
+cargo install vatf --version 0.2.0 --locked
 
 vatf "path/to/character.swf" -o "path/to/character.vab"
 vatf "path/to/ui.swf" --ui -o "path/to/ui.vab"
@@ -210,7 +210,7 @@ Bevy 管理源文件和配置失效；`vab_processed_asset_path` 按编译器修
 
 ## 开发与验证
 
-本工程使用 crates.io 的 Bevy 和 vatf，不要求同级目录有依赖源码。Cargo.toml 声明最低 Rust 版本为 1.97.1；开发和 CI 使用最新 stable Rust，不固定工具链版本。
+本工程使用 crates.io 的 Bevy 和 vatf，不要求同级目录有依赖源码。开发和 CI 使用最新 stable Rust，不固定工具链版本；需满足 edition 2024 及 Bevy 0.20 的编译要求。
 
 vatf 的接口和 VAB 格式需要配套；更新编译器导致格式或编译行为改变时，应重新生成资源。
 
@@ -245,13 +245,13 @@ cargo test --test render_gpu instances:: -- --ignored --test-threads=1
 
 ## 发布版本
 
-发布到 crates.io 和创建 GitHub Release 分开进行。先更新 `Cargo.toml` 版本，提交并推送全部修改，再发布库及推送版本标签。例如当前版本为 `0.3.0`：
+发布到 crates.io 和创建 GitHub Release 分开进行。先更新 `Cargo.toml` 版本，提交并推送全部修改，再发布库及推送版本标签。例如当前版本为 `0.4.0`：
 
 ```sh
 cargo publish --dry-run
 cargo publish
-git tag -a v0.3.0 -m "Release bevy_flash 0.3.0"
-git push origin v0.3.0
+git tag -a v0.4.0 -m "Release bevy_flash 0.4.0"
+git push origin v0.4.0
 ```
 
 若该版本已发布到 crates.io，只需推送标签。**Release** 工作流要求标签与清单版本一致，复用 CI 的格式、测试和 Clippy 检查，再执行 `cargo package --locked` 验证发布包，最后创建 GitHub Release，附带 `.crate` 源码包和 SHA-256 校验文件。`.crate` 是可解压的库源码包，本库没有独立可执行程序。
@@ -267,7 +267,7 @@ git push origin v0.3.0
 - [坐标、原点与待定锚点方案](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/coordinates-and-origin.md)
 - [实现计划与验证记录](https://github.com/aojiaoxiaolinlin/bevy_flash/blob/HEAD/docs/implementation-plan.md)
 
-支持 vatf 手动转换与可选的 Bevy 资产预处理；预处理后仍使用相同的 VAB 加载器。精确屏幕颜色混合、按钮精确命中和键盘焦点样式尚未实现。UI 暂限矢量资源；按钮状态暂限静态子树。完整限制与配置见对应文档。
+支持 vatf 手动转换与可选的 Bevy 资产预处理；预处理后仍使用相同的 VAB 加载器。顶层 Camera2d 主渲染目标的精确屏幕颜色混合（需读取主帧缓冲；离屏/UI 及嵌套隔离层已完整支持 9 种复杂混合）、按钮精确命中和键盘焦点样式尚未实现。UI 暂限矢量资源；按钮状态暂限静态子树。完整限制与配置见对应文档。
 
 ## Compatibility
 
@@ -275,7 +275,7 @@ git push origin v0.3.0
 |---|---|
 | 0.17 | 0.1 |
 | 0.19 | 0.2 |
-| 0.20 | 0.3 |
+| 0.20 | 0.3 - 0.4 |
 
 ## 版权与第三方美术资产声明
 

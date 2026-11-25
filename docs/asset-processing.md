@@ -76,9 +76,10 @@ SWF 自包含，此处理器没有外部编译依赖；CPU 编译交给
 
 Bevy 不对处理器程序代码做哈希。本库使用独立的 `COMPILER_REVISION`
 和 `vab_processed_asset_path`：例如当前缓存位于
-`imported_assets/game/vab-compiler-1`。改变编译语义或输出布局时必须增加
+`imported_assets/game/vab-compiler-3`（`COMPILER_REVISION = 3`）。改变编译语义或输出布局时必须增加
 编译器修订号，从新目录重建，不能只依赖 VAB 格式版本或默认设置的变化。
-VAB 仍为未发布的工作版本 1。自定义缓存路径而不使用这个辅助函数时，
+当前 VAB 格式版本为 **2**（与 crate 版本独立，不兼容 v1 产物）；`SwfCompileSettings`
+还提供可选 `compression` 字段（默认 `Deflate`，可选 `Lz4` 或 `None`）。自定义缓存路径而不使用这个辅助函数时，
 宿主须自行管理编译器变化后的失效。
 
 旧修订目录不会自动删除；确认不再需要后由宿主清理。修订路径作用于该
@@ -95,7 +96,7 @@ Bevy 资产源的全部处理后资源，也会让同一源内的其他类型重
 `asset_processor` feature；显式 override 还能避免宿主的 Bevy feature
 合并意外启用编译器。资源不完整时直接加载失败，不退回运行时编译 SWF。
 
-预处理不改变当前的混合、UI 矢量范围及按钮静态状态限制。
+预处理不改变顶层主相机的混合边界（离屏/UI 及嵌套隔离层已支持全部 9 种复杂混合），也不改变 UI 矢量范围及按钮静态状态限制。
 
 ## 示例与验证
 

@@ -21,7 +21,7 @@ use bevy::{
     },
 };
 pub use diagnostics::VabDiagnosticsPlugin;
-pub use gpu::FlashRenderDiagnostics;
+pub use gpu::{FlashRenderDiagnostics, VabFilterQuality};
 pub use instance::{
     VAB_FILTER_DIAGNOSTIC_SLOTS, VabFilterCacheSettings, VabFilterMsaa, VabFilterWorkload,
     VabFilterWorkloadSample,
@@ -36,9 +36,11 @@ impl Plugin for FlashRenderPlugin {
             ExtractComponentPlugin::<OffscreenViewTarget>::default(),
             ExtractComponentPlugin::<RasterOnce>::default(),
             ExtractResourcePlugin::<TransientTexturePoolSettings>::default(),
+            ExtractResourcePlugin::<VabFilterQuality>::default(),
             instance::VabInstanceRenderPlugin,
         ))
-        .init_resource::<TransientTexturePoolSettings>();
+        .init_resource::<TransientTexturePoolSettings>()
+        .init_resource::<VabFilterQuality>();
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
                 .init_gpu_resource::<texture_cache::FrameInternalTextureCache>()
@@ -131,9 +133,10 @@ impl VabInstanceFilterCore {
 
 pub fn filter_driver(world: &mut World) {
     let settings = world.resource::<TransientTexturePoolSettings>().clone();
+    let diagnostics_enabled = world.resource::<FlashRenderDiagnostics>().enabled;
     world
         .resource_mut::<texture_cache::FrameInternalTextureCache>()
-        .begin_frame(&settings);
+        .begin_frame(&settings, diagnostics_enabled);
     let instance_view = world
         .query_filtered::<Entity, (With<Camera2d>, With<ExtractedView>)>()
         .iter(world)

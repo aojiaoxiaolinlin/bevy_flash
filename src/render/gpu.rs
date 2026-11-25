@@ -10,6 +10,7 @@ use bevy::{
     platform::collections::{HashMap, HashSet},
     prelude::*,
     render::{
+        extract_resource::ExtractResource,
         mesh::{RenderMesh, RenderMeshBufferInfo, allocator::MeshAllocator},
         render_asset::RenderAssets,
         render_resource::*,
@@ -17,7 +18,7 @@ use bevy::{
         texture::GpuImage,
         view::Msaa,
     },
-    shader::ShaderCacheError,
+    shader::{ShaderCacheError, ShaderDefVal},
 };
 use bytemuck::{Pod, Zeroable};
 use std::{num::NonZeroU64, sync::atomic::AtomicU64};
@@ -26,7 +27,95 @@ use vatf::animation::{
     AnimDropShadowFilter, AnimFilter, AnimGlowFilter, AnimGradientFilter, AnimGradientRecord,
 };
 
-use crate::vab_asset::VabBlendMode;
+use crate::vab_asset::{ATTRIBUTE_VAB_COLOR_SRGB, ATTRIBUTE_VAB_POSITION, VabBlendMode};
+
+/// Controls optional downsampling of blur passes to reduce GPU memory and fill-rate.
+///
+/// For pure `Blur` filters, the blurred layer itself can be produced at reduced resolution
+/// and bilinearly upsampled during compositing. For `Glow`, `DropShadow`, `Bevel`,
+/// `GradientGlow`, and `GradientBevel`, the foreground source stays at full resolution while
+/// only the intermediate blur passes run at reduced resolution.
+#[derive(Resource, ExtractResource, Clone, Copy, Debug, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
+pub struct VabFilterQuality {
+    /// Resolution scale in `(0.0, 1.0]` applied to eligible blur passes.
+    /// `1.0` keeps all blur passes at full resolution (default).
+    pub blur_scale: f32,
+    /// Minimum filter target dimension (in pixels) before downsampling applies.
+    pub min_dimension: u32,
+    /// Minimum scaled blur diameter (in pixels) on an axis before downsampling that axis.
+    pub min_blur_radius: f32,
+    /// When enabled, uniformly scaled isotropic filter symbols (e.g. expanding/shrinking
+    /// glowing particles) reuse octave-quantized cached stamp textures and scale the final
+    /// quad on screen, trading fixed-pixel halo width for dramatic particle cache reuse.
+    /// Translation and isotropic rotation stamps are always lossless and enabled by default.
+    pub reuse_scaled_stamps: bool,
+}
+
+impl Default for VabFilterQuality {
+    fn default() -> Self {
+        Self::full()
+    }
+}
+
+impl VabFilterQuality {
+    /// Full-resolution blur passes and lossless translation/rotation filter stamps (exact quality).
+    pub const fn full() -> Self {
+        Self {
+            blur_scale: 1.0,
+            min_dimension: 32,
+            min_blur_radius: 3.0,
+            reuse_scaled_stamps: false,
+        }
+    }
+
+    /// Half-resolution blur passes (`0.5x` width/height = 1/4 blur pixels, ~1/8 blur work)
+    /// while preserving full-resolution foreground geometry on Glow/DropShadow/Bevel filters,
+    /// plus octave-quantized scaled particle stamp reuse.
+    pub const fn half_blur() -> Self {
+        Self {
+            blur_scale: 0.5,
+            min_dimension: 32,
+            min_blur_radius: 3.0,
+            reuse_scaled_stamps: true,
+        }
+    }
+
+    /// Quarter-resolution blur passes and scaled particle stamps for heavy effects on low-end GPUs.
+    pub const fn quarter_blur() -> Self {
+        Self {
+            blur_scale: 0.25,
+            min_dimension: 64,
+            min_blur_radius: 6.0,
+            reuse_scaled_stamps: true,
+        }
+    }
+
+    /// Enable or disable octave-quantized scaled stamp reuse for isotropic particle symbols.
+    pub const fn with_scaled_stamps(mut self, enabled: bool) -> Self {
+        self.reuse_scaled_stamps = enabled;
+        self
+    }
+
+    pub(super) fn cache_key(self) -> [u32; 4] {
+        let scale = if self.blur_scale.is_finite() {
+            self.blur_scale.clamp(0.125, 1.0)
+        } else {
+            1.0
+        };
+        let min_blur = if self.min_blur_radius.is_finite() {
+            self.min_blur_radius.max(0.0)
+        } else {
+            0.0
+        };
+        [
+            scale.to_bits(),
+            self.min_dimension,
+            min_blur.to_bits(),
+            u32::from(self.reuse_scaled_stamps),
+        ]
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -213,7 +302,16 @@ pub(super) fn register_shaders(app: &mut App) {
     embedded_asset!(app, "shaders/convolution.wesl");
     embedded_asset!(app, "shaders/gradient_filter.wesl");
     embedded_asset!(app, "shaders/alpha_mask.wesl");
+    embedded_asset!(app, "shaders/complex_blend.wesl");
     embedded_asset!(app, "shaders/fullscreen.wesl");
+}
+
+const MAX_CACHED_FILTER_RESOURCES: usize = 256;
+
+struct CachedImageBindGroup {
+    texture_view: TextureViewId,
+    sampler: SamplerId,
+    bind_group: BindGroup,
 }
 
 #[derive(Resource)]
@@ -235,7 +333,8 @@ pub struct FlashGpu {
     convolution_shader: Handle<Shader>,
     gradient_filter_shader: Handle<Shader>,
     alpha_mask_shader: Handle<Shader>,
-    shapes: HashMap<(MeshVertexBufferLayoutRef, u32), CachedRenderPipelineId>,
+    complex_blend_shader: Handle<Shader>,
+    shapes: HashMap<(MeshVertexBufferLayoutRef, u32, VabBlendMode), CachedRenderPipelineId>,
     composites: HashMap<(TextureFormat, u32, bool), CachedRenderPipelineId>,
     layer_composites: HashMap<(TextureFormat, u32, VabBlendMode), CachedRenderPipelineId>,
     blurs: HashMap<TextureFormat, CachedRenderPipelineId>,
@@ -243,10 +342,13 @@ pub struct FlashGpu {
     bevels: HashMap<TextureFormat, CachedRenderPipelineId>,
     color_matrices: HashMap<TextureFormat, CachedRenderPipelineId>,
     convolutions: HashMap<TextureFormat, CachedRenderPipelineId>,
-    convolution_kernels: HashMap<ConvolutionKernelKey, BindGroup>,
+    convolution_kernels: HashMap<ConvolutionKernelKey, (BindGroup, u64)>,
     gradient_filters: HashMap<TextureFormat, CachedRenderPipelineId>,
-    gradient_ramps: HashMap<GradientRampKey, BindGroup>,
+    gradient_ramps: HashMap<GradientRampKey, (BindGroup, u64)>,
+    image_bind_groups: HashMap<AssetId<Image>, CachedImageBindGroup>,
+    filter_cache_tick: u64,
     alpha_masks: HashMap<(TextureFormat, u32), CachedRenderPipelineId>,
+    complex_blends: HashMap<(TextureFormat, u32), CachedRenderPipelineId>,
     white: BindGroup,
     sampler: Sampler,
 }
@@ -262,6 +364,7 @@ impl FromWorld for FlashGpu {
         let convolution_shader = load_embedded_asset!(world, "shaders/convolution.wesl");
         let gradient_filter_shader = load_embedded_asset!(world, "shaders/gradient_filter.wesl");
         let alpha_mask_shader = load_embedded_asset!(world, "shaders/alpha_mask.wesl");
+        let complex_blend_shader = load_embedded_asset!(world, "shaders/complex_blend.wesl");
         let fullscreen_shader = load_embedded_asset!(world, "shaders/fullscreen.wesl");
         let device = world.resource::<RenderDevice>();
         let cache = world.resource::<PipelineCache>();
@@ -381,6 +484,7 @@ impl FromWorld for FlashGpu {
             convolution_shader,
             gradient_filter_shader,
             alpha_mask_shader,
+            complex_blend_shader,
             shapes: HashMap::default(),
             composites: HashMap::default(),
             layer_composites: HashMap::default(),
@@ -392,7 +496,10 @@ impl FromWorld for FlashGpu {
             convolution_kernels: HashMap::default(),
             gradient_filters: HashMap::default(),
             gradient_ramps: HashMap::default(),
+            image_bind_groups: HashMap::default(),
+            filter_cache_tick: 0,
             alpha_masks: HashMap::default(),
+            complex_blends: HashMap::default(),
             white,
             sampler,
         }
@@ -462,28 +569,82 @@ fn gradient_ramp_bytes(colors: &[AnimGradientRecord]) -> Vec<u8> {
 }
 
 impl FlashGpu {
+    fn image_bind_group(
+        &mut self,
+        device: &RenderDevice,
+        id: AssetId<Image>,
+        image: &GpuImage,
+    ) -> BindGroup {
+        let texture_view = image.texture_view.id();
+        let sampler = image.sampler.id();
+        let rebuild = self
+            .image_bind_groups
+            .get(&id)
+            .is_none_or(|cached| cached.texture_view != texture_view || cached.sampler != sampler);
+        if rebuild {
+            let bind_group = texture_group(
+                device,
+                &self.texture_layout,
+                &image.texture_view,
+                &image.sampler,
+            );
+            self.image_bind_groups.insert(
+                id,
+                CachedImageBindGroup {
+                    texture_view,
+                    sampler,
+                    bind_group: bind_group.clone(),
+                },
+            );
+            bind_group
+        } else {
+            self.image_bind_groups[&id].bind_group.clone()
+        }
+    }
+
+    pub(super) fn retain_image_bind_groups(&mut self, images: &RenderAssets<GpuImage>) {
+        self.image_bind_groups
+            .retain(|id, _| images.get(*id).is_some());
+    }
+
     fn shape_pipeline(
         &mut self,
         cache: &PipelineCache,
         mesh: &RenderMesh,
         samples: u32,
+        blend: VabBlendMode,
     ) -> Result<CachedRenderPipelineId> {
-        let key = (mesh.layout.clone(), samples);
+        let key = (mesh.layout.clone(), samples, blend);
         if let Some(id) = self.shapes.get(&key) {
             return Ok(*id);
         }
-        let layout = mesh.layout.0.get_layout(&[
-            Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
-            Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
-        ])?;
+        let compact = mesh.layout.0.contains(ATTRIBUTE_VAB_POSITION);
+        let (layout, shader_defs) = if compact {
+            (
+                mesh.layout.0.get_layout(&[
+                    ATTRIBUTE_VAB_POSITION.at_shader_location(0),
+                    ATTRIBUTE_VAB_COLOR_SRGB.at_shader_location(1),
+                ])?,
+                vec!["COMPACT_VERTEX".into()],
+            )
+        } else {
+            (
+                mesh.layout.0.get_layout(&[
+                    Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+                    Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
+                ])?,
+                Vec::new(),
+            )
+        };
         let id = queue_pipeline(
             cache,
             &self.shape_shader,
+            shader_defs,
             self.pipeline_layout.clone(),
             vec![layout],
             TextureFormat::Rgba8Unorm,
             samples,
-            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            Some(fixed_blend_state(blend)),
         );
         self.shapes.insert(key, id);
         Ok(id)
@@ -500,6 +661,7 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.composite_shader,
+                Vec::new(),
                 self.pipeline_layout.clone(),
                 vec![],
                 format,
@@ -520,6 +682,7 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.composite_shader,
+                Vec::new(),
                 self.pipeline_layout.clone(),
                 vec![],
                 format,
@@ -537,6 +700,7 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.blur_shader,
+                Vec::new(),
                 self.pipeline_layout.clone(),
                 vec![],
                 format,
@@ -554,6 +718,7 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.glow_shader,
+                Vec::new(),
                 self.glow_pipeline_layout.clone(),
                 vec![],
                 format,
@@ -571,6 +736,7 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.bevel_shader,
+                Vec::new(),
                 self.glow_pipeline_layout.clone(),
                 vec![],
                 format,
@@ -588,6 +754,7 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.color_matrix_shader,
+                Vec::new(),
                 self.pipeline_layout.clone(),
                 vec![],
                 format,
@@ -605,6 +772,7 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.convolution_shader,
+                Vec::new(),
                 self.convolution_pipeline_layout.clone(),
                 vec![],
                 format,
@@ -622,6 +790,7 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.gradient_filter_shader,
+                Vec::new(),
                 self.gradient_filter_pipeline_layout.clone(),
                 vec![],
                 format,
@@ -635,13 +804,25 @@ impl FlashGpu {
         device: &RenderDevice,
         filter: &AnimConvolutionFilter,
     ) -> BindGroup {
+        self.filter_cache_tick = self.filter_cache_tick.wrapping_add(1);
+        let tick = self.filter_cache_tick;
         let key = ConvolutionKernelKey {
             rows: filter.num_matrix_rows,
             cols: filter.num_matrix_cols,
             weights: filter.matrix.iter().map(|value| value.to_bits()).collect(),
         };
-        if let Some(group) = self.convolution_kernels.get(&key) {
+        if let Some((group, last_used)) = self.convolution_kernels.get_mut(&key) {
+            *last_used = tick;
             return group.clone();
+        }
+        if self.convolution_kernels.len() >= MAX_CACHED_FILTER_RESOURCES
+            && let Some(oldest) = self
+                .convolution_kernels
+                .iter()
+                .min_by_key(|(_, (_, last_used))| *last_used)
+                .map(|(k, _)| k.clone())
+        {
+            self.convolution_kernels.remove(&oldest);
         }
         let buffer = device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("flash_convolution_kernel"),
@@ -656,7 +837,7 @@ impl FlashGpu {
                 resource: buffer.as_entire_binding(),
             }],
         );
-        self.convolution_kernels.insert(key, group.clone());
+        self.convolution_kernels.insert(key, (group.clone(), tick));
         group
     }
     fn gradient_ramp_group(
@@ -669,6 +850,8 @@ impl FlashGpu {
             colors.windows(2).all(|pair| pair[0].ratio <= pair[1].ratio),
             "gradient filter ratios must be non-decreasing"
         );
+        self.filter_cache_tick = self.filter_cache_tick.wrapping_add(1);
+        let tick = self.filter_cache_tick;
         let key = GradientRampKey(
             colors
                 .iter()
@@ -683,8 +866,18 @@ impl FlashGpu {
                 })
                 .collect(),
         );
-        if let Some(group) = self.gradient_ramps.get(&key) {
+        if let Some((group, last_used)) = self.gradient_ramps.get_mut(&key) {
+            *last_used = tick;
             return Ok(group.clone());
+        }
+        if self.gradient_ramps.len() >= MAX_CACHED_FILTER_RESOURCES
+            && let Some(oldest) = self
+                .gradient_ramps
+                .iter()
+                .min_by_key(|(_, (_, last_used))| *last_used)
+                .map(|(k, _)| k.clone())
+        {
+            self.gradient_ramps.remove(&oldest);
         }
         let bytes = gradient_ramp_bytes(colors);
         let texture = device.create_texture_with_data(
@@ -715,7 +908,7 @@ impl FlashGpu {
             &texture.create_view(&Default::default()),
             &self.sampler,
         );
-        self.gradient_ramps.insert(key, group.clone());
+        self.gradient_ramps.insert(key, (group.clone(), tick));
         Ok(group)
     }
     fn alpha_mask_pipeline(
@@ -729,11 +922,32 @@ impl FlashGpu {
             queue_pipeline(
                 cache,
                 &self.alpha_mask_shader,
+                Vec::new(),
                 self.glow_pipeline_layout.clone(),
                 vec![],
                 format,
                 samples,
                 Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            )
+        })
+    }
+    fn complex_blend_pipeline(
+        &mut self,
+        cache: &PipelineCache,
+        format: TextureFormat,
+        samples: u32,
+    ) -> CachedRenderPipelineId {
+        let key = (format, samples);
+        *self.complex_blends.entry(key).or_insert_with(|| {
+            queue_pipeline(
+                cache,
+                &self.complex_blend_shader,
+                Vec::new(),
+                self.glow_pipeline_layout.clone(),
+                vec![],
+                format,
+                samples,
+                None,
             )
         })
     }
@@ -743,6 +957,7 @@ impl FlashGpu {
 fn queue_pipeline(
     cache: &PipelineCache,
     shader: &Handle<Shader>,
+    shader_defs: Vec<ShaderDefVal>,
     layout: Vec<BindGroupLayoutDescriptor>,
     buffers: Vec<VertexBufferLayout>,
     format: TextureFormat,
@@ -754,12 +969,14 @@ fn queue_pipeline(
         layout,
         vertex: VertexState {
             shader: shader.clone(),
+            shader_defs: shader_defs.clone(),
             entry_point: Some("vertex".into()),
             buffers,
             ..default()
         },
         fragment: Some(FragmentState {
             shader: shader.clone(),
+            shader_defs,
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
                 format,
@@ -831,7 +1048,7 @@ impl FlashGpu {
             match op {
                 Op::Draw(draw) => {
                     if let Some(mesh) = meshes.get(draw.mesh) {
-                        ids.push(self.shape_pipeline(cache, mesh, samples)?);
+                        ids.push(self.shape_pipeline(cache, mesh, samples, draw.blend)?);
                     }
                 }
                 Op::Mask { mask, content, .. } => {
@@ -848,7 +1065,11 @@ impl FlashGpu {
                     blend,
                     ..
                 } => {
-                    ids.push(self.layer_composite_pipeline(cache, format, samples, *blend));
+                    if complex_blend_mode_id(*blend).is_some() {
+                        ids.push(self.complex_blend_pipeline(cache, format, samples));
+                    } else {
+                        ids.push(self.layer_composite_pipeline(cache, format, samples, *blend));
+                    }
                     self.request_ops(ops, samples, cache, meshes, ids, filters)?;
                     for effect in effects {
                         let (kind, id) = match effect {
@@ -914,6 +1135,25 @@ impl FlashGpu {
     }
 }
 
+fn complex_blend_mode_id(mode: VabBlendMode) -> Option<f32> {
+    match mode {
+        VabBlendMode::Multiply => Some(1.0),
+        VabBlendMode::Lighten => Some(2.0),
+        VabBlendMode::Darken => Some(3.0),
+        VabBlendMode::Difference => Some(4.0),
+        VabBlendMode::Invert => Some(5.0),
+        VabBlendMode::Alpha => Some(6.0),
+        VabBlendMode::Erase => Some(7.0),
+        VabBlendMode::Overlay => Some(8.0),
+        VabBlendMode::HardLight => Some(9.0),
+        VabBlendMode::Normal
+        | VabBlendMode::Layer
+        | VabBlendMode::Add
+        | VabBlendMode::Subtract
+        | VabBlendMode::Screen => None,
+    }
+}
+
 pub(super) fn fixed_blend_state(mode: VabBlendMode) -> BlendState {
     match mode {
         VabBlendMode::Add => BlendState {
@@ -964,13 +1204,18 @@ struct PreparedDraw {
 }
 
 enum PreparedFilter {
-    Blur(Vec<u32>),
+    Blur {
+        offsets: Vec<u32>,
+        blur_size: Option<[u32; 2]>,
+    },
     Glow {
         blur_offsets: Vec<u32>,
+        blur_size: Option<[u32; 2]>,
         glow_offset: u32,
     },
     Bevel {
         blur_offsets: Vec<u32>,
+        blur_size: Option<[u32; 2]>,
         bevel_offset: u32,
     },
     ColorMatrix(u32),
@@ -980,6 +1225,7 @@ enum PreparedFilter {
     },
     Gradient {
         blur_offsets: Vec<u32>,
+        blur_size: Option<[u32; 2]>,
         effect_offset: u32,
         ramp: BindGroup,
     },
@@ -998,6 +1244,8 @@ enum PreparedOp {
         bounds: [f32; 4],
         offset: u32,
         filters: Vec<PreparedFilter>,
+        needs_full_res_ping_pong: bool,
+        is_complex_blend: bool,
         composite: RenderPipeline,
     },
 }
@@ -1034,23 +1282,50 @@ pub(super) fn filter_workload(layer: &PreparedLayer) -> (u64, u64) {
                     let (child_passes, child_pixels) = visit(children);
                     passes = passes.saturating_add(child_passes);
                     pixels = pixels.saturating_add(child_pixels);
-                    let own_passes = filters.iter().fold(0u64, |count, filter| {
-                        let filter_passes = match filter {
-                            PreparedFilter::Blur(offsets) => offsets.len() as u64,
-                            PreparedFilter::Glow { blur_offsets, .. }
-                            | PreparedFilter::Bevel { blur_offsets, .. }
-                            | PreparedFilter::Gradient { blur_offsets, .. } => {
-                                blur_offsets.len() as u64 + 1
+                    let mut current_area = (bounds[2] as u64).saturating_mul(bounds[3] as u64);
+                    for filter in filters {
+                        match filter {
+                            PreparedFilter::Blur { offsets, blur_size } => {
+                                let blur_area = blur_size.map_or(current_area, |[w, h]| {
+                                    u64::from(w).saturating_mul(u64::from(h))
+                                });
+                                let n = offsets.len() as u64;
+                                passes = passes.saturating_add(n);
+                                pixels = pixels.saturating_add(blur_area.saturating_mul(n));
+                                if blur_size.is_some() {
+                                    current_area = blur_area;
+                                }
+                            }
+                            PreparedFilter::Glow {
+                                blur_offsets,
+                                blur_size,
+                                ..
+                            }
+                            | PreparedFilter::Bevel {
+                                blur_offsets,
+                                blur_size,
+                                ..
+                            }
+                            | PreparedFilter::Gradient {
+                                blur_offsets,
+                                blur_size,
+                                ..
+                            } => {
+                                let blur_area = blur_size.map_or(current_area, |[w, h]| {
+                                    u64::from(w).saturating_mul(u64::from(h))
+                                });
+                                let n = blur_offsets.len() as u64;
+                                passes = passes.saturating_add(n + 1);
+                                pixels = pixels
+                                    .saturating_add(blur_area.saturating_mul(n))
+                                    .saturating_add(current_area);
                             }
                             PreparedFilter::ColorMatrix(_) | PreparedFilter::Convolution { .. } => {
-                                1
+                                passes = passes.saturating_add(1);
+                                pixels = pixels.saturating_add(current_area);
                             }
-                        };
-                        count.saturating_add(filter_passes)
-                    });
-                    passes = passes.saturating_add(own_passes);
-                    let area = (bounds[2] as u64).saturating_mul(bounds[3] as u64);
-                    pixels = pixels.saturating_add(area.saturating_mul(own_passes));
+                        }
+                    }
                 }
             }
         }
@@ -1167,6 +1442,84 @@ fn classify_texture_dimension(value: u32) -> u32 {
     value.div_ceil(quantum) * quantum
 }
 
+fn downsampled_blur_size(
+    size: [f32; 2],
+    blur_x: i32,
+    blur_y: i32,
+    quality: VabFilterQuality,
+) -> Option<[u32; 2]> {
+    if !quality.blur_scale.is_finite() || quality.blur_scale >= 0.999 {
+        return None;
+    }
+    let scale = quality.blur_scale.clamp(0.125, 1.0);
+    let min_dim = quality.min_dimension.max(1) as f32;
+    let min_blur = if quality.min_blur_radius.is_finite() {
+        quality.min_blur_radius.max(1.0)
+    } else {
+        return None;
+    };
+    let bx = (blur_x as f32 / 65536.0).clamp(1.0, 255.0);
+    let by = (blur_y as f32 / 65536.0).clamp(1.0, 255.0);
+    let sx = if size[0] >= min_dim && bx >= min_blur {
+        scale
+    } else {
+        1.0
+    };
+    let sy = if size[1] >= min_dim && by >= min_blur {
+        scale
+    } else {
+        1.0
+    };
+    if sx >= 0.999 && sy >= 0.999 {
+        return None;
+    }
+    let full_w = size[0] as u32;
+    let full_h = size[1] as u32;
+    let bw = classify_texture_dimension(((size[0] * sx).ceil() as u32).max(1)).min(full_w);
+    let bh = classify_texture_dimension(((size[1] * sy).ceil() as u32).max(1)).min(full_h);
+    if bw >= full_w && bh >= full_h {
+        return None;
+    }
+    Some([bw, bh])
+}
+
+fn prepare_blur_with_quality(
+    filter: &AnimBlurFilter,
+    size: [f32; 2],
+    quality: VabFilterQuality,
+    allow_downsample: bool,
+    uniforms: &mut Uniforms,
+) -> Result<(Vec<u32>, Option<[u32; 2]>)> {
+    let blur_size = allow_downsample
+        .then(|| downsampled_blur_size(size, filter.blur_x, filter.blur_y, quality))
+        .flatten();
+    let (target_size, scaled_filter) = if let Some([bw, bh]) = blur_size {
+        let rx = bw as f32 / size[0].max(1.0);
+        let ry = bh as f32 / size[1].max(1.0);
+        let scale_axis = |blur: i32, ratio: f32| -> i32 {
+            let full_size = (blur as f32 / 65536.0).clamp(1.0, 255.0);
+            if full_size <= 1.0 {
+                return blur;
+            }
+            let scaled = 1.0 + (full_size - 1.0) * ratio;
+            (scaled * 65536.0).round() as i32
+        };
+        (
+            [bw as f32, bh as f32],
+            AnimBlurFilter {
+                blur_x: scale_axis(filter.blur_x, rx),
+                blur_y: scale_axis(filter.blur_y, ry),
+                num_passes: filter.num_passes,
+            },
+        )
+    } else {
+        (size, filter.clone())
+    };
+    let offsets = prepare_blur(&scaled_filter, target_size, uniforms)?;
+    let blur_size = if offsets.is_empty() { None } else { blur_size };
+    Ok((offsets, blur_size))
+}
+
 fn prepare_blur(
     filter: &AnimBlurFilter,
     size: [f32; 2],
@@ -1208,20 +1561,24 @@ fn prepare_blur(
 fn prepare_glow(
     filter: &AnimGlowFilter,
     size: [f32; 2],
+    quality: VabFilterQuality,
     uniforms: &mut Uniforms,
 ) -> Result<PreparedFilter> {
-    let blur_offsets = prepare_blur(
+    let (blur_offsets, blur_size) = prepare_blur_with_quality(
         &AnimBlurFilter {
             blur_x: filter.blur_x,
             blur_y: filter.blur_y,
             num_passes: filter.num_passes,
         },
         size,
+        quality,
+        true,
         uniforms,
     )?;
     let glow_offset = uniforms.push(&glow_uniform(filter))?;
     Ok(PreparedFilter::Glow {
         blur_offsets,
+        blur_size,
         glow_offset,
     })
 }
@@ -1229,15 +1586,18 @@ fn prepare_glow(
 fn prepare_drop_shadow(
     filter: &AnimDropShadowFilter,
     size: [f32; 2],
+    quality: VabFilterQuality,
     uniforms: &mut Uniforms,
 ) -> Result<PreparedFilter> {
-    let blur_offsets = prepare_blur(
+    let (blur_offsets, blur_size) = prepare_blur_with_quality(
         &AnimBlurFilter {
             blur_x: filter.blur_x,
             blur_y: filter.blur_y,
             num_passes: filter.num_passes,
         },
         size,
+        quality,
+        true,
         uniforms,
     )?;
     let distance = filter.distance as f32 / 65536.0;
@@ -1262,6 +1622,7 @@ fn prepare_drop_shadow(
     })?;
     Ok(PreparedFilter::Glow {
         blur_offsets,
+        blur_size,
         glow_offset,
     })
 }
@@ -1269,15 +1630,18 @@ fn prepare_drop_shadow(
 fn prepare_bevel(
     filter: &AnimBevelFilter,
     size: [f32; 2],
+    quality: VabFilterQuality,
     uniforms: &mut Uniforms,
 ) -> Result<PreparedFilter> {
-    let blur_offsets = prepare_blur(
+    let (blur_offsets, blur_size) = prepare_blur_with_quality(
         &AnimBlurFilter {
             blur_x: filter.blur_x,
             blur_y: filter.blur_y,
             num_passes: filter.num_passes,
         },
         size,
+        quality,
+        true,
         uniforms,
     )?;
     let distance = filter.distance as f32 / 65536.0;
@@ -1316,6 +1680,7 @@ fn prepare_bevel(
     })?;
     Ok(PreparedFilter::Bevel {
         blur_offsets,
+        blur_size,
         bevel_offset,
     })
 }
@@ -1325,18 +1690,21 @@ fn prepare_gradient_filter(
     filter: &AnimGradientFilter,
     size: [f32; 2],
     bevel: bool,
+    quality: VabFilterQuality,
     gpu: &mut FlashGpu,
     device: &RenderDevice,
     queue: &RenderQueue,
     uniforms: &mut Uniforms,
 ) -> Result<PreparedFilter> {
-    let blur_offsets = prepare_blur(
+    let (blur_offsets, blur_size) = prepare_blur_with_quality(
         &AnimBlurFilter {
             blur_x: filter.blur_x,
             blur_y: filter.blur_y,
             num_passes: filter.num_passes,
         },
         size,
+        quality,
+        true,
         uniforms,
     )?;
     let distance = filter.distance as f32 / 65536.0;
@@ -1363,6 +1731,7 @@ fn prepare_gradient_filter(
     })?;
     Ok(PreparedFilter::Gradient {
         blur_offsets,
+        blur_size,
         effect_offset,
         ramp: gpu.gradient_ramp_group(device, queue, &filter.colors)?,
     })
@@ -1468,6 +1837,7 @@ fn prepare_ops(
     ops: &[Op],
     bounds: [f32; 4],
     samples: u32,
+    quality: VabFilterQuality,
     gpu: &mut FlashGpu,
     cache: &PipelineCache,
     device: &RenderDevice,
@@ -1484,12 +1854,7 @@ fn prepare_ops(
                 let texture = match draw.texture {
                     Some(id) => {
                         let image = images.get(id).context("pending GPU image")?;
-                        texture_group(
-                            device,
-                            &gpu.texture_layout,
-                            &image.texture_view,
-                            &image.sampler,
-                        )
+                        gpu.image_bind_group(device, id, image)
                     }
                     None => gpu.white.clone(),
                 };
@@ -1499,7 +1864,7 @@ fn prepare_ops(
                 let offset = uniforms.push(&DrawUniform {
                     row0: [m.a, m.c, m.tx, 0.0],
                     row1: [m.b, m.d, m.ty, 0.0],
-                    uv0: [uv.x_axis.x, uv.y_axis.x, uv.z_axis.x, 0.0],
+                    uv0: [uv.x_axis.x, uv.y_axis.x, uv.z_axis.x, draw.ramp_v],
                     uv1: [uv.x_axis.y, uv.y_axis.y, uv.z_axis.y, 0.0],
                     multiply: [c.r_multiply, c.g_multiply, c.b_multiply, c.a_multiply],
                     add: [c.r_add, c.g_add, c.b_add, c.a_add],
@@ -1513,7 +1878,10 @@ fn prepare_ops(
                 })?;
                 PreparedOp::Draw(PreparedDraw {
                     mesh: draw.mesh,
-                    pipeline: ready_pipeline(cache, gpu.shape_pipeline(cache, mesh, samples)?)?,
+                    pipeline: ready_pipeline(
+                        cache,
+                        gpu.shape_pipeline(cache, mesh, samples, draw.blend)?,
+                    )?,
                     texture,
                     offset,
                 })
@@ -1532,10 +1900,12 @@ fn prepare_ops(
                     "invalid mask dimensions"
                 );
                 let mask = prepare_ops(
-                    mask, child, samples, gpu, cache, device, queue, meshes, images, uniforms,
+                    mask, child, samples, quality, gpu, cache, device, queue, meshes, images,
+                    uniforms,
                 )?;
                 let content = prepare_ops(
-                    content, child, samples, gpu, cache, device, queue, meshes, images, uniforms,
+                    content, child, samples, quality, gpu, cache, device, queue, meshes, images,
+                    uniforms,
                 )?;
                 let offset = uniforms.push(&CompositeUniform {
                     rect: child,
@@ -1565,80 +1935,106 @@ fn prepare_ops(
                     "invalid layer dimensions"
                 );
                 let ops = prepare_ops(
-                    ops, child, samples, gpu, cache, device, queue, meshes, images, uniforms,
+                    ops, child, samples, quality, gpu, cache, device, queue, meshes, images,
+                    uniforms,
                 )?;
                 let mut prepared_filters = Vec::new();
-                for filter in filters {
-                    match filter {
+                let mut current_size = [child[2], child[3]];
+                let mut needs_full_res_ping_pong = false;
+                for (filter_index, filter) in filters.iter().enumerate() {
+                    let prepared = match filter {
                         AnimFilter::BlurFilter(filter) => {
-                            prepared_filters.push(PreparedFilter::Blur(prepare_blur(
+                            let tail_only_blurs = filters[filter_index + 1..]
+                                .iter()
+                                .all(|next| matches!(next, AnimFilter::BlurFilter(_)));
+                            let (offsets, blur_size) = prepare_blur_with_quality(
                                 filter,
-                                [child[2], child[3]],
+                                current_size,
+                                quality,
+                                tail_only_blurs,
                                 uniforms,
-                            )?))
+                            )?;
+                            if let Some([bw, bh]) = blur_size {
+                                current_size = [bw as f32, bh as f32];
+                            } else if !offsets.is_empty() {
+                                needs_full_res_ping_pong = true;
+                            }
+                            PreparedFilter::Blur { offsets, blur_size }
                         }
-                        AnimFilter::GlowFilter(filter) => prepared_filters.push(prepare_glow(
-                            filter,
-                            [child[2], child[3]],
-                            uniforms,
-                        )?),
+                        AnimFilter::GlowFilter(filter) => {
+                            needs_full_res_ping_pong = true;
+                            prepare_glow(filter, current_size, quality, uniforms)?
+                        }
                         AnimFilter::ColorMatrixFilter(filter) => {
-                            prepared_filters.push(PreparedFilter::ColorMatrix(
+                            needs_full_res_ping_pong = true;
+                            PreparedFilter::ColorMatrix(
                                 uniforms.push(&color_matrix_uniform(filter))?,
-                            ))
+                            )
                         }
-                        AnimFilter::DropShadowFilter(filter) => prepared_filters
-                            .push(prepare_drop_shadow(filter, [child[2], child[3]], uniforms)?),
-                        AnimFilter::BevelFilter(filter) => prepared_filters.push(prepare_bevel(
-                            filter,
-                            [child[2], child[3]],
-                            uniforms,
-                        )?),
+                        AnimFilter::DropShadowFilter(filter) => {
+                            needs_full_res_ping_pong = true;
+                            prepare_drop_shadow(filter, current_size, quality, uniforms)?
+                        }
+                        AnimFilter::BevelFilter(filter) => {
+                            needs_full_res_ping_pong = true;
+                            prepare_bevel(filter, current_size, quality, uniforms)?
+                        }
                         AnimFilter::ConvolutionFilter(filter) => {
-                            prepared_filters.push(prepare_convolution(
-                                filter,
-                                [child[2], child[3]],
-                                gpu,
-                                device,
-                                uniforms,
-                            )?)
+                            needs_full_res_ping_pong = true;
+                            prepare_convolution(filter, current_size, gpu, device, uniforms)?
                         }
                         AnimFilter::GradientGlowFilter(filter) => {
-                            prepared_filters.push(prepare_gradient_filter(
+                            needs_full_res_ping_pong = true;
+                            prepare_gradient_filter(
                                 filter,
-                                [child[2], child[3]],
+                                current_size,
                                 false,
+                                quality,
                                 gpu,
                                 device,
                                 queue,
                                 uniforms,
-                            )?)
+                            )?
                         }
                         AnimFilter::GradientBevelFilter(filter) => {
-                            prepared_filters.push(prepare_gradient_filter(
+                            needs_full_res_ping_pong = true;
+                            prepare_gradient_filter(
                                 filter,
-                                [child[2], child[3]],
+                                current_size,
                                 true,
+                                quality,
                                 gpu,
                                 device,
                                 queue,
                                 uniforms,
-                            )?)
+                            )?
                         }
-                    }
+                    };
+                    prepared_filters.push(prepared);
                 }
+                let complex_mode = complex_blend_mode_id(*blend);
                 let offset = uniforms.push(&CompositeUniform {
                     rect: child,
                     viewport: bounds,
-                    mode: [0.0; 4],
+                    mode: [
+                        complex_mode.unwrap_or(0.0),
+                        if *blend == VabBlendMode::Alpha {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        0.0,
+                        0.0,
+                    ],
                     color: [0.0; 4],
                 })?;
-                PreparedOp::Layer {
-                    ops,
-                    bounds: child,
-                    offset,
-                    filters: prepared_filters,
-                    composite: ready_pipeline(
+                let composite = if complex_mode.is_some() {
+                    ready_pipeline(
+                        cache,
+                        gpu.complex_blend_pipeline(cache, TextureFormat::Rgba8Unorm, samples),
+                    )?
+                } else {
+                    ready_pipeline(
                         cache,
                         gpu.layer_composite_pipeline(
                             cache,
@@ -1646,7 +2042,16 @@ fn prepare_ops(
                             samples,
                             *blend,
                         ),
-                    )?,
+                    )?
+                };
+                PreparedOp::Layer {
+                    ops,
+                    bounds: child,
+                    offset,
+                    filters: prepared_filters,
+                    needs_full_res_ping_pong,
+                    is_complex_blend: complex_mode.is_some(),
+                    composite,
                 }
             }
         });
@@ -1659,6 +2064,7 @@ pub(super) fn prepare_layer(
     ops: &[Op],
     bounds: [f32; 4],
     samples: u32,
+    quality: VabFilterQuality,
     gpu: &mut FlashGpu,
     cache: &PipelineCache,
     device: &RenderDevice,
@@ -1676,6 +2082,7 @@ pub(super) fn prepare_layer(
         ops,
         bounds,
         samples,
+        quality,
         gpu,
         cache,
         device,
@@ -1710,6 +2117,7 @@ pub fn prepare_frames(
     mut commands: Commands,
     query: Query<(Entity, &ExtractedFrame, &OffscreenViewTarget, &Msaa)>,
     mut gpu: ResMut<FlashGpu>,
+    quality: Res<VabFilterQuality>,
     cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
@@ -1720,6 +2128,7 @@ pub fn prepare_frames(
 ) {
     diagnostics.pending_views = 0;
     diagnostics.errors.clear();
+    gpu.retain_image_bind_groups(&images);
     let mut live = HashSet::<Entity>::default();
     for (entity, frame, target, msaa) in &query {
         live.insert(entity);
@@ -1772,6 +2181,7 @@ pub fn prepare_frames(
                 &frame.ops,
                 bounds,
                 msaa.samples(),
+                *quality,
                 &mut gpu,
                 &cache,
                 &device,
@@ -1840,24 +2250,22 @@ fn descriptor(width: u32, height: u32) -> TextureDescriptor<'static> {
         format: TextureFormat::Rgba8Unorm,
         usage: TextureUsages::RENDER_ATTACHMENT
             | TextureUsages::TEXTURE_BINDING
-            | TextureUsages::COPY_SRC,
+            | TextureUsages::COPY_SRC
+            | TextureUsages::COPY_DST,
         view_formats: &[],
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn render_single_texture_filter_pass(
-    source: &TextureView,
+    source_group: &BindGroup,
     destination: &TextureView,
     offset: u32,
     label: &'static str,
     prepared: &PreparedLayer,
-    gpu: &FlashGpu,
     pipeline: &RenderPipeline,
-    device: &RenderDevice,
     context: &mut RenderContext,
 ) {
-    let texture = texture_group(device, &gpu.texture_layout, source, &gpu.sampler);
     let attachment = [Some(RenderPassColorAttachment {
         view: destination,
         resolve_target: None,
@@ -1874,23 +2282,20 @@ fn render_single_texture_filter_pass(
     });
     pass.set_render_pipeline(pipeline);
     pass.set_bind_group(0, &prepared.uniforms, &[offset]);
-    pass.set_bind_group(1, &texture, &[]);
+    pass.set_bind_group(1, source_group, &[]);
     pass.draw(0..6, 0..1);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn render_convolution_pass(
-    source: &TextureView,
+    source_group: &BindGroup,
     destination: &TextureView,
     offset: u32,
     kernel: &BindGroup,
     prepared: &PreparedLayer,
-    gpu: &FlashGpu,
     pipeline: &RenderPipeline,
-    device: &RenderDevice,
     context: &mut RenderContext,
 ) {
-    let texture = texture_group(device, &gpu.texture_layout, source, &gpu.sampler);
     let attachment = [Some(RenderPassColorAttachment {
         view: destination,
         resolve_target: None,
@@ -1907,9 +2312,92 @@ fn render_convolution_pass(
     });
     pass.set_render_pipeline(pipeline);
     pass.set_bind_group(0, &prepared.uniforms, &[offset]);
-    pass.set_bind_group(1, &texture, &[]);
+    pass.set_bind_group(1, source_group, &[]);
     pass.set_bind_group(2, kernel, &[]);
     pass.draw(0..6, 0..1);
+}
+
+/// Run blur passes at a downsampled resolution `(bw, bh)`, starting from `source_group`.
+/// Returns the pooled texture holding the final blurred image.
+#[allow(clippy::too_many_arguments)]
+fn render_downsampled_blur_chain(
+    source_group: &BindGroup,
+    blur_offsets: &[u32],
+    blur_size: [u32; 2],
+    bounds: [f32; 4],
+    blur_label: &'static str,
+    prepared: &PreparedLayer,
+    gpu: &FlashGpu,
+    device: &RenderDevice,
+    pool: &mut FrameInternalTextureCache,
+    context: &mut RenderContext,
+    draw_calls: &mut u64,
+) -> super::pool::Lease<super::texture_cache::PooledTexture> {
+    let blur_pipeline = prepared.pipelines.get(FilterPipeline::Blur);
+    let blur_a = pool.acquire(
+        device,
+        descriptor(blur_size[0], blur_size[1]),
+        TextureAllocationSite {
+            purpose: TexturePurpose::BlurDownsample,
+            bounds,
+        },
+    );
+    let blur_b = (blur_offsets.len() > 1).then(|| {
+        pool.acquire(
+            device,
+            descriptor(blur_size[0], blur_size[1]),
+            TextureAllocationSite {
+                purpose: TexturePurpose::BlurDownsample,
+                bounds,
+            },
+        )
+    });
+    let mut in_a = true;
+    for (pass_index, blur_offset) in blur_offsets.iter().enumerate() {
+        if pass_index == 0 {
+            render_single_texture_filter_pass(
+                source_group,
+                blur_a.default_view(),
+                *blur_offset,
+                blur_label,
+                prepared,
+                &blur_pipeline,
+                context,
+            );
+            in_a = true;
+        } else {
+            let blur_b = blur_b
+                .as_ref()
+                .expect("multi-pass blur allocates ping-pong");
+            let (src_group, dst_view) = if in_a {
+                (
+                    blur_a.filter_bind_group(device, &gpu.texture_layout, &gpu.sampler),
+                    blur_b.default_view(),
+                )
+            } else {
+                (
+                    blur_b.filter_bind_group(device, &gpu.texture_layout, &gpu.sampler),
+                    blur_a.default_view(),
+                )
+            };
+            render_single_texture_filter_pass(
+                src_group,
+                dst_view,
+                *blur_offset,
+                blur_label,
+                prepared,
+                &blur_pipeline,
+                context,
+            );
+            in_a = !in_a;
+        }
+        *draw_calls += 1;
+    }
+    if in_a {
+        blur_a
+    } else {
+        blur_b.expect("multi-pass blur allocates ping-pong")
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1917,18 +2405,70 @@ fn render_blur_and_two_texture_filter(
     child: &mut super::texture_cache::TextureTarget,
     bounds: [f32; 4],
     blur_offsets: &[u32],
+    blur_size: Option<[u32; 2]>,
     effect_offset: u32,
     blur_label: &'static str,
     effect_label: &'static str,
     effect_pipeline: &RenderPipeline,
     extra_group: Option<&BindGroup>,
     prepared: &PreparedLayer,
-    gpu: &mut FlashGpu,
+    gpu: &FlashGpu,
     device: &RenderDevice,
     pool: &mut FrameInternalTextureCache,
     context: &mut RenderContext,
     draw_calls: &mut u64,
 ) {
+    // Fast path: run blur passes at reduced resolution while keeping the foreground
+    // source and final composite at full resolution.
+    if let Some(blur_size) = blur_size
+        && !blur_offsets.is_empty()
+    {
+        let source_group = child
+            .main_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler)
+            .clone();
+        let blurred_tex = render_downsampled_blur_chain(
+            &source_group,
+            blur_offsets,
+            blur_size,
+            bounds,
+            blur_label,
+            prepared,
+            gpu,
+            device,
+            pool,
+            context,
+            draw_calls,
+        );
+        let blurred_group =
+            blurred_tex.filter_bind_group(device, &gpu.texture_layout, &gpu.sampler);
+        let attachment = [Some(RenderPassColorAttachment {
+            view: child.other_view(),
+            resolve_target: None,
+            depth_slice: None,
+            ops: Operations {
+                load: LoadOp::Clear(Default::default()),
+                store: StoreOp::Store,
+            },
+        })];
+        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some(effect_label),
+            color_attachments: &attachment,
+            ..Default::default()
+        });
+        pass.set_render_pipeline(effect_pipeline);
+        pass.set_bind_group(0, &prepared.uniforms, &[effect_offset]);
+        pass.set_bind_group(1, &source_group, &[]);
+        pass.set_bind_group(2, blurred_group, &[]);
+        if let Some(extra_group) = extra_group {
+            pass.set_bind_group(3, extra_group, &[]);
+        }
+        pass.draw(0..6, 0..1);
+        drop(pass);
+        child.flip_main();
+        *draw_calls += 1;
+        return;
+    }
+
     // The original and blurred images must remain live together. One scratch
     // lease is enough for any number of ping-pong blur passes and is promoted
     // directly when it receives the final effect, avoiding a copy pass.
@@ -1943,43 +2483,60 @@ fn render_blur_and_two_texture_filter(
     let blur_pipeline = prepared.pipelines.get(FilterPipeline::Blur);
     let mut blurred_in_other = false;
     for (pass_index, blur_offset) in blur_offsets.iter().enumerate() {
-        let (source, destination) = if pass_index == 0 {
-            (child.main_view(), child.other_view())
+        let (source_group, destination) = if pass_index == 0 {
+            (
+                child
+                    .main_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler)
+                    .clone(),
+                child.other_view(),
+            )
         } else if blurred_in_other {
-            (child.other_view(), &scratch.default_view)
+            (
+                child
+                    .other_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler)
+                    .clone(),
+                scratch.default_view(),
+            )
         } else {
-            (&scratch.default_view, child.other_view())
+            (
+                scratch
+                    .filter_bind_group(device, &gpu.texture_layout, &gpu.sampler)
+                    .clone(),
+                child.other_view(),
+            )
         };
         render_single_texture_filter_pass(
-            source,
+            &source_group,
             destination,
             *blur_offset,
             blur_label,
             prepared,
-            gpu,
             &blur_pipeline,
-            device,
             context,
         );
         blurred_in_other = pass_index == 0 || !blurred_in_other;
         *draw_calls += 1;
     }
-    let original = child.main_view();
-    let blurred = if blur_offsets.is_empty() {
-        original
+    let source_group = child
+        .main_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler)
+        .clone();
+    let blurred_group = if blur_offsets.is_empty() {
+        source_group.clone()
     } else if blurred_in_other {
-        child.other_view()
+        child
+            .other_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler)
+            .clone()
     } else {
-        &scratch.default_view
+        scratch
+            .filter_bind_group(device, &gpu.texture_layout, &gpu.sampler)
+            .clone()
     };
     let result_in_other = !blurred_in_other || blur_offsets.is_empty();
     let destination = if result_in_other {
         child.other_view()
     } else {
-        &scratch.default_view
+        scratch.default_view()
     };
-    let source_group = texture_group(device, &gpu.texture_layout, original, &gpu.sampler);
-    let blurred_group = texture_group(device, &gpu.texture_layout, blurred, &gpu.sampler);
     let attachment = [Some(RenderPassColorAttachment {
         view: destination,
         resolve_target: None,
@@ -2012,9 +2569,212 @@ fn render_blur_and_two_texture_filter(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn render_layer_into_target(
+    children: &[PreparedOp],
+    bounds: [f32; 4],
+    filters: &[PreparedFilter],
+    needs_full_res_ping_pong: bool,
+    prepared: &PreparedLayer,
+    gpu: &mut FlashGpu,
+    device: &RenderDevice,
+    pool: &mut FrameInternalTextureCache,
+    msaa: &Msaa,
+    meshes: &RenderAssets<RenderMesh>,
+    allocator: &MeshAllocator,
+    context: &mut RenderContext,
+    draw_calls: &mut u64,
+) -> super::texture_cache::TextureTarget {
+    let mut child = pool.get(
+        device,
+        descriptor(bounds[2] as u32, bounds[3] as u32),
+        msaa,
+        TextureAllocationSite {
+            purpose: TexturePurpose::Layer,
+            bounds,
+        },
+    );
+    render_ops(
+        children,
+        &child,
+        Some(Srgba::NONE),
+        prepared,
+        gpu,
+        device,
+        pool,
+        msaa,
+        meshes,
+        allocator,
+        context,
+        draw_calls,
+    );
+    child.release_msaa_attachment();
+    if needs_full_res_ping_pong {
+        child.enable_ping_pong(pool.acquire(
+            device,
+            descriptor(bounds[2] as u32, bounds[3] as u32),
+            TextureAllocationSite {
+                purpose: TexturePurpose::PingPong,
+                bounds,
+            },
+        ));
+    }
+    for filter in filters {
+        match filter {
+            PreparedFilter::Blur { offsets, blur_size } => {
+                if let Some(blur_size) = *blur_size
+                    && !offsets.is_empty()
+                {
+                    let source_group = child
+                        .main_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler)
+                        .clone();
+                    let downsampled = render_downsampled_blur_chain(
+                        &source_group,
+                        offsets,
+                        blur_size,
+                        bounds,
+                        "flash_blur",
+                        prepared,
+                        gpu,
+                        device,
+                        pool,
+                        context,
+                        draw_calls,
+                    );
+                    child.replace_with_single(downsampled);
+                } else {
+                    let pipeline = prepared.pipelines.get(FilterPipeline::Blur);
+                    for blur_offset in offsets {
+                        let (source, destination) = child.post_process_write_textures();
+                        let source_group =
+                            source.filter_bind_group(device, &gpu.texture_layout, &gpu.sampler);
+                        render_single_texture_filter_pass(
+                            source_group,
+                            destination,
+                            *blur_offset,
+                            "flash_blur",
+                            prepared,
+                            &pipeline,
+                            context,
+                        );
+                        *draw_calls += 1;
+                    }
+                }
+            }
+            PreparedFilter::Glow {
+                blur_offsets,
+                blur_size,
+                glow_offset,
+            } => {
+                let glow_pipeline = prepared.pipelines.get(FilterPipeline::Glow);
+                render_blur_and_two_texture_filter(
+                    &mut child,
+                    bounds,
+                    blur_offsets,
+                    *blur_size,
+                    *glow_offset,
+                    "flash_glow_blur",
+                    "flash_glow",
+                    &glow_pipeline,
+                    None,
+                    prepared,
+                    gpu,
+                    device,
+                    pool,
+                    context,
+                    draw_calls,
+                );
+            }
+            PreparedFilter::Bevel {
+                blur_offsets,
+                blur_size,
+                bevel_offset,
+            } => {
+                let bevel_pipeline = prepared.pipelines.get(FilterPipeline::Bevel);
+                render_blur_and_two_texture_filter(
+                    &mut child,
+                    bounds,
+                    blur_offsets,
+                    *blur_size,
+                    *bevel_offset,
+                    "flash_bevel_blur",
+                    "flash_bevel",
+                    &bevel_pipeline,
+                    None,
+                    prepared,
+                    gpu,
+                    device,
+                    pool,
+                    context,
+                    draw_calls,
+                );
+            }
+            PreparedFilter::ColorMatrix(offset) => {
+                let pipeline = prepared.pipelines.get(FilterPipeline::ColorMatrix);
+                let (source, destination) = child.post_process_write_textures();
+                let source_group =
+                    source.filter_bind_group(device, &gpu.texture_layout, &gpu.sampler);
+                render_single_texture_filter_pass(
+                    source_group,
+                    destination,
+                    *offset,
+                    "flash_color_matrix",
+                    prepared,
+                    &pipeline,
+                    context,
+                );
+                *draw_calls += 1;
+            }
+            PreparedFilter::Convolution { offset, kernel } => {
+                let pipeline = prepared.pipelines.get(FilterPipeline::Convolution);
+                let (source, destination) = child.post_process_write_textures();
+                let source_group =
+                    source.filter_bind_group(device, &gpu.texture_layout, &gpu.sampler);
+                render_convolution_pass(
+                    source_group,
+                    destination,
+                    *offset,
+                    kernel,
+                    prepared,
+                    &pipeline,
+                    context,
+                );
+                *draw_calls += 1;
+            }
+            PreparedFilter::Gradient {
+                blur_offsets,
+                blur_size,
+                effect_offset,
+                ramp,
+            } => {
+                let pipeline = prepared.pipelines.get(FilterPipeline::Gradient);
+                render_blur_and_two_texture_filter(
+                    &mut child,
+                    bounds,
+                    blur_offsets,
+                    *blur_size,
+                    *effect_offset,
+                    "flash_gradient_filter_blur",
+                    "flash_gradient_filter",
+                    &pipeline,
+                    Some(ramp),
+                    prepared,
+                    gpu,
+                    device,
+                    pool,
+                    context,
+                    draw_calls,
+                );
+            }
+        }
+    }
+    child
+}
+
+#[allow(clippy::too_many_arguments)]
 fn render_ops(
     ops: &[PreparedOp],
     target: &super::texture_cache::TextureTarget,
+    initial_clear: Option<Srgba>,
     prepared: &PreparedLayer,
     gpu: &mut FlashGpu,
     device: &RenderDevice,
@@ -2025,6 +2785,13 @@ fn render_ops(
     context: &mut RenderContext,
     draw_calls: &mut u64,
 ) {
+    let mut pending_clear = initial_clear;
+    if ops.is_empty() {
+        if let Some(clear) = pending_clear.take() {
+            clear_target(target, clear, context);
+        }
+        return;
+    }
     let mut index = 0;
     while index < ops.len() {
         if let PreparedOp::Mask {
@@ -2043,10 +2810,10 @@ fn render_ops(
                     bounds: *bounds,
                 },
             );
-            clear_target(&mask_target, Srgba::NONE, context);
             render_ops(
                 mask,
                 &mask_target,
+                Some(Srgba::NONE),
                 prepared,
                 gpu,
                 device,
@@ -2067,10 +2834,10 @@ fn render_ops(
                     bounds: *bounds,
                 },
             );
-            clear_target(&content_target, Srgba::NONE, context);
             render_ops(
                 content,
                 &content_target,
+                Some(Srgba::NONE),
                 prepared,
                 gpu,
                 device,
@@ -2082,20 +2849,15 @@ fn render_ops(
                 draw_calls,
             );
             content_target.release_msaa_attachment();
-            let content_group = texture_group(
-                device,
-                &gpu.texture_layout,
-                content_target.main_view(),
-                &gpu.sampler,
-            );
-            let mask_group = texture_group(
-                device,
-                &gpu.texture_layout,
-                mask_target.main_view(),
-                &gpu.sampler,
-            );
+            let content_group =
+                content_target.main_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler);
+            let mask_group =
+                mask_target.main_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler);
             let pipeline = prepared.pipelines.get(FilterPipeline::Mask);
-            let attachment = [Some(target.load_color_attachment())];
+            let attachment = [Some(match pending_clear.take() {
+                Some(clear) => target.get_color_attachment(clear),
+                None => target.load_color_attachment(),
+            })];
             let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
                 label: Some("flash_alpha_mask"),
                 color_attachments: &attachment,
@@ -2103,8 +2865,8 @@ fn render_ops(
             });
             pass.set_render_pipeline(&pipeline);
             pass.set_bind_group(0, &prepared.uniforms, &[*offset]);
-            pass.set_bind_group(1, &content_group, &[]);
-            pass.set_bind_group(2, &mask_group, &[]);
+            pass.set_bind_group(1, content_group, &[]);
+            pass.set_bind_group(2, mask_group, &[]);
             pass.draw(0..6, 0..1);
             *draw_calls += 1;
             index += 1;
@@ -2113,172 +2875,82 @@ fn render_ops(
             bounds,
             offset,
             filters,
+            needs_full_res_ping_pong,
+            is_complex_blend,
             composite,
         } = &ops[index]
         {
-            let mut child = pool.get(
+            let child = render_layer_into_target(
+                children,
+                *bounds,
+                filters,
+                *needs_full_res_ping_pong,
+                prepared,
+                gpu,
                 device,
-                descriptor(bounds[2] as u32, bounds[3] as u32),
+                pool,
                 msaa,
-                TextureAllocationSite {
-                    purpose: TexturePurpose::Layer,
-                    bounds: *bounds,
-                },
-            );
-            clear_target(&child, Srgba::NONE, context);
-            render_ops(
-                children, &child, prepared, gpu, device, pool, msaa, meshes, allocator, context,
+                meshes,
+                allocator,
+                context,
                 draw_calls,
             );
-            child.release_msaa_attachment();
-            if !filters.is_empty() {
-                child.enable_ping_pong(pool.acquire(
-                    device,
-                    descriptor(bounds[2] as u32, bounds[3] as u32),
-                    TextureAllocationSite {
-                        purpose: TexturePurpose::PingPong,
-                        bounds: *bounds,
-                    },
-                ));
-            }
-            for filter in filters {
-                match filter {
-                    PreparedFilter::Blur(offsets) => {
-                        let pipeline = prepared.pipelines.get(FilterPipeline::Blur);
-                        for blur_offset in offsets {
-                            let write = child.post_process_write();
-                            render_single_texture_filter_pass(
-                                write.source,
-                                write.destination,
-                                *blur_offset,
-                                "flash_blur",
-                                prepared,
-                                gpu,
-                                &pipeline,
-                                device,
-                                context,
-                            );
-                            *draw_calls += 1;
-                        }
-                    }
-                    PreparedFilter::Glow {
-                        blur_offsets,
-                        glow_offset,
-                    } => {
-                        let glow_pipeline = prepared.pipelines.get(FilterPipeline::Glow);
-                        render_blur_and_two_texture_filter(
-                            &mut child,
-                            *bounds,
-                            blur_offsets,
-                            *glow_offset,
-                            "flash_glow_blur",
-                            "flash_glow",
-                            &glow_pipeline,
-                            None,
-                            prepared,
-                            gpu,
-                            device,
-                            pool,
-                            context,
-                            draw_calls,
-                        );
-                    }
-                    PreparedFilter::Bevel {
-                        blur_offsets,
-                        bevel_offset,
-                    } => {
-                        let bevel_pipeline = prepared.pipelines.get(FilterPipeline::Bevel);
-                        render_blur_and_two_texture_filter(
-                            &mut child,
-                            *bounds,
-                            blur_offsets,
-                            *bevel_offset,
-                            "flash_bevel_blur",
-                            "flash_bevel",
-                            &bevel_pipeline,
-                            None,
-                            prepared,
-                            gpu,
-                            device,
-                            pool,
-                            context,
-                            draw_calls,
-                        );
-                    }
-                    PreparedFilter::ColorMatrix(offset) => {
-                        let pipeline = prepared.pipelines.get(FilterPipeline::ColorMatrix);
-                        let write = child.post_process_write();
-                        render_single_texture_filter_pass(
-                            write.source,
-                            write.destination,
-                            *offset,
-                            "flash_color_matrix",
-                            prepared,
-                            gpu,
-                            &pipeline,
-                            device,
-                            context,
-                        );
-                        *draw_calls += 1;
-                    }
-                    PreparedFilter::Convolution { offset, kernel } => {
-                        let pipeline = prepared.pipelines.get(FilterPipeline::Convolution);
-                        let write = child.post_process_write();
-                        render_convolution_pass(
-                            write.source,
-                            write.destination,
-                            *offset,
-                            kernel,
-                            prepared,
-                            gpu,
-                            &pipeline,
-                            device,
-                            context,
-                        );
-                        *draw_calls += 1;
-                    }
-                    PreparedFilter::Gradient {
-                        blur_offsets,
-                        effect_offset,
-                        ramp,
-                    } => {
-                        let pipeline = prepared.pipelines.get(FilterPipeline::Gradient);
-                        render_blur_and_two_texture_filter(
-                            &mut child,
-                            *bounds,
-                            blur_offsets,
-                            *effect_offset,
-                            "flash_gradient_filter_blur",
-                            "flash_gradient_filter",
-                            &pipeline,
-                            Some(ramp),
-                            prepared,
-                            gpu,
-                            device,
-                            pool,
-                            context,
-                            draw_calls,
-                        );
-                    }
+            let texture = child.main_filter_bind_group(device, &gpu.texture_layout, &gpu.sampler);
+            if *is_complex_blend {
+                if let Some(clear) = pending_clear.take() {
+                    clear_target(target, clear, context);
                 }
+                let dst_size = target.main_size();
+                let dst_copy = pool.acquire(
+                    device,
+                    descriptor(dst_size.width, dst_size.height),
+                    TextureAllocationSite {
+                        purpose: TexturePurpose::BlendDestination,
+                        bounds: [0.0, 0.0, dst_size.width as f32, dst_size.height as f32],
+                    },
+                );
+                context.command_encoder().copy_texture_to_texture(
+                    target.main_texture().as_image_copy(),
+                    dst_copy.cached.texture.as_image_copy(),
+                    dst_size,
+                );
+                let dst_group =
+                    dst_copy.filter_bind_group(device, &gpu.texture_layout, &gpu.sampler);
+                let attachment = [Some(target.load_color_attachment())];
+                let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                    label: Some("flash_complex_blend"),
+                    color_attachments: &attachment,
+                    ..Default::default()
+                });
+                pass.set_render_pipeline(composite);
+                pass.set_bind_group(0, &prepared.uniforms, &[*offset]);
+                pass.set_bind_group(1, texture, &[]);
+                pass.set_bind_group(2, dst_group, &[]);
+                pass.draw(0..6, 0..1);
+                *draw_calls += 1;
+            } else {
+                let attachment = [Some(match pending_clear.take() {
+                    Some(clear) => target.get_color_attachment(clear),
+                    None => target.load_color_attachment(),
+                })];
+                let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                    label: Some("flash_layer_composite"),
+                    color_attachments: &attachment,
+                    ..Default::default()
+                });
+                pass.set_render_pipeline(composite);
+                pass.set_bind_group(0, &prepared.uniforms, &[*offset]);
+                pass.set_bind_group(1, texture, &[]);
+                pass.draw(0..6, 0..1);
+                *draw_calls += 1;
             }
-            let texture =
-                texture_group(device, &gpu.texture_layout, child.main_view(), &gpu.sampler);
-            let attachment = [Some(target.load_color_attachment())];
-            let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-                label: Some("flash_layer_composite"),
-                color_attachments: &attachment,
-                ..Default::default()
-            });
-            pass.set_render_pipeline(composite);
-            pass.set_bind_group(0, &prepared.uniforms, &[*offset]);
-            pass.set_bind_group(1, &texture, &[]);
-            pass.draw(0..6, 0..1);
-            *draw_calls += 1;
-            // Pass ends before child lease is returned; later siblings can reuse it.
+            // Pass ends before child/dst_copy leases are returned; later siblings can reuse them.
             index += 1;
         } else {
-            let attachment = [Some(target.load_color_attachment())];
+            let attachment = [Some(match pending_clear.take() {
+                Some(clear) => target.get_color_attachment(clear),
+                None => target.load_color_attachment(),
+            })];
             let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
                 label: Some("flash_shapes"),
                 color_attachments: &attachment,
@@ -2346,6 +3018,39 @@ pub(super) fn render_prepared_layer(
     context: &mut RenderContext,
     draw_calls: &mut u64,
 ) -> super::texture_cache::TextureTarget {
+    // Fast path: when a top-level isolated packet is a single Layer matching the
+    // root bounds with transparent clear, render it directly without allocating a
+    // redundant root surface or performing an identity composite copy pass.
+    if clear == Srgba::NONE
+        && let [
+            PreparedOp::Layer {
+                ops: children,
+                bounds,
+                filters,
+                needs_full_res_ping_pong,
+                is_complex_blend,
+                ..
+            },
+        ] = prepared.ops.as_slice()
+        && !*is_complex_blend
+        && *bounds == prepared.bounds
+    {
+        return render_layer_into_target(
+            children,
+            *bounds,
+            filters,
+            *needs_full_res_ping_pong,
+            prepared,
+            gpu,
+            device,
+            pool,
+            msaa,
+            meshes,
+            allocator,
+            context,
+            draw_calls,
+        );
+    }
     let mut surface = pool.get(
         device,
         descriptor(prepared.bounds[2] as u32, prepared.bounds[3] as u32),
@@ -2355,10 +3060,10 @@ pub(super) fn render_prepared_layer(
             bounds: prepared.bounds,
         },
     );
-    clear_target(&surface, clear, context);
     render_ops(
         &prepared.ops,
         &surface,
+        Some(clear),
         prepared,
         gpu,
         device,
@@ -2432,12 +3137,7 @@ pub fn render_frame(
         &mut context,
         &mut diagnostics.draw_calls,
     );
-    let texture = texture_group(
-        &device,
-        &gpu.texture_layout,
-        surface.main_view(),
-        &gpu.sampler,
-    );
+    let texture = surface.main_filter_bind_group(&device, &gpu.texture_layout, &gpu.sampler);
     let attachments = [Some(RenderPassColorAttachment {
         view: &output.texture_view,
         resolve_target: None,
@@ -2455,7 +3155,7 @@ pub fn render_frame(
         });
         pass.set_render_pipeline(&prepared.output);
         pass.set_bind_group(0, &prepared.layer.uniforms, &[prepared.output_offset]);
-        pass.set_bind_group(1, &texture, &[]);
+        pass.set_bind_group(1, texture, &[]);
         pass.draw(0..6, 0..1);
     }
     if let Some(once) = once {
@@ -2513,6 +3213,48 @@ mod tests {
         assert_eq!(classify_texture_dimension(257), 288);
         assert_eq!(classify_texture_dimension(1024), 1024);
         assert_eq!(classify_texture_dimension(1025), 1088);
+    }
+
+    #[test]
+    fn downsampled_blur_respects_thresholds_and_axes() {
+        assert_eq!(
+            downsampled_blur_size(
+                [128.0, 128.0],
+                9 * 65536,
+                9 * 65536,
+                VabFilterQuality::full()
+            ),
+            None
+        );
+        assert_eq!(
+            downsampled_blur_size(
+                [128.0, 128.0],
+                9 * 65536,
+                9 * 65536,
+                VabFilterQuality::half_blur()
+            ),
+            Some([64, 64])
+        );
+        // 1D horizontal blur only downsamples the blurred axis.
+        assert_eq!(
+            downsampled_blur_size(
+                [128.0, 128.0],
+                9 * 65536,
+                65536,
+                VabFilterQuality::half_blur()
+            ),
+            Some([64, 128])
+        );
+        // Small targets stay full resolution.
+        assert_eq!(
+            downsampled_blur_size(
+                [16.0, 16.0],
+                9 * 65536,
+                9 * 65536,
+                VabFilterQuality::half_blur()
+            ),
+            None
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@ SWF ── vatf 离线编译 ── VAB
 
 vatf 负责源格式解析、时间轴展开与 VAB 序列化。运行时不重新解释普通 Sprite 时间轴。可选的 `SwfToVabProcessor` 调用共享内存编译入口，在 Bevy 的处理流程中输出 VAB 字节，输出仍交给同一个 VAB 加载器。源文件与配置失效由 Bevy 管理，编译器变化通过修订缓存路径失效。
 
-编译器写出前按最终烘焙帧做资源引用裁剪：遍历全部动作、皮肤变体、遮罩和 UI 导出帧，只保留引用到的 Shape/Morph、网格、材质与纹理，并同步重建偏移。UI 另有编译前的 ExportAssets 依赖筛选。裁剪不改帧、命名、坐标或格式版本，编译统计通过 `ResourcePruningReport` 返回；普通动画的最终裁剪尚不省去前面的解析和曲面细分。
+编译器写出前按最终烘焙帧做资源引用裁剪：遍历全部动作、皮肤变体、遮罩和 UI 导出帧，只保留引用到的 Shape/Morph、网格、材质与纹理，并同步重建偏移；普通动画在曲面细分前先按根时间轴可达性跳过完全未放置的 `DefineShape`，UI 另有编译前的 ExportAssets 依赖筛选。VAB v2 采用按块无损压缩（Deflate/LZ4/None，跳过 `TEXT`）、`IND2`（`u16` 索引）、`TEXD` 纹理表及带帧去重的紧凑 `BAKD`/`UIGR` 编码，零矢量精度损失；编译统计通过 `ResourcePruningReport` 返回。
 
 资产保存共享不可变数据，实体组件保存播放和换肤状态；Render World 拥有 GPU 缓冲与临时纹理。UI 缓存额外持有公开输出 Image，使用完成标记发布图片，临时滤镜纹理仍由公共渲染池管理。
 
@@ -39,8 +39,9 @@ vatf 负责源格式解析、时间轴展开与 VAB 序列化。运行时不重�
 | `vab_ui/layout.rs` | 资源固有尺寸与 Bevy 布局测量 |
 | `vab_ui/raster.rs` | 可见 UI 播放推进、离屏任务创建和图片发布 |
 | `vab_ui/cache.rs` | 缓存键、失效、待完成请求、任务回收及空闲淘汰 |
-| `render/instance.rs` | 世界实例的可见性、采样缓存、阶段准备和原子排序 |
-| `render/gpu.rs` | 离屏目标、滤镜/遮罩执行和 GPU 绘制 |
+| `render/extract.rs` | 绘制命令扁平化、嵌套遮罩节点解析及无滤镜非重叠固定混合直绘快路径 |
+| `render/instance.rs` | 世界实例的可见性、自动 Aabb 视锥裁剪、采样缓存、滤镜元件印章缓存与相邻合批、阶段准备和原子排序 |
+| `render/gpu.rs` | 离屏目标、滤镜/遮罩/复杂混合执行、可选模糊降采样与 GPU 绘制 |
 | `render/pool.rs`、`render/texture_cache.rs` | RAII 借还、尺寸分级、预算和驻留指标 |
 | `render/diagnostics.rs` | 可选诊断插件 |
 
@@ -76,7 +77,7 @@ vatf 负责源格式解析、时间轴展开与 VAB 序列化。运行时不重�
 由 `PipelineCache` 编译及管理。库不再使用 `build.rs` 生成 WGSL，也不直接
 创建 ShaderModule 或 RenderPipeline；宿主无需安装 WESL CLI 或分发 Shader 文件。
 
-六种全屏滤镜共享 `fullscreen.wesl` 的顶点与 UV 实现，保持左上角为 `(0, 0)`。
+6 种全屏滤镜共享 `fullscreen.wesl` 的顶点与 UV 实现，保持左上角为 `(0, 0)`；隔离层与离屏复杂混合由 `complex_blend.wesl` 实现，其余 4 个核心绘制着色器为 `shape.wesl`、`vab_instance.wesl`、`composite.wesl`、`alpha_mask.wesl`。
 共享模块也作为 Shader 资产加载并持有，供 Bevy 的 WESL 导入解析器使用。
 Shader 修改会使管线重新编译，并使实例滤镜输出及 UI 栅格缓存失效。
 

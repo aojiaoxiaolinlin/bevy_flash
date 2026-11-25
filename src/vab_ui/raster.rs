@@ -1,9 +1,11 @@
 //! Advance visible UI playback and schedule one-shot raster work.
 use super::cache::{
-    PendingImage, PendingRaster, RasterCache, RasterEntry, RasterKey, UiAssetChanges,
+    PendingImage, PendingRaster, RasterCache, RasterDependencies, RasterEntry, RasterKey,
+    UiAssetChanges,
 };
 use super::{VabGraphic, VabImageFit, VabImageNode, VabUiCacheSettings, VabUiPlayback};
 use crate::{
+    material::{BitmapMaterial, GradientMaterial},
     render::{OffscreenViewTarget, RasterOnce},
     vab_asset::{VabAsset, VabAssetHandle},
     vab_player::VabPlayer,
@@ -20,6 +22,8 @@ pub(super) fn update_images(
     settings: Res<VabUiCacheSettings>,
     graphics: Res<Assets<VabGraphic>>,
     assets: Res<Assets<VabAsset>>,
+    gradients: Res<Assets<GradientMaterial>>,
+    bitmaps: Res<Assets<BitmapMaterial>>,
     mut images: ResMut<Assets<Image>>,
     time: Res<Time>,
     mut nodes: Query<(
@@ -33,13 +37,13 @@ pub(super) fn update_images(
     )>,
     mut changes: UiAssetChanges,
 ) {
-    let invalid = changes.invalidated();
-    cache.begin_frame(&mut commands, invalid);
+    let invalidation = changes.collect();
+    cache.begin_frame(&mut commands, &invalidation);
     let frame = cache.frame;
     for (node, layout, mut image_node, mut playback, visibility, mut source, mut pending) in
         &mut nodes
     {
-        if invalid {
+        if invalidation.all {
             pending.0 = None;
         }
         if visibility.is_some_and(|v| !v.get()) {
@@ -133,12 +137,15 @@ pub(super) fn update_images(
                     done.clone(),
                 ))
                 .id();
+            let deps =
+                RasterDependencies::collect(graphic.render_asset.id(), asset, &gradients, &bitmaps);
             slot.insert(RasterEntry {
                 image,
                 job: Some(job),
                 done,
                 last_used: frame,
                 bytes: raster_size.x as u64 * raster_size.y as u64 * 4,
+                deps,
             });
         }
         let entry = cache.entries.get_mut(&key).unwrap();

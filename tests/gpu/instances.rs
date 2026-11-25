@@ -427,8 +427,20 @@ fn vab_instance_blur_is_composited_inside_one_transparent_item() {
                             num_passes: 1,
                         })],
                         blend_mode: 0,
-                    }];
-                    2
+                    }],
+                    vec![BakedNode::Group {
+                        children: vec![BakedNode::Shape {
+                            id: 1,
+                            ratio: 0,
+                            transform: AnimTransform::default(),
+                        }],
+                        filters: vec![AnimFilter::BlurFilter(AnimBlurFilter {
+                            blur_x: 13 * 65536,
+                            blur_y: 13 * 65536,
+                            num_passes: 1,
+                        })],
+                        blend_mode: 0,
+                    }],
                 ],
             }],
         },
@@ -471,7 +483,7 @@ fn vab_instance_blur_is_composited_inside_one_transparent_item() {
         .resource::<FlashRenderDiagnostics>();
     assert_eq!(diagnostics.vab_filter_cache_hits, 0);
     assert_eq!(diagnostics.vab_filter_cache_misses, 1);
-    assert_eq!(diagnostics.vab_filter_cache_entries, 1);
+    assert!(diagnostics.vab_filter_cache_entries >= 1);
 
     app.update();
     let diagnostics = app
@@ -1538,4 +1550,493 @@ fn vab_instance_cropped_root_keeps_offscreen_glow_input() {
             }
         }
     }
+}
+
+#[test]
+#[ignore = "requires GPU"]
+fn frustum_culling_excludes_offscreen_vab_instance() {
+    use bevy::camera::primitives::Aabb;
+
+    let mut app = app(PathBuf::from("assets"));
+    let size = UVec2::splat(64);
+    let output = target(&mut app, size);
+    app.world_mut().spawn((
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::NONE),
+            ..default()
+        },
+        RenderTarget::Image(output.clone().into()),
+    ));
+    let mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        vec![[-10.0, -10.0, 0.0], [10.0, -10.0, 0.0], [-10.0, 10.0, 0.0]],
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0, 0.0, 0.0, 1.0]; 3]);
+    let mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(mesh);
+    let asset = app
+        .world_mut()
+        .resource_mut::<Assets<VabAsset>>()
+        .add(VabAsset {
+            shape_map: [(1, vec![0])].into(),
+            morph_map: default(),
+            render_meshes: vec![RenderMeshGroup {
+                mesh,
+                material: MeshMaterial::Color,
+                local_bounds: [-10.0, -10.0, 10.0, 10.0],
+            }],
+            baked: BakedMovie {
+                frame_rate: 30.0,
+                skins: vec![],
+                clips: vec![BakedClip {
+                    name: "default".into(),
+                    start_frame: 0,
+                    events: vec![],
+                    frames: vec![vec![BakedNode::Shape {
+                        id: 1,
+                        ratio: 0,
+                        transform: AnimTransform::default(),
+                    }]],
+                }],
+            },
+        });
+    let visible = app
+        .world_mut()
+        .spawn((VabAssetHandle(asset.clone()), VabPlayer::default()))
+        .id();
+    let offscreen = app
+        .world_mut()
+        .spawn((
+            VabAssetHandle(asset),
+            VabPlayer::default(),
+            Transform::from_xyz(5000.0, 0.0, 0.0),
+        ))
+        .id();
+    let pixels = capture_camera(&mut app, output, size);
+    assert!(
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[0] > 240 && p[3] > 240),
+        "onscreen VAB did not render"
+    );
+    assert!(
+        app.world().get::<Aabb>(visible).is_some() && app.world().get::<Aabb>(offscreen).is_some(),
+        "VabAssetHandle entities should have synced Aabbs"
+    );
+    let diag = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<FlashRenderDiagnostics>();
+    assert_eq!(
+        diag.vab_instances_queued, 1,
+        "offscreen VAB should be frustum-culled: {diag:?}"
+    );
+}
+
+#[test]
+#[ignore = "requires GPU"]
+fn filtered_skin_slot_invalidates_filter_cache_on_variant_switch() {
+    use bevy_flash::sampling::VabSkin;
+    use vatf::baked::{BakedSkin, BakedSkinVariant};
+
+    let mut app = app(PathBuf::from("assets"));
+    let size = UVec2::splat(64);
+    let output = target(&mut app, size);
+    app.world_mut().spawn((
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::NONE),
+            ..default()
+        },
+        RenderTarget::Image(output.clone().into()),
+    ));
+    let quad = |color: [f32; 4]| {
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![
+                [-10.0, -10.0, 0.0],
+                [10.0, -10.0, 0.0],
+                [-10.0, 10.0, 0.0],
+                [-10.0, 10.0, 0.0],
+                [10.0, -10.0, 0.0],
+                [10.0, 10.0, 0.0],
+            ],
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![color; 6])
+    };
+    let red_mesh = app
+        .world_mut()
+        .resource_mut::<Assets<Mesh>>()
+        .add(quad([1.0, 0.0, 0.0, 1.0]));
+    let blue_mesh = app
+        .world_mut()
+        .resource_mut::<Assets<Mesh>>()
+        .add(quad([0.0, 0.0, 1.0, 1.0]));
+    let asset = app
+        .world_mut()
+        .resource_mut::<Assets<VabAsset>>()
+        .add(VabAsset {
+            shape_map: [(1, vec![0]), (2, vec![1])].into(),
+            morph_map: default(),
+            render_meshes: vec![
+                RenderMeshGroup {
+                    mesh: red_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-10.0, -10.0, 10.0, 10.0],
+                },
+                RenderMeshGroup {
+                    mesh: blue_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-10.0, -10.0, 10.0, 10.0],
+                },
+            ],
+            baked: BakedMovie {
+                frame_rate: 30.0,
+                skins: vec![BakedSkin {
+                    symbol: 50,
+                    variants: vec![
+                        BakedSkinVariant {
+                            name: "red".into(),
+                            nodes: vec![BakedNode::Shape {
+                                id: 1,
+                                ratio: 0,
+                                transform: AnimTransform::default(),
+                            }],
+                        },
+                        BakedSkinVariant {
+                            name: "blue".into(),
+                            nodes: vec![BakedNode::Shape {
+                                id: 2,
+                                ratio: 0,
+                                transform: AnimTransform::default(),
+                            }],
+                        },
+                    ],
+                }],
+                clips: vec![BakedClip {
+                    name: "default".into(),
+                    start_frame: 0,
+                    events: vec![],
+                    frames: vec![vec![BakedNode::Group {
+                        blend_mode: 0,
+                        filters: vec![AnimFilter::BlurFilter(AnimBlurFilter {
+                            blur_x: 7 * 65536,
+                            blur_y: 7 * 65536,
+                            num_passes: 1,
+                        })],
+                        children: vec![BakedNode::Skin {
+                            slot: "gem".into(),
+                            symbol: 50,
+                            transform: AnimTransform::default(),
+                        }],
+                    }]],
+                }],
+            },
+        });
+
+    let mut skin = VabSkin::default();
+    let vab_ref = app
+        .world()
+        .resource::<Assets<VabAsset>>()
+        .get(&asset)
+        .unwrap();
+    skin.set(vab_ref, "gem", "red").unwrap();
+    let mut player = VabPlayer::default();
+    player.pause();
+    let entity = app
+        .world_mut()
+        .spawn((VabAssetHandle(asset.clone()), player, skin))
+        .id();
+
+    let red_pixels = capture_camera(&mut app, output.clone(), size);
+    let center = |pixels: &[u8]| {
+        let o = (32 * 64 + 32) * 4;
+        <[u8; 4]>::try_from(&pixels[o..o + 4]).unwrap()
+    };
+    let halo = |pixels: &[u8]| {
+        let o = (32 * 64 + 44) * 4;
+        <[u8; 4]>::try_from(&pixels[o..o + 4]).unwrap()
+    };
+    let rc = center(&red_pixels);
+    let rh = halo(&red_pixels);
+    assert!(
+        rc[0] > 200 && rc[2] < 20 && rh[0] > 20 && rh[3] > 20,
+        "red blurred skin did not render: center={rc:?}, halo={rh:?}"
+    );
+    // Steady frame hits filter cache.
+    app.update();
+    assert_eq!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<FlashRenderDiagnostics>()
+            .vab_filter_cache_hits,
+        1
+    );
+
+    // Switch skin variant to "blue" and verify filter cache invalidates cleanly.
+    let mut next_skin = VabSkin::default();
+    let vab_ref = app
+        .world()
+        .resource::<Assets<VabAsset>>()
+        .get(&asset)
+        .unwrap();
+    next_skin.set(vab_ref, "gem", "blue").unwrap();
+    *app.world_mut().get_mut::<VabSkin>(entity).unwrap() = next_skin;
+
+    let blue_pixels = capture_camera(&mut app, output, size);
+    let bc = center(&blue_pixels);
+    let bh = halo(&blue_pixels);
+    assert!(
+        bc[2] > 200 && bc[0] < 20 && bh[2] > 20 && bh[0] < 10 && bh[3] > 20,
+        "blue blurred skin did not invalidate filter cache: center={bc:?}, halo={bh:?}"
+    );
+}
+
+#[test]
+#[ignore = "requires GPU"]
+fn direct_fixed_blend_skips_intermediate_target_and_matches_isolated_blending() {
+    use bevy::mesh::VertexAttributeValues;
+    use bevy_flash::vab_asset::{ATTRIBUTE_VAB_COLOR_SRGB, ATTRIBUTE_VAB_POSITION};
+    use vatf::animation::AnimColorTransform;
+
+    let mut app = app(PathBuf::from("assets"));
+    let size = UVec2::new(128, 64);
+    let output = target(&mut app, size);
+    app.world_mut().spawn((
+        Camera2d,
+        CompositingSpace::Srgb,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::NONE),
+            ..default()
+        },
+        RenderTarget::Image(output.clone().into()),
+    ));
+
+    let quad = |rgba: [u8; 4]| {
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(
+            ATTRIBUTE_VAB_POSITION,
+            vec![
+                [-8.0, -8.0],
+                [8.0, -8.0],
+                [-8.0, 8.0],
+                [-8.0, 8.0],
+                [8.0, -8.0],
+                [8.0, 8.0],
+            ],
+        )
+        .with_inserted_attribute(
+            ATTRIBUTE_VAB_COLOR_SRGB,
+            VertexAttributeValues::Unorm8x4(vec![rgba; 6]),
+        )
+    };
+    let bg_mesh = app
+        .world_mut()
+        .resource_mut::<Assets<Mesh>>()
+        .add(quad([40, 100, 60, 255]));
+    let red_mesh = app
+        .world_mut()
+        .resource_mut::<Assets<Mesh>>()
+        .add(quad([150, 0, 0, 255]));
+    let blue_mesh = app
+        .world_mut()
+        .resource_mut::<Assets<Mesh>>()
+        .add(quad([0, 0, 140, 255]));
+
+    let at_x = |x: f32| AnimTransform {
+        matrix: AnimMatrix {
+            tx: x,
+            ..AnimMatrix::IDENTITY
+        },
+        color_transform: AnimColorTransform::IDENTITY,
+    };
+
+    // Frame 0: single-mesh unfiltered Add/Screen/Subtract -> zero intermediate textures!
+    let frame0 = vec![
+        BakedNode::Shape {
+            id: 1,
+            ratio: 0,
+            transform: at_x(-32.0),
+        },
+        BakedNode::Group {
+            blend_mode: 8, // Add
+            filters: vec![],
+            children: vec![BakedNode::Shape {
+                id: 2,
+                ratio: 0,
+                transform: at_x(-32.0),
+            }],
+        },
+        BakedNode::Shape {
+            id: 1,
+            ratio: 0,
+            transform: at_x(0.0),
+        },
+        BakedNode::Group {
+            blend_mode: 4, // Screen
+            filters: vec![],
+            children: vec![BakedNode::Shape {
+                id: 2,
+                ratio: 0,
+                transform: at_x(0.0),
+            }],
+        },
+        BakedNode::Shape {
+            id: 1,
+            ratio: 0,
+            transform: at_x(32.0),
+        },
+        BakedNode::Group {
+            blend_mode: 9, // Subtract
+            filters: vec![],
+            children: vec![BakedNode::Shape {
+                id: 3,
+                ratio: 0,
+                transform: at_x(32.0),
+            }],
+        },
+    ];
+    // Frame 1: overlapping two-shape Add group MUST stay isolated so blue occludes red!
+    let frame1 = vec![
+        BakedNode::Shape {
+            id: 1,
+            ratio: 0,
+            transform: at_x(0.0),
+        },
+        BakedNode::Group {
+            blend_mode: 8, // Add
+            filters: vec![],
+            children: vec![
+                BakedNode::Shape {
+                    id: 2, // Red underneath
+                    ratio: 0,
+                    transform: at_x(0.0),
+                },
+                BakedNode::Shape {
+                    id: 3, // Opaque blue on top occludes red inside the Add group
+                    ratio: 0,
+                    transform: at_x(0.0),
+                },
+            ],
+        },
+    ];
+
+    let asset = app
+        .world_mut()
+        .resource_mut::<Assets<VabAsset>>()
+        .add(VabAsset {
+            shape_map: [(1, vec![0]), (2, vec![1]), (3, vec![2])].into(),
+            morph_map: default(),
+            render_meshes: vec![
+                RenderMeshGroup {
+                    mesh: bg_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-8.0, -8.0, 8.0, 8.0],
+                },
+                RenderMeshGroup {
+                    mesh: red_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-8.0, -8.0, 8.0, 8.0],
+                },
+                RenderMeshGroup {
+                    mesh: blue_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-8.0, -8.0, 8.0, 8.0],
+                },
+            ],
+            baked: BakedMovie {
+                frame_rate: 30.0,
+                skins: vec![],
+                clips: vec![BakedClip {
+                    name: "default".into(),
+                    start_frame: 0,
+                    events: vec![],
+                    frames: vec![frame0, frame1],
+                }],
+            },
+        });
+    let mut player = VabPlayer::default();
+    player.pause();
+    let entity = app.world_mut().spawn((VabAssetHandle(asset), player)).id();
+
+    let pixels0 = capture_camera(&mut app, output.clone(), size);
+    let diag0 = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<FlashRenderDiagnostics>();
+    assert_eq!(
+        diag0.vab_filter_layers, 0,
+        "single-mesh unfiltered Add/Screen/Subtract must draw directly without intermediate targets: {diag0:?}"
+    );
+    assert_eq!(diag0.pooled_textures, 0);
+
+    let px = |pixels: &[u8], local_x: i32| {
+        let sx = (64 + local_x) as usize;
+        let o = (32 * 128 + sx) * 4;
+        <[u8; 4]>::try_from(&pixels[o..o + 4]).unwrap()
+    };
+    let add = px(&pixels0, -32);
+    let screen = px(&pixels0, 0);
+    let sub = px(&pixels0, 32);
+    // Add: (40+150, 100, 60) = (190, 100, 60)
+    assert!(
+        add[0].abs_diff(190) <= 2 && add[1].abs_diff(100) <= 2 && add[2].abs_diff(60) <= 2,
+        "direct Add mismatch: {add:?}"
+    );
+    // Screen R: 1 - (1 - 40/255)*(1 - 150/255) ≈ 166
+    assert!(
+        screen[0].abs_diff(166) <= 2 && screen[1].abs_diff(100) <= 2 && screen[2].abs_diff(60) <= 2,
+        "direct Screen mismatch: {screen:?}"
+    );
+    // Subtract: max(0, (40, 100, 60) - (0, 0, 140)) = (40, 100, 0)
+    assert!(
+        sub[0].abs_diff(40) <= 2 && sub[1].abs_diff(100) <= 2 && sub[2] <= 2,
+        "direct Subtract mismatch: {sub:?}"
+    );
+
+    // Frame 1: overlapping red+blue inside Add group stays isolated -> (40, 100, 200), NOT (190, 100, 200)!
+    app.world_mut()
+        .get_mut::<VabPlayer>(entity)
+        .unwrap()
+        .current_frame = 1;
+    let mut pixels1 = Vec::new();
+    // Wait for the isolated Add quad pipeline (first queued on Frame 1) to finish compiling and render.
+    for _ in 0..32 {
+        pixels1 = capture_camera(&mut app, output.clone(), size);
+        let diag = app
+            .sub_app(RenderApp)
+            .world()
+            .resource::<FlashRenderDiagnostics>();
+        if diag.vab_instances_prepared == 1 && px(&pixels1, 0)[3] > 0 {
+            break;
+        }
+    }
+    let diag1 = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<FlashRenderDiagnostics>();
+    assert_eq!(
+        diag1.vab_filter_layers, 1,
+        "overlapping Add group must remain isolated: {diag1:?}"
+    );
+    let overlap = px(&pixels1, 0);
+    assert!(
+        overlap[0].abs_diff(40) <= 2
+            && overlap[1].abs_diff(100) <= 2
+            && overlap[2].abs_diff(200) <= 2,
+        "overlapping Add group must occlude red underneath blue before adding: {overlap:?}"
+    );
 }

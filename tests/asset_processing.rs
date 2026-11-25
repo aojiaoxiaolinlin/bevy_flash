@@ -403,17 +403,17 @@ fn watcher_events_reprocess_and_reload_existing_subasset_handles() {
         .render_meshes[0]
         .mesh
         .clone();
-    fn red(app: &App, mesh: &Handle<Mesh>) -> f32 {
+    fn red(app: &App, mesh: &Handle<Mesh>) -> u8 {
         match app
             .world()
             .resource::<Assets<Mesh>>()
             .get(mesh)
             .unwrap()
-            .attribute(Mesh::ATTRIBUTE_COLOR)
+            .attribute(bevy_flash::vab_asset::ATTRIBUTE_VAB_COLOR_SRGB)
             .unwrap()
         {
-            VertexAttributeValues::Float32x4(values) => values[0][0],
-            _ => panic!("expected decoded vertex colors"),
+            VertexAttributeValues::Unorm8x4(values) => values[0][0],
+            _ => panic!("expected decoded compact vertex colors"),
         }
     }
     let initial_red = red(&app, &mesh);
@@ -448,7 +448,7 @@ fn watcher_events_reprocess_and_reload_existing_subasset_handles() {
     processed_events.lock().unwrap()[0]
         .try_send(AssetSourceEvent::ModifiedAsset("ui.swf".into()))
         .unwrap();
-    while red(&app, &mesh) >= initial_red / 2.0 {
+    while red(&app, &mesh) >= initial_red / 2 {
         app.update();
         assert!(
             Instant::now() < deadline,

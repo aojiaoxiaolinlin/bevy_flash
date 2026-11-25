@@ -37,10 +37,11 @@ The CLI reports mesh counts and resource payload bytes before/after pruning.
 The `convert_swf_*_with_report` functions and `write_vatf_with_report` expose
 `ResourcePruningReport`; existing conversion functions keep their `Result<()>`
 API. Payload bytes exclude chunk headers and unchanged baked-frame data.
-Ordinary animation still parses/tessellates source definitions before this
-final pass, so it reduces file size and runtime loading rather than avoiding
-all compiler work. No format change is required; VAB remains version 1 and
-existing files remain valid.
+Ordinary animation also prunes unreachable `DefineShape` records before
+tessellation based on root timeline reachability. VAB format version 2 adds
+lossless chunk compression (`Deflate`/`LZ4`/`None`), `IND2` (`u16` indices),
+`TEXD` texture records, and compact lossless `BAKD`/`UIGR` encoding without
+losing vector precision; v1 files must be regenerated from source SWFs.
 
 Names are nonempty, unique, contain no `#` or control characters, and cannot
 start with the reserved `__vab/` prefix. Public labels have no extra namespace:
@@ -59,8 +60,9 @@ The root animation's translation normalization is never used for UI symbols.
 Geometric bounds do not include filter padding; image allocation must include
 expanded render bounds if filters are present.
 
-VAB v1 gains an optional UIGR chunk; ordinary animation files remain byte-format
-compatible and do not need regeneration. New UI files need the updated loader.
+VAB stores exported UI graphics in an optional compact lossless `UIGR` chunk;
+ordinary animation files without UI exports omit it. VAB v2 assets require a
+matching `vatf 0.2` / `bevy_flash 0.4` toolchain, and older v1 files must be regenerated.
 Internal loader labels now start with `__vab/`; they are not public APIs.
 
 ## Cached UI rendering
@@ -103,9 +105,9 @@ A successful render sets a completion token and the job is removed, so a stable
 image causes no subsequent extraction, preparation or offscreen drawing.
 The final Image is still drawn by Bevy's normal UI renderer every frame.
 
-Edits/removals to graphics, VAB payloads, meshes and materials invalidate the
-cache conservatively; Image modifications also invalidate it. Invalidation
-currently rebuilds all UI entries rather than tracking individual dependencies.
+Edits/removals to graphics, VAB payloads, meshes, materials, and referenced
+textures/images invalidate only the affected UI cache entries via
+asset-dependency tracking rather than rebuilding unrelated symbols.
 Cached images are not persisted across app runs.
 
 Idle entries use an LRU byte budget (32 MiB) and a lifetime (120 frames).
@@ -121,8 +123,9 @@ needs to be created by the host. SWF asset preprocessing remains separate.
 
 Use `vatf input.swf --ui-animated -o ui.vab` to explicitly allow animated
 pure-vector exports. The same file can contain static symbols. Static `--ui`
-remains strict; animation assets without UIGR are unaffected. This updates the
-unpublished UIGR schema in working VAB v1; old UI files must be regenerated.
+remains strict; animation assets without `UIGR` omit the UI chunk. `UIGR` uses
+compact lossless binary encoding with frame interning in VAB v2; older v1 files
+must be regenerated from source SWFs.
 
 A single-frame container persists while its descendants advance. Independent
 persistent branches use the least common multiple of their periods. A multi-frame
@@ -198,7 +201,7 @@ button sounds and track-as-menu behavior are not executed. States currently
 require static vector Shape/Sprite subtrees; animated, bitmap and nested-button
 states are unsupported.
 
-VAB v1 uses an additional optional UIBT chunk for button state references. Existing
-UIGR-only assets remain readable and do not need regeneration.
+VAB uses an additional optional `UIBT` chunk for button state references. Existing
+`UIGR`-only v2 assets remain readable when `UIBT` is absent.
 Run `cargo run --example ui_buttons` for the real login.swf fixture. Hover/press
 the buttons; Space toggles disabled. Business handlers remain in the host app.

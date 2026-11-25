@@ -712,3 +712,610 @@ fn gradient_glow_and_bevel_sample_their_color_ramps() {
         0
     );
 }
+
+#[test]
+#[ignore = "requires GPU"]
+fn downsampled_blur_and_glow_preserve_source_and_cut_processed_pixels() {
+    use bevy_flash::render::VabFilterQuality;
+
+    let mut app = app(PathBuf::from("assets"));
+    let size = UVec2::new(256, 128);
+    let output = target(&mut app, size);
+    app.world_mut().spawn((
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::NONE),
+            ..default()
+        },
+        RenderTarget::Image(output.clone().into()),
+    ));
+    let quad = |x0: f32, y0: f32, x1: f32, y1: f32| {
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![
+                [x0, y0, 0.0],
+                [x1, y0, 0.0],
+                [x0, y1, 0.0],
+                [x0, y1, 0.0],
+                [x1, y0, 0.0],
+                [x1, y1, 0.0],
+            ],
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0; 4]; 6])
+    };
+    let blur_mesh = app
+        .world_mut()
+        .resource_mut::<Assets<Mesh>>()
+        .add(quad(-64.0, -16.0, -32.0, 16.0));
+    let glow_mesh = app
+        .world_mut()
+        .resource_mut::<Assets<Mesh>>()
+        .add(quad(32.0, -16.0, 64.0, 16.0));
+    let asset = app
+        .world_mut()
+        .resource_mut::<Assets<VabAsset>>()
+        .add(VabAsset {
+            shape_map: [(1, vec![0]), (2, vec![1])].into(),
+            morph_map: default(),
+            render_meshes: vec![
+                RenderMeshGroup {
+                    mesh: blur_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-64.0, -16.0, -32.0, 16.0],
+                },
+                RenderMeshGroup {
+                    mesh: glow_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [32.0, -16.0, 64.0, 16.0],
+                },
+            ],
+            baked: BakedMovie {
+                frame_rate: 30.0,
+                skins: vec![],
+                clips: vec![BakedClip {
+                    name: "default".into(),
+                    start_frame: 0,
+                    events: vec![],
+                    frames: vec![vec![
+                        BakedNode::Group {
+                            children: vec![BakedNode::Shape {
+                                id: 1,
+                                ratio: 0,
+                                transform: AnimTransform::default(),
+                            }],
+                            filters: vec![AnimFilter::BlurFilter(AnimBlurFilter {
+                                blur_x: 13 * 65536,
+                                blur_y: 13 * 65536,
+                                num_passes: 2,
+                            })],
+                            blend_mode: 0,
+                        },
+                        BakedNode::Group {
+                            children: vec![BakedNode::Shape {
+                                id: 2,
+                                ratio: 0,
+                                transform: AnimTransform::default(),
+                            }],
+                            filters: vec![AnimFilter::GlowFilter(AnimGlowFilter {
+                                flags: 0x22,
+                                color_r: 255,
+                                color_g: 0,
+                                color_b: 0,
+                                color_a: 255,
+                                blur_x: 13 * 65536,
+                                blur_y: 13 * 65536,
+                                strength: 512,
+                                num_passes: 2,
+                            })],
+                            blend_mode: 0,
+                        },
+                    ]],
+                }],
+            },
+        });
+    let mut player = VabPlayer::default();
+    player.pause();
+    app.world_mut().spawn((VabAssetHandle(asset), player));
+
+    *app.world_mut().resource_mut::<VabFilterQuality>() = VabFilterQuality::full();
+    let _full_pixels = capture_camera(&mut app, output.clone(), size);
+    let saved_budget = app.world().resource::<VabFilterCacheSettings>().max_bytes;
+    app.world_mut()
+        .resource_mut::<VabFilterCacheSettings>()
+        .max_bytes = 0;
+    app.update();
+    app.world_mut()
+        .resource_mut::<VabFilterCacheSettings>()
+        .max_bytes = saved_budget;
+    *app.world_mut().resource_mut::<VabFilterQuality>() = VabFilterQuality::full();
+    app.update();
+    let (full_processed, full_cache_bytes) = {
+        let diag = app
+            .sub_app(RenderApp)
+            .world()
+            .resource::<FlashRenderDiagnostics>();
+        (
+            diag.vab_filter_processed_pixels,
+            diag.vab_filter_cache_bytes,
+        )
+    };
+    app.world_mut()
+        .resource_mut::<VabFilterCacheSettings>()
+        .max_bytes = 0;
+    app.update();
+    app.world_mut()
+        .resource_mut::<VabFilterCacheSettings>()
+        .max_bytes = saved_budget;
+    *app.world_mut().resource_mut::<VabFilterQuality>() = VabFilterQuality::half_blur();
+    app.update();
+    let (half_processed, half_cache_bytes) = {
+        let diag = app
+            .sub_app(RenderApp)
+            .world()
+            .resource::<FlashRenderDiagnostics>();
+        (
+            diag.vab_filter_processed_pixels,
+            diag.vab_filter_cache_bytes,
+        )
+    };
+    let half_pixels = capture_camera(&mut app, output.clone(), size);
+    assert!(
+        full_processed > 0 && half_processed > 0,
+        "expected non-zero filter work: full={full_processed}, half={half_processed}"
+    );
+    assert!(
+        half_processed * 2 < full_processed,
+        "half_blur should cut processed pixels by >50%: full={full_processed}, half={half_processed}"
+    );
+    assert!(
+        half_cache_bytes < full_cache_bytes,
+        "half_blur should shrink cached pure-Blur VRAM: full={full_cache_bytes}, half={half_cache_bytes}"
+    );
+
+    let pixel = |x: usize, y: usize| {
+        let o = (y * 256 + x) * 4;
+        <[u8; 4]>::try_from(&half_pixels[o..o + 4]).unwrap()
+    };
+    // Blur square at local x=[-64..-32] -> screen x=[64..96], y=[48..80].
+    assert!(pixel(80, 64)[3] > 200, "downsampled blur lost center");
+    assert!(pixel(59, 64)[3] > 0, "downsampled blur lost outer halo");
+    // Glow square at local x=[32..64] -> screen x=[160..192], y=[48..80].
+    let glow_center = pixel(176, 64);
+    assert!(
+        glow_center[0] > 245
+            && glow_center[1] > 245
+            && glow_center[2] > 245
+            && glow_center[3] > 245,
+        "glow foreground must remain crisp white: {glow_center:?}"
+    );
+    let glow_halo = pixel(196, 64);
+    assert!(
+        glow_halo[0] > 100 && glow_halo[1] < 40 && glow_halo[3] > 50,
+        "glow outer red halo missing: {glow_halo:?}"
+    );
+}
+
+#[test]
+#[ignore = "requires GPU"]
+fn complex_blend_modes_inside_isolated_layer_match_flash_equations() {
+    use bevy::mesh::VertexAttributeValues;
+    use bevy_flash::vab_asset::{ATTRIBUTE_VAB_COLOR_SRGB, ATTRIBUTE_VAB_POSITION};
+    use vatf::animation::AnimColorTransform;
+
+    let mut app = app(PathBuf::from("assets"));
+    let size = UVec2::new(256, 64);
+    let output = target(&mut app, size);
+    app.world_mut().spawn((
+        Camera2d,
+        CompositingSpace::Srgb,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::NONE),
+            ..default()
+        },
+        RenderTarget::Image(output.clone().into()),
+    ));
+
+    let quad = |x0: f32, y0: f32, x1: f32, y1: f32, rgba: [u8; 4]| {
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(
+            ATTRIBUTE_VAB_POSITION,
+            vec![[x0, y0], [x1, y0], [x0, y1], [x0, y1], [x1, y0], [x1, y1]],
+        )
+        .with_inserted_attribute(
+            ATTRIBUTE_VAB_COLOR_SRGB,
+            VertexAttributeValues::Unorm8x4(vec![rgba; 6]),
+        )
+    };
+    let dst_mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(quad(
+        -10.0,
+        -10.0,
+        10.0,
+        10.0,
+        [204, 153, 51, 255],
+    ));
+    let src_mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(quad(
+        -10.0,
+        -10.0,
+        10.0,
+        10.0,
+        [77, 204, 179, 255],
+    ));
+    // Covers only the right half so Alpha verifies both partial-alpha and outside-zeroing.
+    let half_alpha_mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(quad(
+        0.0,
+        -10.0,
+        10.0,
+        10.0,
+        [255, 255, 255, 128],
+    ));
+
+    let translate = |x: f32| AnimTransform {
+        matrix: AnimMatrix {
+            tx: x,
+            ..AnimMatrix::IDENTITY
+        },
+        color_transform: AnimColorTransform::IDENTITY,
+    };
+
+    // Each mode sits inside an isolated parent Layer (blend_mode: 2) so complex
+    // destination-sampling shaders run against the parent TextureTarget.
+    let specs: [(f32, u8, u16); 9] = [
+        (-112.0, 3, 2), // Multiply
+        (-84.0, 5, 2),  // Lighten (exact)
+        (-56.0, 6, 2),  // Darken
+        (-28.0, 7, 2),  // Difference
+        (0.0, 10, 2),   // Invert
+        (28.0, 11, 3),  // Alpha
+        (56.0, 12, 3),  // Erase
+        (84.0, 13, 2),  // Overlay
+        (112.0, 14, 2), // HardLight
+    ];
+    let nodes: Vec<BakedNode> = specs
+        .iter()
+        .map(|&(x, blend_mode, src_id)| BakedNode::Group {
+            blend_mode: 2,
+            filters: vec![],
+            children: vec![
+                BakedNode::Shape {
+                    id: 1,
+                    ratio: 0,
+                    transform: translate(x),
+                },
+                BakedNode::Group {
+                    blend_mode,
+                    filters: vec![],
+                    children: vec![BakedNode::Shape {
+                        id: src_id,
+                        ratio: 0,
+                        transform: translate(x),
+                    }],
+                },
+            ],
+        })
+        .collect();
+
+    let asset = app
+        .world_mut()
+        .resource_mut::<Assets<VabAsset>>()
+        .add(VabAsset {
+            shape_map: [(1, vec![0]), (2, vec![1]), (3, vec![2])].into(),
+            morph_map: default(),
+            render_meshes: vec![
+                RenderMeshGroup {
+                    mesh: dst_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-10.0, -10.0, 10.0, 10.0],
+                },
+                RenderMeshGroup {
+                    mesh: src_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-10.0, -10.0, 10.0, 10.0],
+                },
+                RenderMeshGroup {
+                    mesh: half_alpha_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [0.0, -10.0, 10.0, 10.0],
+                },
+            ],
+            baked: BakedMovie {
+                frame_rate: 30.0,
+                skins: vec![],
+                clips: vec![BakedClip {
+                    name: "default".into(),
+                    start_frame: 0,
+                    events: vec![],
+                    frames: vec![nodes],
+                }],
+            },
+        });
+    app.world_mut()
+        .spawn((VabAssetHandle(asset), VabPlayer::default()));
+
+    let pixels = capture_camera(&mut app, output, size);
+    let at = |local_x: i32| {
+        let sx = (128 + local_x) as usize;
+        let o = (32 * 256 + sx) * 4;
+        <[u8; 4]>::try_from(&pixels[o..o + 4]).unwrap()
+    };
+    let assert_near = |label: &str, got: [u8; 4], expected: [u8; 4]| {
+        for c in 0..4 {
+            assert!(
+                got[c].abs_diff(expected[c]) <= 4,
+                "{label} channel {c}: got {got:?}, expected {expected:?}"
+            );
+        }
+    };
+
+    // dst = (204, 153, 51, 255) = (0.8, 0.6, 0.2)
+    // src = (77, 204, 179, 255) = (0.302, 0.8, 0.702)
+    assert_near("Multiply", at(-112), [62, 122, 36, 255]);
+    assert_near("Lighten", at(-84), [204, 204, 179, 255]);
+    assert_near("Darken", at(-56), [77, 153, 51, 255]);
+    assert_near("Difference", at(-28), [127, 51, 128, 255]);
+    assert_near("Invert", at(0), [51, 102, 204, 255]);
+    // Alpha: left half outside half_alpha_mesh is cleared to 0; right half is dst * 0.502.
+    assert_near("Alpha outside", at(24), [0, 0, 0, 0]);
+    assert_near("Alpha inside", at(32), [102, 77, 26, 128]);
+    // Erase: left half stays full dst; right half is dst * (1 - 0.502).
+    assert_near("Erase outside", at(52), [204, 153, 51, 255]);
+    assert_near("Erase inside", at(60), [102, 76, 25, 127]);
+    // Overlay vs HardLight differ strongly on R (184 vs 123) and B (72 vs 133).
+    assert_near("Overlay", at(84), [184, 214, 72, 255]);
+    assert_near("HardLight", at(112), [123, 214, 133, 255]);
+
+    let diag = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<FlashRenderDiagnostics>();
+    assert_eq!(
+        diag.unsupported_vab_layers, 0,
+        "all complex blends nested in isolated layers must be supported"
+    );
+}
+
+#[test]
+#[ignore = "requires GPU"]
+fn filter_symbol_stamps_batch_and_match_direct_rendering_visually() {
+    use bevy::mesh::VertexAttributeValues;
+    use bevy_flash::render::VabFilterQuality;
+    use bevy_flash::vab_asset::{ATTRIBUTE_VAB_COLOR_SRGB, ATTRIBUTE_VAB_POSITION};
+    use vatf::animation::AnimColorTransform;
+
+    let mut app = app(PathBuf::from("assets"));
+    let size = UVec2::new(256, 200);
+    let output = target(&mut app, size);
+    app.world_mut().spawn((
+        Camera2d,
+        CompositingSpace::Srgb,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::NONE),
+            ..default()
+        },
+        RenderTarget::Image(output.clone().into()),
+    ));
+
+    let quad = |x0: f32, y0: f32, x1: f32, y1: f32, rgba: [u8; 4]| {
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(
+            ATTRIBUTE_VAB_POSITION,
+            vec![[x0, y0], [x1, y0], [x0, y1], [x0, y1], [x1, y0], [x1, y1]],
+        )
+        .with_inserted_attribute(
+            ATTRIBUTE_VAB_COLOR_SRGB,
+            VertexAttributeValues::Unorm8x4(vec![rgba; 6]),
+        )
+    };
+    let base_mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(quad(
+        -10.0,
+        -10.0,
+        10.0,
+        10.0,
+        [255, 0, 0, 255],
+    ));
+    let accent_mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(quad(
+        4.0,
+        -6.0,
+        10.0,
+        6.0,
+        [255, 255, 0, 255],
+    ));
+
+    let glow = vec![AnimFilter::GlowFilter(AnimGlowFilter {
+        flags: 0x22,
+        color_r: 0,
+        color_g: 0,
+        color_b: 255,
+        color_a: 255,
+        blur_x: 9 * 65536,
+        blur_y: 9 * 65536,
+        strength: 512,
+        num_passes: 2,
+    })];
+
+    let place_symbol = |tx: f32, ty: f32, angle_deg: f32, scale: f32| {
+        let (sin, cos) = angle_deg.to_radians().sin_cos();
+        let matrix = AnimMatrix {
+            a: cos * scale,
+            b: sin * scale,
+            c: -sin * scale,
+            d: cos * scale,
+            tx,
+            ty,
+        };
+        let transform = AnimTransform {
+            matrix,
+            color_transform: AnimColorTransform::IDENTITY,
+        };
+        BakedNode::Group {
+            blend_mode: 0,
+            filters: glow.clone(),
+            children: vec![
+                BakedNode::Shape {
+                    id: 1,
+                    ratio: 0,
+                    transform,
+                },
+                BakedNode::Shape {
+                    id: 2,
+                    ratio: 0,
+                    transform,
+                },
+            ],
+        }
+    };
+
+    // Frame 0: 16 copies of the 2-shape glowing symbol at distinct positions & rotations.
+    let mut frame0 = Vec::new();
+    let mut frame1 = Vec::new();
+    let xs = [-90.0, -30.0, 30.0, 90.0];
+    let ys = [-54.0, -18.0, 18.0, 54.0];
+    let mut idx = 0usize;
+    for &y in &ys {
+        for &x in &xs {
+            let angle = (idx % 4) as f32 * 90.0;
+            frame0.push(place_symbol(x, y, angle, 1.0));
+            frame1.push(place_symbol(x + 6.0, y + 4.0, angle + 30.0, 1.0));
+            idx += 1;
+        }
+    }
+    // Frame 2: two differently scaled copies (1.0x and 0.75x) to test opt-in scaled stamp reuse.
+    let frame2 = vec![
+        place_symbol(-40.0, 0.0, 0.0, 1.0),
+        place_symbol(40.0, 0.0, 45.0, 0.75),
+    ];
+
+    let asset = app
+        .world_mut()
+        .resource_mut::<Assets<VabAsset>>()
+        .add(VabAsset {
+            shape_map: [(1, vec![0]), (2, vec![1])].into(),
+            morph_map: default(),
+            render_meshes: vec![
+                RenderMeshGroup {
+                    mesh: base_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [-10.0, -10.0, 10.0, 10.0],
+                },
+                RenderMeshGroup {
+                    mesh: accent_mesh,
+                    material: MeshMaterial::Color,
+                    local_bounds: [4.0, -6.0, 10.0, 6.0],
+                },
+            ],
+            baked: BakedMovie {
+                frame_rate: 30.0,
+                skins: vec![],
+                clips: vec![BakedClip {
+                    name: "default".into(),
+                    start_frame: 0,
+                    events: vec![],
+                    frames: vec![frame0, frame1, frame2],
+                }],
+            },
+        });
+    let mut player = VabPlayer::default();
+    player.pause();
+    let entity = app.world_mut().spawn((VabAssetHandle(asset), player)).id();
+
+    // Render Frame 0 and inspect pixel accuracy + batching.
+    let pixels0 = capture_camera(&mut app, output.clone(), size);
+    let diag0 = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<FlashRenderDiagnostics>();
+    assert_eq!(
+        diag0.vab_draw_packets, 1,
+        "all 16 identical rotated glowing symbols should batch into 1 instanced quad packet: {diag0:?}"
+    );
+    assert_eq!(diag0.vab_filter_layers, 16);
+    assert_eq!(diag0.vab_filter_cache_entries, 1);
+
+    let at = |pixels: &[u8], x: usize, y: usize| {
+        let o = (y * 256 + x) * 4;
+        <[u8; 4]>::try_from(&pixels[o..o + 4]).unwrap()
+    };
+    // Symbol 0 at (-90, -54) -> screen (38, 46), angle 0°: accent bar on right (45, 46).
+    let s0_body = at(&pixels0, 38, 46);
+    let s0_accent = at(&pixels0, 45, 46);
+    let s0_halo = at(&pixels0, 25, 46);
+    assert!(
+        s0_body[0] > 240 && s0_body[1] < 20 && s0_body[2] < 20,
+        "s0 body={s0_body:?}"
+    );
+    assert!(
+        s0_accent[0] > 240 && s0_accent[1] > 240 && s0_accent[2] < 20,
+        "s0 accent={s0_accent:?}"
+    );
+    assert!(
+        s0_halo[2] > 60 && s0_halo[0] < 40 && s0_halo[3] > 40,
+        "s0 halo={s0_halo:?}"
+    );
+
+    // Symbol 1 at (-30, -54) -> screen (98, 46), angle 90° CW: accent bar rotates to bottom (98, 53).
+    let s1_body = at(&pixels0, 98, 46);
+    let s1_right = at(&pixels0, 105, 46);
+    let s1_accent = at(&pixels0, 98, 53);
+    let s1_halo = at(&pixels0, 98, 33);
+    assert!(s1_body[0] > 240 && s1_body[1] < 20, "s1 body={s1_body:?}");
+    assert!(
+        s1_right[0] > 240 && s1_right[1] < 20,
+        "s1 right should be red after 90° rotation: {s1_right:?}"
+    );
+    assert!(
+        s1_accent[0] > 240 && s1_accent[1] > 240 && s1_accent[2] < 20,
+        "s1 accent={s1_accent:?}"
+    );
+    assert!(
+        s1_halo[2] > 60 && s1_halo[0] < 40 && s1_halo[3] > 40,
+        "s1 halo={s1_halo:?}"
+    );
+
+    // Switch to Frame 1: all 16 symbols move and rotate by +30° -> 100% stamp cache hit, 0 GPU filter passes!
+    app.world_mut()
+        .get_mut::<VabPlayer>(entity)
+        .unwrap()
+        .current_frame = 1;
+    app.update();
+    let diag1 = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<FlashRenderDiagnostics>();
+    assert_eq!(
+        diag1.vab_filter_cache_misses, 0,
+        "moving+rotating symbols must hit stamp cache: {diag1:?}"
+    );
+    assert_eq!(diag1.vab_filter_cache_hits, 16);
+    assert_eq!(diag1.vab_filter_passes, 0);
+    assert_eq!(diag1.vab_draw_packets, 1);
+
+    // Switch to Frame 2 (1.0x + 0.75x) with opt-in scaled stamps -> shares 1 octave stamp & 1 packet!
+    *app.world_mut().resource_mut::<VabFilterQuality>() =
+        VabFilterQuality::full().with_scaled_stamps(true);
+    app.world_mut()
+        .get_mut::<VabPlayer>(entity)
+        .unwrap()
+        .current_frame = 2;
+    let pixels2 = capture_camera(&mut app, output, size);
+    let diag2 = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<FlashRenderDiagnostics>();
+    assert_eq!(
+        diag2.vab_draw_packets, 1,
+        "1.0x and 0.75x glowing symbols should share 1 octave stamp when reuse_scaled_stamps is enabled: {diag2:?}"
+    );
+    assert_eq!(diag2.vab_filter_layers, 2);
+    // Both symbols rendered cleanly at (-40, 0) -> (88, 100) and (40, 0) -> (168, 100).
+    assert!(at(&pixels2, 88, 100)[0] > 240);
+    assert!(at(&pixels2, 168, 100)[0] > 240);
+}

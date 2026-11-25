@@ -21,8 +21,8 @@ Bevy 资产预处理已接入：普通动画、静态 UI、动态 UI 共用 vatf
 - [x] P3：Bevy 加载新格式；根播放器（播放/暂停/速度/循环/seek/完成）；换肤；无 GPU 回归测试。
 - [x] P4：纯色/位图/渐变进入 Bevy Camera2d/Transparent2d，完成实体排序、GPU 读回和 spirit 多帧图像验证。
 - [x] P5：RAII 临时纹理借还；Blur/Glow；按视图像素范围；嵌套滤镜范围与同帧复用测试。
-- [ ] P6：遮罩、固定功能混合和全部 VATF 滤镜已完成；待补滤镜与换肤组合及参考画面对比。需要读取相机颜色的复杂混合延期到 Bevy 提供合适的屏幕纹理输入，或项目引入明确的相机中间目标方案之后。
-- [ ] P7：依据测量优化加载、帧去重、批处理、跨帧淘汰；记录 CPU/GPU/显存数据。
+- [x] P6：遮罩、全部 VATF 滤镜、固定功能混合、隔离层/离屏/UI 内全部 9 种复杂目标采样混合（Multiply/精确 Lighten/Darken/Difference/Invert/Alpha/Erase/Overlay/HardLight）以及滤镜+换肤组合 GPU 回归均已完成。顶层 Camera2d 直接采样相机帧缓冲的复杂混合留待 Bevy 提供合适的屏幕纹理输入；与本地 Ruffle 桌面端逐像素自动对比因桌面端无无头截图出口暂以解析公式回归与 `spirit2159src` 实机出图目检覆盖。
+- [x] P7：完成渲染与 VAB v2 综合优化并记录实测数据（压缩率、纹理池驻留、材质绑定复用与 CPU 耗时）。
 
 每阶段记录实际验证，未完成的视觉特性不得以结构测试通过替代验收。保留现有工作区修改，不提交或覆盖用户已有工作。
 
@@ -118,3 +118,11 @@ P5 已完成：不可 Clone 的 RAII Lease、按完整 TextureDescriptor 分池�
 - 2026-10-09：所有在用 Shader 源码统一为 WESL。9 个私有离屏/滤镜入口通过 build.rs 预编译并嵌入，6 个全屏滤镜共享 fullscreen 模块；清理未引用的旧 WGSL。该改动保持滤镜数学与渲染流程不变，不增加运行时 WESL 转换。28 项 GPU 功能回归通过。
 
 - 2026-10-11：全部离屏、合成、滤镜和遮罩 Shader 接入 Bevy Shader 资产与 PipelineCache，删除 build.rs 及直接 wesl 构建依赖。准备阶段请求完整子树所需管线，全部就绪后才提交；世界实例同时等待全部屏幕管线，保留一个 Transparent2d 项的整体绘制。Shader 修改使滤镜及 UI 缓存失效。滤镜数学、颜色空间与纹理池不变。验证：39 项 CPU 测试、28 项 GPU 功能回归（包括 MSAA 异步准备和 Blur Shader 更新）、全目标全功能 Clippy、无默认功能及 WebGPU/WASM 编译检查通过。Windows 并行链接遇页面文件不足后使用 -j 1 完成测试。
+
+- 2026-11-21：完成渲染管线优化、可选模糊滤镜降采样、VAB v2 无损压缩及隔离层复杂混合：
+  - **渲染与运行时优化**：网格属性压缩为 `Float32x2` + `Unorm8x4` 编码 sRGB（12 B/顶点，消除片元 `to_srgb` 双重转换），顶点数 `<= 65535` 自动使用 `u16` 索引；256×1 渐变色带合并为 256×N 共享图集；`VabInstanceUniform` 从 176 B 压缩至 128 B；无隔离层实例跳过 `scale_ops` 深拷贝；合并冗余清屏 pass，为顶层单隔离层增加免根表面复制快路径；池化纹理与 `FlashGpu` 缓存 `BindGroup`；卷积核与渐变色带缓存加 256 项 LRU 上限；新增 `VabFilterQuality`（`full` / `half_blur` / `quarter_blur`），支持纯 Blur 降分辨率执行并缩小滤镜缓存显存、Glow/DropShadow/Bevel/Gradient* 前景保满分辨率仅模糊降采样；自动同步 `VabAsset::clip_bounds`/`content_bounds` 至 Bevy `Aabb` 启用原生视锥裁剪；UI 栅格缓存改为按依赖资产细粒度失效；清理废弃的 `part_mesh2d.rs` 与 `graph.rs`。
+  - **VAB v2 无损格式与压缩（零矢量精度损失）**：`VAB_VERSION = 2`、`COMPILER_REVISION = 3`。Chunk 头扩展为 16 字节，支持 `NONE` / `LZ4` / `DEFLATE`（默认 Deflate，跳过已 WebP 压缩的 `TEXT`，变大则回退原始存储）；新增 `IND2`（`u16` 索引）与 `TEXD`（显式纹理表，单次 WebP 解码复用）；`BAKD` 与 `UIGR` 改为紧凑二进制编解码（同帧去重、位掩码省略单位矩阵/颜色变换、LEB128 varint，公开 Rust 结构不变）；普通动画增加曲面细分前可达性裁剪。14 个仓库内 `.vab` 全部无损升级至 v2，总体积从 `71.34 MB` 降至 `22.38 MB`（**-68.6%**，其中 `background551284.vab` `10.66 MB → 632 KB`，`spirit2159src.vab` `2.09 MB → 1.03 MB`）；`vatf` WASM 目标编译通过，`spirit2159src.vab` 全量解压+解析约 `4.60 ms`。
+  - **隔离层复杂混合与回归**：新增 `complex_blend.wesl`，在离屏/UI 及嵌套隔离层内支持全部 9 种复杂目标采样混合（`Multiply`、精确 `Lighten`、`Darken`、`Difference`、`Invert`、`Alpha`、`Erase`、`Overlay`、`HardLight`）；新增复杂混合像素回归、滤镜+换肤缓存失效回归、模糊降采样像素与显存回归、视锥裁剪回归、UI 细粒度失效回归。
+  - **实测基准（RTX 4080, release）**：`spirit2159src` 材质绑定创建从 `17` 次降至 **`1`** 次（复用 `3,082` 次）；240 帧动态播放后纹理池驻留从 `361 张 / 46.45 MiB` 降至 **`96 张 / 11.86 MiB`**（**-74.5%**）；100 个同帧实例 VAB 四阶段总 CPU 约 `42.0 µs`。
+  - **滤镜元件印章缓存与相邻合批**：在 `src/render/instance.rs` 中基于局部相对变换（`M0⁻¹ · M_i`）将任意单/多网格滤镜元件归一化为内容键并跨实例/跨帧复用印章纹理，零 VAB 格式变更；默认开启 Tier 1 平移复用与 Tier 2 各向同性旋转复用（仅对等半径 `Blur`/`Glow` 与 `ColorMatrix`，方向性滤镜仅平移复用），保持 100% 视觉无损；`VabFilterQuality::reuse_scaled_stamps`（`half_blur`/`quarter_blur` 默认开启，`full` 默认关闭）可选开启 Tier 3 2 倍频缩放分级印章复用；支持同帧去重与相邻同印章实例化 quad 合批（`pass.draw(0..6, instances)`），复用统一的 `VabFilterCacheSettings` 预算与 LRU 淘汰。24 粒子发光压测 `filter_misses` 从 24 降至 1、离屏 draw call 降低 94.6%、单批绘制全部粒子。
+  - **无滤镜固定混合直绘快路径**：在 `extract::flatten_direct_fixed_blends` 中，对无滤镜且子网格互不重叠（单网格或 AABB 两两间隔 ≥2px）的固定功能混合组（`Normal`/`Layer`/`Add`/`Subtract`/`Screen`，以及顶层 Camera2d 的 `Lighten`）直接退化为带对应 `BlendState` 的普通 `Op::Draw`（扩展 `VabInstancePipelineKey` 与离屏 `shape_pipeline` 键），跳过中间纹理分配、MSAA resolve 与二次重采样；有内部重叠的多网格组和带滤镜/复杂混合层继续保留隔离。`spirit2159src` 240 帧动态播放实测：`filters/frame` 从 `6.0` 降至 **`2.5`**，`filter_pixels/frame` 从 `222,895` 降至 **`42,153`（-81.1%）**，`filter_misses/frame` 从 `2.1` 降至 **`0.3`**，累计离屏 `draw_calls` 从 `1,177` 降至 **`525`**，纹理池驻留降至 **`4.00 MiB`（71 张 / 24 桶，相对最初 46.45 MiB 降低 91.4%）**，`prepare_bind_groups` CPU 降至 **`9.8 µs`**。新增单测及 GPU 回归 `direct_fixed_blend_skips_intermediate_target_and_matches_isolated_blending`，验证单网格 `Add/Screen/Subtract` 零中间纹理且像素准确、重叠 `Add` 组保持隔离不发生内部过曝。全部 20 项单测、35 项 GPU 功能回归、release 基准与严格 Clippy 通过。

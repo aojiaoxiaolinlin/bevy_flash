@@ -15,7 +15,7 @@ use bevy_flash::{
     vab_player::{VabCompleteEvent, VabFrameEvent, VabPlayer},
 };
 
-const ASSET_PATH: &str = "Dra_LeShan3_battle.vab";
+const ASSET_PATH: &str = "spirit2159src.vab";
 
 /// Output-pixel scale for the instance.
 const SPIRIT_SCALE: f32 = 2.0;

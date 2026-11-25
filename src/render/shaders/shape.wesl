@@ -14,18 +14,31 @@ struct Out {
 fn to_srgb(v: vec3<f32>) -> vec3<f32> {
     return select(12.92*v, 1.055*pow(max(v,vec3(0.0)),vec3(1.0/2.4))-0.055, v > vec3(0.0031308));
 }
-@vertex fn vertex(@location(0) position: vec3<f32>, @location(1) color: vec4<f32>) -> Out {
+fn build_out(pos: vec2<f32>, color: vec4<f32>) -> Out {
     var out: Out;
-    let p = vec3(position.xy,1.0);
-    let pixel = vec2(dot(draw.row0.xyz,p),dot(draw.row1.xyz,p));
-    let clip = (pixel-draw.viewport.xy)/draw.viewport.zw;
-    out.position = vec4(clip.x*2.0-1.0,1.0-clip.y*2.0,0.0,1.0);
-    out.uv = vec2(dot(draw.uv0.xyz,p),dot(draw.uv1.xyz,p));
+    let p = vec3(pos, 1.0);
+    let pixel = vec2(dot(draw.row0.xyz, p), dot(draw.row1.xyz, p));
+    let clip = (pixel - draw.viewport.xy) / draw.viewport.zw;
+    out.position = vec4(clip.x * 2.0 - 1.0, 1.0 - clip.y * 2.0, 0.0, 1.0);
+    out.uv = vec2(dot(draw.uv0.xyz, p), dot(draw.uv1.xyz, p));
     out.color = color;
     return out;
 }
+@if(COMPACT_VERTEX)
+@vertex fn vertex(@location(0) position: vec2<f32>, @location(1) color: vec4<f32>) -> Out {
+    return build_out(position, color);
+}
+@if(!COMPACT_VERTEX)
+@vertex fn vertex(@location(0) position: vec3<f32>, @location(1) color: vec4<f32>) -> Out {
+    return build_out(position.xy, color);
+}
 @fragment fn fragment(in: Out) -> @location(0) vec4<f32> {
-    var color = vec4(to_srgb(in.color.rgb),in.color.a);
+    var color: vec4<f32>;
+    @if(COMPACT_VERTEX) {
+        color = in.color;
+    } @else {
+        color = vec4(to_srgb(in.color.rgb), in.color.a);
+    }
     if draw.material.w == 1.0 {
         // VATF bitmap bytes are premultiplied in encoded sRGB, sampled as Unorm.
         color = textureSample(tex,samp,in.uv);
@@ -43,7 +56,8 @@ fn to_srgb(v: vec3<f32>) -> vec3<f32> {
         else if draw.material.z == 2.0 { t = 1.0-abs(fract(t*0.5)*2.0-1.0); }
         else { t = fract(t); }
         // The compiler stores a 256-entry encoded-color ramp.
-        color = textureSample(tex,samp,vec2((t*255.0+0.5)/256.0,0.5));
+        let ramp_v = select(draw.uv0.w, 0.5, draw.uv0.w == 0.0);
+        color = textureSample(tex,samp,vec2((t*255.0+0.5)/256.0,ramp_v));
     }
     color = clamp(color*draw.multiply+draw.add,vec4(0.0),vec4(1.0));
     // Flash/Ruffle render their working surface as Rgba8Unorm and perform
